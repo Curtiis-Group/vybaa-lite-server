@@ -1,0 +1,39 @@
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:25:32"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:25:36"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:26:30"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:26:32"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:26:35"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:26:40"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:27:27"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:27:42"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:27:55"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:29:17"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:29:43"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:29:57"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:32:33"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:37:02"}
+{"error":{},"level":"error","message":"Google token verification error:","service":"vybaa-lite-server","timestamp":"2026-02-02 15:38:42"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:56:26","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:56:27","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:56:43","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:56:44","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:57:13","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:57:14","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Create goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:57:42","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Create goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:57:46","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:57:52","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:57:53","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:58:58","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:58:59","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:59:23","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Get current goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:59:24","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Create goal error:","service":"vybaa-lite-server","timestamp":"2026-02-03 23:59:52","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Create goal error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:00:00","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:14:20","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:14:21","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:20:13","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:20:14","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:20:23","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:20:24","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:21:00","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:21:00","userId":"cml5a0int0000153e9sxl0dei"}

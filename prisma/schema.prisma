@@ -1,0 +1,81 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id String @id @default(cuid())
+
+  email    String  @unique
+  password String? // Nullable for OAuth users
+
+  // User bio/profile fields
+  firstName   String? @map("first_name")
+  lastName    String? @map("last_name")
+  username    String? @unique
+  avatarUrl   String? @map("avatar_url")
+  currentMood String? @map("current_mood")
+  lifeGoal    String? @map("life_goal")
+
+  // Auth fields
+  isConfirmed Boolean @default(false) @map("is_confirmed")
+  isFirstTime Boolean @default(true) @map("is_first_time")
+
+  // OAuth fields
+  googleId String? @unique @map("google_id")
+
+  // Token management
+  refreshToken String? @map("refresh_token")
+
+  // OTP fields (for password reset and account confirmation)
+  otpCode      String?   @map("otp_code")
+  otpExpiresAt DateTime? @map("otp_expires_at")
+
+  // Relations
+  goals Goal[]
+
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+}
+
+model Goal {
+  id String @id @default(cuid())
+
+  goalText        String    @map("goal_text")
+  targetDays      Int       @map("target_days")
+  currentDay      Int       @default(0) @map("current_day")
+  lastCheckInDate DateTime? @map("last_check_in_date")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id])
+
+  checkIns CheckIn[]
+
+  startedAt DateTime @map("started_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+}
+
+model CheckIn {
+  id String @id @default(cuid())
+
+  goalId String @map("goal_id")
+  goal   Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  checkInDate DateTime @map("check_in_date")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([goalId, checkInDate])
+  @@map("check_ins")
+}
