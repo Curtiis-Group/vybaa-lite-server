@@ -103,6 +103,8 @@ export const updateProfileSchema = z.object({
   lastName: nameSchema.optional(),
   username: usernameSchema.optional(),
   profileImageId: z.string().optional(),
+  currentMood: z.string().max(200, "Current mood must be less than 200 characters").optional(),
+  lifeGoal: z.string().max(500, "Life goal must be less than 500 characters").optional(),
 });
 
 // Params validators

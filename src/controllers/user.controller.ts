@@ -7,7 +7,7 @@ import { formatUserResponse } from "./auth.controller";
 export async function updateProfile(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { firstName, lastName, username, profileImageId } = req.body;
+    const { firstName, lastName, username, profileImageId, currentMood, lifeGoal } = req.body;
 
     const updateData: any = {};
 
@@ -19,6 +19,8 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       // For now, we'll just store it as avatarUrl
       updateData.avatarUrl = profileImageId;
     }
+    if (currentMood !== undefined) updateData.currentMood = currentMood;
+    if (lifeGoal !== undefined) updateData.lifeGoal = lifeGoal;
 
     const user = await prisma.user.update({
       where: { id: userId },
