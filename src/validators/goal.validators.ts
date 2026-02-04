@@ -23,6 +23,21 @@ export const resetGoalSchema = z.object({
   goalId: z.string().min(1, "Goal ID is required").optional(),
 });
 
+// Goal update schema
+export const updateGoalSchema = z.object({
+  goalText: z
+    .string()
+    .min(1, "Goal text is required")
+    .max(500, "Goal text must be less than 500 characters")
+    .optional(),
+  targetDays: z
+    .number()
+    .int("Target days must be an integer")
+    .min(1, "Target days must be at least 1")
+    .max(365, "Target days cannot exceed 365")
+    .optional(),
+});
+
 // Goal ID param schema
 export const goalIdParamSchema = z.object({
   goalId: z.string().min(1, "Goal ID is required"),

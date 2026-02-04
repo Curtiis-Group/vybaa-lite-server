@@ -5,6 +5,7 @@ import {
   checkInSchema,
   createGoalSchema,
   resetGoalSchema,
+  updateGoalSchema,
 } from "../validators/goal.validators";
 import * as goalController from "../controllers/goal.controller";
 
@@ -21,6 +22,9 @@ router.get("/:goalId", authMiddleware, goalController.getGoalById);
 
 // POST /api/v1/goals - Create/start a goal
 router.post("/", authMiddleware, validate(createGoalSchema), goalController.createGoal);
+
+// PUT /api/v1/goals/:goalId - Update a goal
+router.put("/:goalId", authMiddleware, validate(updateGoalSchema), goalController.updateGoal);
 
 // POST /api/v1/goals/check-in - Mark "I showed up today"
 router.post("/check-in", authMiddleware, validate(checkInSchema), goalController.checkIn);

@@ -258,6 +258,51 @@ export async function createGoal(req: AuthRequest, res: Response) {
   }
 }
 
+export async function updateGoal(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { goalId } = req.params;
+    const { goalText, targetDays } = req.body;
+
+    // Verify goal exists and belongs to user
+    const existingGoal = await prisma.goal.findFirst({
+      where: {
+        id: goalId,
+        userId,
+      },
+    });
+
+    if (!existingGoal) {
+      return res.status(404).json({ msg: "Goal not found" });
+    }
+
+    // Build update data
+    const updateData: any = {};
+    if (goalText !== undefined) updateData.goalText = goalText;
+    if (targetDays !== undefined) updateData.targetDays = targetDays;
+
+    const updated = await prisma.goal.update({
+      where: { id: goalId },
+      data: updateData,
+    });
+
+    res.json({
+      msg: "Goal updated successfully",
+      data: {
+        id: updated.id,
+        goalText: updated.goalText,
+        targetDays: updated.targetDays,
+        currentDay: updated.currentDay,
+        lastCheckInDate: updated.lastCheckInDate?.toISOString() || null,
+        startedAt: updated.startedAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    logger.error("Update goal error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
 export async function checkIn(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
