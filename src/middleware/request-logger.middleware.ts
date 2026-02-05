@@ -1,43 +1,63 @@
-import { Request, Response, NextFunction } from "express";
-import logger from "../utils/logger.util";
+import chalk from "chalk";
+import { NextFunction, Request, Response } from "express";
 
 export function requestLogger(req: Request, res: Response, next: NextFunction) {
-  const startTime = Date.now();
+  const start = Date.now();
 
-  // Log request details
-  const requestInfo = {
-    method: req.method,
-    path: req.path,
-    url: req.originalUrl || req.url,
-    ip: req.ip || req.socket.remoteAddress,
-    userAgent: req.get("user-agent"),
-    contentType: req.get("content-type"),
-    contentLength: req.get("content-length"),
-    query: Object.keys(req.query).length > 0 ? req.query : undefined,
-    body: shouldLogBody(req.method, req.path) ? sanitizeBody(req.body) : undefined,
+  const methodColor = (method: string) => {
+    switch (method) {
+      case "GET":
+        return chalk.green(method);
+      case "POST":
+        return chalk.blue(method);
+      case "PUT":
+        return chalk.yellow(method);
+      case "PATCH":
+        return chalk.magenta(method);
+      case "DELETE":
+        return chalk.red(method);
+      default:
+        return chalk.white(method);
+    }
   };
 
-  logger.info("Incoming request", requestInfo);
+  const statusColor = (code: number) => {
+    if (code >= 500) return chalk.red(code);
+    if (code >= 400) return chalk.yellow(code);
+    if (code >= 300) return chalk.cyan(code);
+    return chalk.green(code);
+  };
 
-  // Capture response details
+  const prettyQuery =
+    Object.keys(req.query).length > 0
+      ? chalk.gray(` query=${JSON.stringify(req.query)}`)
+      : "";
+
+  const body =
+    shouldLogBody(req.method, req.path) && req.body
+      ? chalk.gray(` body=${JSON.stringify(sanitizeBody(req.body))}`)
+      : "";
+
+  console.log(
+    `${chalk.dim("→")} ${methodColor(req.method)} ${chalk.white(
+      req.originalUrl
+    )}${prettyQuery}${body}`
+  );
+
   const originalSend = res.send;
-  res.send = function (body) {
-    const duration = Date.now() - startTime;
-    const responseInfo = {
-      method: req.method,
-      path: req.path,
-      statusCode: res.statusCode,
-      duration: `${duration}ms`,
-      ip: req.ip || req.socket.remoteAddress,
-    };
 
-    if (res.statusCode >= 400) {
-      logger.warn("Request completed with error", responseInfo);
-    } else {
-      logger.info("Request completed", responseInfo);
-    }
+  res.send = function (data) {
+    const duration = Date.now() - start;
 
-    return originalSend.call(this, body);
+    console.log(
+      `${chalk.dim("←")} ${methodColor(req.method)} ${chalk.white(
+        req.originalUrl
+      )} ${statusColor(res.statusCode)} ${chalk.gray(`${duration}ms`)} ${chalk.dim(
+        req.ip
+      )}`
+    );
+
+    return originalSend.call(this, data);
   };
 
   next();

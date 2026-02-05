@@ -17,7 +17,7 @@ function getDateString(date: Date, timezone?: string): string {
     return formatter.format(date);
   }
   // Default to UTC if no timezone provided
-  return date.toISOString().split("T")[0];
+  return date.toISOString().split("T")[0] as string;
 }
 
 // Helper function to check if a date is more than 1 day ago
@@ -66,14 +66,55 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
   return false;
 }
 
+// Helper function to check if user can check in today
+async function canCheckInToday(goalId: string, timezone?: string): Promise<boolean> {
+  const today = new Date();
+  const todayStr = getDateString(today, timezone);
+
+  // Get all check-ins for this goal
+  const allCheckIns = await prisma.checkIn.findMany({
+    where: { goalId },
+  });
+
+  // Check if there's a check-in for today
+  const todayCheckIn = allCheckIns.find((checkIn) => {
+    const checkInDateStr = getDateString(checkIn.checkInDate, timezone);
+    return checkInDateStr === todayStr;
+  });
+
+  return !todayCheckIn; // Can check in if no check-in exists for today
+}
+
 export async function getAllGoals(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const timezone = req.headers["x-user-tz"] as string | undefined;
 
+    // Parse pagination parameters
+    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
+    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const page = parseInt(String(pageParam || '1')) || 1;
+    const limit = parseInt(String(limitParam || '10')) || 10;
+    const skip = (page - 1) * limit;
+
+    // Validate pagination parameters
+    if (page < 1 || limit < 1 || limit > 100) {
+      return res.status(400).json({ 
+        msg: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-100" 
+      });
+    }
+
+    // Get total count
+    const totalCount = await prisma.goal.count({
+      where: { userId },
+    });
+
+    // Get paginated goals
     const goals = await prisma.goal.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
       include: {
         checkIns: {
           orderBy: { checkInDate: "desc" },
@@ -95,17 +136,38 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
       })
     );
 
+    // Add canCheckIn property to each goal
+    const goalsWithCheckInStatus = await Promise.all(
+      goalsWithReset.map(async (goal) => {
+        const canCheckIn = await canCheckInToday(goal!.id, timezone);
+        return {
+          id: goal!.id,
+          goalText: goal!.goalText,
+          targetDays: goal!.targetDays,
+          currentDay: goal!.currentDay,
+          lastCheckInDate: goal!.lastCheckInDate?.toISOString() || null,
+          startedAt: goal!.startedAt.toISOString(),
+          createdAt: goal!.createdAt.toISOString(),
+          canCheckIn,
+        };
+      })
+    );
+
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
     res.json({
       msg: "Goals retrieved successfully",
-      data: goalsWithReset.map((goal) => ({
-        id: goal!.id,
-        goalText: goal!.goalText,
-        targetDays: goal!.targetDays,
-        currentDay: goal!.currentDay,
-        lastCheckInDate: goal!.lastCheckInDate?.toISOString() || null,
-        startedAt: goal!.startedAt.toISOString(),
-        createdAt: goal!.createdAt.toISOString(),
-      })),
+      data: goalsWithCheckInStatus,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasNextPage,
+        hasPrevPage,
+      },
     });
   } catch (error) {
     logger.error("Get goals error:", { error, userId: req.userId });
@@ -151,6 +213,8 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
         })
       : goal;
 
+    const canCheckIn = await canCheckInToday(updatedGoal!.id, timezone);
+
     res.json({
       msg: wasReset ? "Goal reset due to missed day" : "Goal retrieved successfully",
       data: {
@@ -161,6 +225,7 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
         lastCheckInDate: updatedGoal!.lastCheckInDate?.toISOString() || null,
         startedAt: updatedGoal!.startedAt.toISOString(),
         wasReset,
+        canCheckIn,
       },
     });
   } catch (error) {
@@ -172,7 +237,7 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
 export async function getGoalById(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { goalId } = req.params;
+    const goalId = String(req.params.goalId);
     const timezone = req.headers["x-user-tz"] as string | undefined;
 
     const goal = await prisma.goal.findFirst({
@@ -209,6 +274,8 @@ export async function getGoalById(req: AuthRequest, res: Response) {
         })
       : goal;
 
+    const canCheckIn = await canCheckInToday(updatedGoal!.id, timezone);
+
     res.json({
       msg: wasReset ? "Goal reset due to missed day" : "Goal retrieved successfully",
       data: {
@@ -219,6 +286,7 @@ export async function getGoalById(req: AuthRequest, res: Response) {
         lastCheckInDate: updatedGoal!.lastCheckInDate?.toISOString() || null,
         startedAt: updatedGoal!.startedAt.toISOString(),
         wasReset,
+        canCheckIn,
       },
     });
   } catch (error) {
@@ -250,6 +318,8 @@ export async function createGoal(req: AuthRequest, res: Response) {
         targetDays: goal.targetDays,
         currentDay: goal.currentDay,
         startedAt: goal.startedAt.toISOString(),
+        lastCheckInDate: null,
+        canCheckIn: true, // New goals can always be checked in
       },
     });
   } catch (error) {
@@ -261,7 +331,7 @@ export async function createGoal(req: AuthRequest, res: Response) {
 export async function updateGoal(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { goalId } = req.params;
+    const goalId = String(req.params.goalId);
     const { goalText, targetDays } = req.body;
 
     // Verify goal exists and belongs to user
@@ -286,6 +356,9 @@ export async function updateGoal(req: AuthRequest, res: Response) {
       data: updateData,
     });
 
+    const timezone = req.headers["x-user-tz"] as string | undefined;
+    const canCheckIn = await canCheckInToday(updated.id, timezone);
+
     res.json({
       msg: "Goal updated successfully",
       data: {
@@ -295,6 +368,7 @@ export async function updateGoal(req: AuthRequest, res: Response) {
         currentDay: updated.currentDay,
         lastCheckInDate: updated.lastCheckInDate?.toISOString() || null,
         startedAt: updated.startedAt.toISOString(),
+        canCheckIn,
       },
     });
   } catch (error) {
@@ -385,6 +459,8 @@ export async function checkIn(req: AuthRequest, res: Response) {
         targetDays: updated.targetDays,
         currentDay: updated.currentDay,
         lastCheckInDate: updated.lastCheckInDate?.toISOString() || null,
+        startedAt: updated.startedAt.toISOString(),
+        canCheckIn: false, // After checking in, can't check in again today
       },
     });
   } catch (error) {
@@ -439,6 +515,9 @@ export async function resetGoal(req: AuthRequest, res: Response) {
         goalText: updated.goalText,
         targetDays: updated.targetDays,
         currentDay: updated.currentDay,
+        lastCheckInDate: null,
+        startedAt: updated.startedAt.toISOString(),
+        canCheckIn: true, // After reset, can check in
       },
     });
   } catch (error) {
@@ -450,7 +529,7 @@ export async function resetGoal(req: AuthRequest, res: Response) {
 export async function deleteGoal(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { goalId } = req.params;
+    const goalId = String(req.params.goalId);
 
     const goal = await prisma.goal.findFirst({
       where: {
