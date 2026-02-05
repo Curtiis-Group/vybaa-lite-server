@@ -90,5 +90,14 @@ function sanitizeBody(body: any): any {
     }
   }
 
+  // Remove base64 image data from logs
+  if (sanitized.image && typeof sanitized.image === 'string' && sanitized.image.startsWith('data:image/')) {
+    sanitized.image = '[base64 image]';
+  }
+  
+  if (sanitized.profileImageId && typeof sanitized.profileImageId === 'string' && sanitized.profileImageId.startsWith('data:image/')) {
+    sanitized.profileImageId = '[base64 image]';
+  }
+
   return sanitized;
 }

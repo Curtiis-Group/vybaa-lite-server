@@ -11,7 +11,9 @@ dotenv.config();
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Increase payload size limit for profile image uploads (base64 encoded)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Request logging middleware (should be before routes)
 app.use(requestLogger);

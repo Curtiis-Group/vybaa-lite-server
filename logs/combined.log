@@ -1291,3 +1291,21 @@
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 02:41:11"}
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 04:31:20"}
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 04:34:50"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:11:03"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:11:32"}
+{"level":"warn","message":"Cloudinary credentials not configured. Image uploads will fail.","service":"vybaa-lite-server","timestamp":"2026-02-05 05:15:11"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:15:11"}
+{"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:15:53","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:02","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"warn","message":"Cloudinary credentials not configured. Image uploads will fail.","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:32"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:32"}
+{"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:36","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"warn","message":"Cloudinary credentials not configured. Image uploads will fail.","service":"vybaa-lite-server","timestamp":"2026-02-05 05:19:05"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:19:05"}
+{"level":"warn","message":"Cloudinary credentials not configured. Image uploads will fail.","service":"vybaa-lite-server","timestamp":"2026-02-05 05:19:41"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:19:41"}
+{"level":"warn","message":"Cloudinary credentials not configured. Image uploads will fail.","service":"vybaa-lite-server","timestamp":"2026-02-05 05:19:54"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:19:54"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:20:36"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:24:06"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:26:03"}

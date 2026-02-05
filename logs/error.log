@@ -37,3 +37,6 @@
 {"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:20:24","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:21:00","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Session error:","service":"vybaa-lite-server","timestamp":"2026-02-04 00:21:00","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:15:53","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:02","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:36","userId":"cml5a0int0000153e9sxl0dei"}
