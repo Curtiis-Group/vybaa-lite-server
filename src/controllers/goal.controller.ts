@@ -93,9 +93,15 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
     // Parse pagination parameters
     const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
     const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const canCheckInParam = Array.isArray(req.query.canCheckIn) ? req.query.canCheckIn[0] : req.query.canCheckIn;
     const page = parseInt(String(pageParam || '1')) || 1;
     const limit = parseInt(String(limitParam || '10')) || 10;
     const skip = (page - 1) * limit;
+    
+    // Parse canCheckIn filter (optional boolean filter)
+    const canCheckInFilter = canCheckInParam !== undefined 
+      ? canCheckInParam === 'true' || canCheckInParam === '1'
+      : undefined;
 
     // Validate pagination parameters
     if (page < 1 || limit < 1 || limit > 100) {
@@ -153,17 +159,24 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
       })
     );
 
-    const totalPages = Math.ceil(totalCount / limit);
+    // Apply canCheckIn filter if specified
+    const filteredGoals = canCheckInFilter !== undefined
+      ? goalsWithCheckInStatus.filter(goal => goal.canCheckIn === canCheckInFilter)
+      : goalsWithCheckInStatus;
+
+    // Recalculate pagination based on filtered results
+    const filteredTotalCount = canCheckInFilter !== undefined ? filteredGoals.length : totalCount;
+    const totalPages = Math.ceil(filteredTotalCount / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
 
     res.json({
       msg: "Goals retrieved successfully",
-      data: goalsWithCheckInStatus,
+      data: filteredGoals,
       pagination: {
         page,
         limit,
-        totalCount,
+        totalCount: filteredTotalCount,
         totalPages,
         hasNextPage,
         hasPrevPage,
