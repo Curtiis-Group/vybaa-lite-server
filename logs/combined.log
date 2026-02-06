@@ -1309,3 +1309,23 @@
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:20:36"}
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:24:06"}
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 05:26:03"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 09:39:52","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 09:40:16","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 10:13:00","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 10:13:13","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-05 13:48:09"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:46:16"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:46:36"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:46:36"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:46:51"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:46:51"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:48:56"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:48:56"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:48:57"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:48:58"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:48:59"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:48:59"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:49:15"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 00:49:15"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 17:31:17"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-06 18:16:57"}

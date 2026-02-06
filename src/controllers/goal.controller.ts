@@ -39,6 +39,11 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
   if (!goal.lastCheckInDate) {
     // If never checked in and started more than 1 day ago, reset
     if (isMoreThanOneDayAgo(goal.startedAt, timezone)) {
+      // Delete all check-ins when resetting
+      await prisma.checkIn.deleteMany({
+        where: { goalId: goal.id },
+      });
+      
       await prisma.goal.update({
         where: { id: goal.id },
         data: {
@@ -53,6 +58,11 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
 
   // If last check-in was more than 1 day ago, reset
   if (isMoreThanOneDayAgo(goal.lastCheckInDate, timezone)) {
+    // Delete all check-ins when resetting
+    await prisma.checkIn.deleteMany({
+      where: { goalId: goal.id },
+    });
+    
     await prisma.goal.update({
       where: { id: goal.id },
       data: {
@@ -418,10 +428,22 @@ export async function checkIn(req: AuthRequest, res: Response) {
       return res.status(404).json({ msg: "Goal not found" });
     }
 
-    // Check if already checked in today using date string comparison
-    // Get all check-ins for this goal and compare by date string
+    // Check if goal should be reset first (MOVED BEFORE check-in validation)
+    const wasReset = await checkAndResetGoal(goal, timezone);
+    
+    // Fetch fresh goal data after potential reset
+    const freshGoal = await prisma.goal.findUnique({
+      where: { id: goal.id },
+    });
+
+    if (!freshGoal) {
+      return res.status(404).json({ msg: "Goal not found" });
+    }
+
+    // Now check if already checked in today using date string comparison
+    // Get check-ins AFTER reset (so old check-ins are gone)
     const allCheckIns = await prisma.checkIn.findMany({
-      where: { goalId: goal.id },
+      where: { goalId: freshGoal.id },
     });
 
     const todayCheckIn = allCheckIns.find((checkIn) => {
@@ -433,31 +455,19 @@ export async function checkIn(req: AuthRequest, res: Response) {
       return res.status(400).json({ msg: "Already checked in today" });
     }
 
-    // Check if goal should be reset first
-    await checkAndResetGoal(goal, timezone);
-
-    // Fetch updated goal
-    const updatedGoal = await prisma.goal.findUnique({
-      where: { id: goal.id },
-    });
-
-    if (!updatedGoal) {
-      return res.status(404).json({ msg: "Goal not found" });
-    }
-
     // Create check-in record
     const checkInDate = new Date(todayStr + "T12:00:00"); // Use noon to avoid timezone issues
     await prisma.checkIn.create({
       data: {
-        goalId: updatedGoal.id,
+        goalId: freshGoal.id,
         checkInDate,
       },
     });
 
     // Increment current day and update last check-in date
-    const newCurrentDay = updatedGoal.currentDay + 1;
+    const newCurrentDay = freshGoal.currentDay + 1;
     const updated = await prisma.goal.update({
-      where: { id: updatedGoal.id },
+      where: { id: freshGoal.id },
       data: {
         currentDay: newCurrentDay,
         lastCheckInDate: checkInDate,

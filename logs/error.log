@@ -40,3 +40,7 @@
 {"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:15:53","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:02","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 05:17:36","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 09:39:52","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 09:40:16","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 10:13:00","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 10:13:13","userId":"cml5a0int0000153e9sxl0dei"}
