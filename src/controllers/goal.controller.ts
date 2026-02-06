@@ -164,6 +164,7 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
           lastCheckInDate: goal!.lastCheckInDate?.toISOString() || null,
           startedAt: goal!.startedAt.toISOString(),
           createdAt: goal!.createdAt.toISOString(),
+          reminderTime: goal!.reminderTime,
           canCheckIn,
         };
       })
@@ -308,6 +309,7 @@ export async function getGoalById(req: AuthRequest, res: Response) {
         currentDay: updatedGoal!.currentDay,
         lastCheckInDate: updatedGoal!.lastCheckInDate?.toISOString() || null,
         startedAt: updatedGoal!.startedAt.toISOString(),
+        reminderTime: updatedGoal!.reminderTime,
         wasReset,
         canCheckIn,
       },
@@ -321,7 +323,7 @@ export async function getGoalById(req: AuthRequest, res: Response) {
 export async function createGoal(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { goalText, targetDays } = req.body;
+    const { goalText, targetDays, reminderTime } = req.body;
 
     const goal = await prisma.goal.create({
       data: {
@@ -330,6 +332,7 @@ export async function createGoal(req: AuthRequest, res: Response) {
         currentDay: 0,
         userId,
         startedAt: new Date(),
+        reminderTime: reminderTime || null,
       },
     });
 
@@ -342,6 +345,7 @@ export async function createGoal(req: AuthRequest, res: Response) {
         currentDay: goal.currentDay,
         startedAt: goal.startedAt.toISOString(),
         lastCheckInDate: null,
+        reminderTime: goal.reminderTime,
         canCheckIn: true, // New goals can always be checked in
       },
     });
@@ -355,7 +359,7 @@ export async function updateGoal(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const goalId = String(req.params.goalId);
-    const { goalText, targetDays } = req.body;
+    const { goalText, targetDays, reminderTime } = req.body;
 
     // Verify goal exists and belongs to user
     const existingGoal = await prisma.goal.findFirst({
@@ -373,6 +377,7 @@ export async function updateGoal(req: AuthRequest, res: Response) {
     const updateData: any = {};
     if (goalText !== undefined) updateData.goalText = goalText;
     if (targetDays !== undefined) updateData.targetDays = targetDays;
+    if (reminderTime !== undefined) updateData.reminderTime = reminderTime;
 
     const updated = await prisma.goal.update({
       where: { id: goalId },
@@ -391,6 +396,7 @@ export async function updateGoal(req: AuthRequest, res: Response) {
         currentDay: updated.currentDay,
         lastCheckInDate: updated.lastCheckInDate?.toISOString() || null,
         startedAt: updated.startedAt.toISOString(),
+        reminderTime: updated.reminderTime,
         canCheckIn,
       },
     });
@@ -483,6 +489,7 @@ export async function checkIn(req: AuthRequest, res: Response) {
         currentDay: updated.currentDay,
         lastCheckInDate: updated.lastCheckInDate?.toISOString() || null,
         startedAt: updated.startedAt.toISOString(),
+        reminderTime: updated.reminderTime,
         canCheckIn: false, // After checking in, can't check in again today
       },
     });
@@ -540,6 +547,7 @@ export async function resetGoal(req: AuthRequest, res: Response) {
         currentDay: updated.currentDay,
         lastCheckInDate: null,
         startedAt: updated.startedAt.toISOString(),
+        reminderTime: updated.reminderTime,
         canCheckIn: true, // After reset, can check in
       },
     });

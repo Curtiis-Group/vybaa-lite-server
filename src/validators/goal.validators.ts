@@ -11,6 +11,10 @@ export const createGoalSchema = z.object({
     .int("Target days must be an integer")
     .min(1, "Target days must be at least 1")
     .max(365, "Target days cannot exceed 365"),
+  reminderTime: z
+    .string()
+    .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
+    .optional(),
 });
 
 // Check-in schema (goalId optional for backward compatibility)
@@ -35,6 +39,11 @@ export const updateGoalSchema = z.object({
     .int("Target days must be an integer")
     .min(1, "Target days must be at least 1")
     .max(365, "Target days cannot exceed 365")
+    .optional(),
+  reminderTime: z
+    .string()
+    .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
+    .nullable()
     .optional(),
 });
 

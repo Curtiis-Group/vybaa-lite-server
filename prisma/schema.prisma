@@ -55,6 +55,7 @@ model Goal {
   targetDays      Int       @map("target_days")
   currentDay      Int       @default(0) @map("current_day")
   lastCheckInDate DateTime? @map("last_check_in_date")
+  reminderTime    String?   @map("reminder_time") // Format: "HH:MM" (24-hour format)
 
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id])

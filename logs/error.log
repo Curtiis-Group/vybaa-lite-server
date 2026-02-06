@@ -44,3 +44,5 @@
 {"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 09:40:16","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 10:13:00","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{"error":{"http_code":499,"message":"Request Timeout","name":"TimeoutError"}},"level":"error","message":"Image upload error:","service":"vybaa-lite-server","timestamp":"2026-02-05 10:13:13","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Create goal error:","service":"vybaa-lite-server","timestamp":"2026-02-06 18:27:02","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Create goal error:","service":"vybaa-lite-server","timestamp":"2026-02-06 18:27:04","userId":"cml5a0int0000153e9sxl0dei"}
