@@ -80,7 +80,7 @@ class AchievementService {
         userId,
         goalId,
         type: "system",
-        title: `🎖️ Achievement Unlocked: ${badgeDef.title}`,
+        title: `Achievement Unlocked: ${badgeDef.title}`,
         message: badgeDef.description,
         data: {
           achievementId: achievement.id,

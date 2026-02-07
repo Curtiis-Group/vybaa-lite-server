@@ -304,7 +304,7 @@ class NotificationService {
       userId,
       goalId,
       type: "goal_completed",
-      title: "🎉 Goal Completed!",
+      title: "Goal Completed!",
       message: `Congratulations! You've completed your goal: ${goalText}`,
       data: { goalId, goalText },
     });
@@ -318,7 +318,7 @@ class NotificationService {
       userId,
       goalId,
       type: "streak_milestone",
-      title: `🔥 ${days}-Day Streak!`,
+      title: `${days}-Day Streak!`,
       message: `Amazing! You're on a ${days}-day streak for: ${goalText}`,
       data: { goalId, goalText, days },
     });
@@ -332,7 +332,7 @@ class NotificationService {
       userId,
       goalId,
       type: "system",
-      title: "⚠️ Streak Reset",
+      title: "Streak Reset",
       message: `Your ${previousDays}-day streak for "${goalText}" was reset due to a missed check-in.`,
       data: { goalId, goalText, previousDays, resetReason: "missed_checkin" },
     });
