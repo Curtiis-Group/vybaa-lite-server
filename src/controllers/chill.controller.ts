@@ -61,8 +61,9 @@ export async function completeChillSession(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const sessionId = String(req.params.sessionId);
+    const { postSessionMood } = req.body;
 
-    await chillService.completeSession(sessionId, userId);
+    await chillService.completeSession(sessionId, userId, postSessionMood);
 
     res.json({
       msg: "Chill session completed successfully",
@@ -109,6 +110,49 @@ export async function getChillStats(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     logger.error("Get chill stats error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/**
+ * Get AI-generated summary only (cached for 24 hours)
+ */
+export async function getEmotionSummary(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+
+    const result = await chillService.getEmotionSummary(userId);
+
+    res.json({
+      msg: "Emotion summary retrieved successfully",
+      data: result,
+    });
+  } catch (error) {
+    logger.error("Get emotion summary error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/**
+ * Get paginated sessions
+ */
+export async function getPaginatedSessions(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
+    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    
+    const page = parseInt(String(pageParam || "1")) || 1;
+    const limit = parseInt(String(limitParam || "10")) || 10;
+
+    const result = await chillService.getPaginatedSessions(userId, page, limit);
+
+    res.json({
+      msg: "Sessions retrieved successfully",
+      data: result,
+    });
+  } catch (error) {
+    logger.error("Get paginated sessions error:", { error, userId: req.userId });
     res.status(500).json({ msg: "Internal server error" });
   }
 }

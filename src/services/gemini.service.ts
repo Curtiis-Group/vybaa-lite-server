@@ -153,6 +153,71 @@ Return ONLY valid JSON in this exact format:
       ],
     };
   }
+
+  /**
+   * Generate AI summary of user's emotional journey
+   */
+  async generateEmotionSummary(
+    sessions: Array<{ emotion: string; postMood: string | null; date: Date }>
+  ): Promise<string> {
+    try {
+      if (sessions.length === 0) {
+        return "You haven't completed any chill sessions yet. Start your first session to see insights about your emotional journey.";
+      }
+
+      const genAI = this.getClient();
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+      // Format sessions for prompt
+      const sessionsText = sessions
+        .slice(0, 20) // Limit to last 20 for context
+        .map((s, i) => {
+          const date = new Date(s.date).toLocaleDateString();
+          return `${i + 1}. Date: ${date}\n   Before: "${s.emotion}"\n   After: ${s.postMood || "Not recorded"}`;
+        })
+        .join("\n\n");
+
+      const prompt = `You are a compassionate therapist analyzing a user's emotional journey through their chill/breathing sessions.
+
+Here are their recent sessions:
+${sessionsText}
+
+Please provide a very short, concise, and warm summary (2-4 sentences maximum) that:
+1. Briefly identifies the main emotional pattern or trend
+2. Highlights one key positive observation
+3. Offers gentle encouragement
+
+Keep it brief, supportive, and non-judgmental. Write in second person ("You have been...").
+
+Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concise sentences.`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text().trim();
+
+      logger.info("Emotion summary generated successfully");
+      return text;
+    } catch (error) {
+      logger.error("Error generating emotion summary:", error);
+      return this.getFallbackSummary(sessions);
+    }
+  }
+
+  /**
+   * Fallback summary if AI fails
+   */
+  private getFallbackSummary(
+    sessions: Array<{ emotion: string; postMood: string | null; date: Date }>
+  ): string {
+    const completed = sessions.filter((s) => s.postMood).length;
+    const total = sessions.length;
+
+    if (total === 0) {
+      return "You haven't completed any chill sessions yet. Start your first session to see insights about your emotional journey.";
+    }
+
+    return `You've completed ${completed} session${completed !== 1 ? "s" : ""}. Keep practicing breathing exercises to regulate your emotions.`;
+  }
 }
 
 export const geminiService = new GeminiService();

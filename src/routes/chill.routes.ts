@@ -22,4 +22,10 @@ router.get("/sessions", chillController.getChillSessions);
 // Get chill stats
 router.get("/stats", chillController.getChillStats);
 
+// Get emotion summary only
+router.get("/summary", chillController.getEmotionSummary);
+
+// Get paginated sessions
+router.get("/sessions/paginated", chillController.getPaginatedSessions);
+
 export default router;

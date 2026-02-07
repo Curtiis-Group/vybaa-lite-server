@@ -48,6 +48,10 @@ model User {
   achievements  Achievement[]
   chillSessions ChillSession[]
 
+  // Summary caching
+  lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
+  emotionSummary String? @map("emotion_summary") // Cached AI-generated summary
+
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
 }
@@ -137,13 +141,15 @@ model ChillSession {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  emotion     String // User's emotional input
-  duration    Int    // Session duration in minutes
-  completed   Boolean   @default(false)
-  completedAt DateTime? @map("completed_at")
+  emotion        String  // User's emotional input
+  duration       Int     // Session duration in minutes
+  completed      Boolean @default(false)
+  completedAt    DateTime? @map("completed_at")
+  postSessionMood String? @map("post_session_mood") // How user felt after session
 
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([userId])
+  @@index([completed, completedAt])
   @@map("chill_sessions")
 }
