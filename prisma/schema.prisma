@@ -46,6 +46,7 @@ model User {
   goals         Goal[]
   notifications Notification[]
   achievements  Achievement[]
+  chillSessions ChillSession[]
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
@@ -128,4 +129,21 @@ model Achievement {
   @@unique([userId, type, milestone])
   @@index([userId])
   @@map("achievements")
+}
+
+model ChillSession {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  emotion     String // User's emotional input
+  duration    Int    // Session duration in minutes
+  completed   Boolean   @default(false)
+  completedAt DateTime? @map("completed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("chill_sessions")
 }
