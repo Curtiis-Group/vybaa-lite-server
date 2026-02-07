@@ -669,3 +669,68 @@ export async function deleteGoal(req: AuthRequest, res: Response) {
     res.status(500).json({ msg: "Internal server error" });
   }
 }
+
+export async function bulkDeleteGoals(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { goalIds } = req.body;
+
+    if (!Array.isArray(goalIds) || goalIds.length === 0) {
+      return res.status(400).json({ msg: "goalIds array is required" });
+    }
+
+    if (goalIds.length > 50) {
+      return res.status(400).json({ msg: "Cannot delete more than 50 goals at once" });
+    }
+
+    // Find all goals that belong to the user
+    const goalsToDelete = await prisma.goal.findMany({
+      where: {
+        id: { in: goalIds },
+        userId, // Ensure user owns these goals
+      },
+      select: { id: true },
+    });
+
+    const foundIds = goalsToDelete.map((g) => g.id);
+    const notFoundIds = goalIds.filter((id: string) => !foundIds.includes(id));
+
+    if (foundIds.length === 0) {
+      return res.status(404).json({ 
+        msg: "None of the specified goals were found or belong to you",
+        data: {
+          deleted: 0,
+          notFound: notFoundIds.length,
+        }
+      });
+    }
+
+    // Delete check-ins for all goals (cascade should handle, but being explicit)
+    await prisma.checkIn.deleteMany({
+      where: { goalId: { in: foundIds } },
+    });
+
+    // Delete all goals
+    const deleteResult = await prisma.goal.deleteMany({
+      where: { id: { in: foundIds } },
+    });
+
+    const summary = {
+      deleted: deleteResult.count,
+      notFound: notFoundIds.length,
+      total: goalIds.length,
+    };
+
+    logger.info("Bulk delete goals:", { userId, summary });
+
+    res.json({
+      msg: `Successfully deleted ${summary.deleted} goal(s)${
+        summary.notFound > 0 ? `, ${summary.notFound} not found` : ""
+      }`,
+      data: summary,
+    });
+  } catch (error) {
+    logger.error("Bulk delete goals error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}

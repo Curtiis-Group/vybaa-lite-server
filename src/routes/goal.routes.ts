@@ -32,6 +32,9 @@ router.post("/check-in", authMiddleware, validate(checkInSchema), goalController
 // POST /api/v1/goals/reset - Reset to Day 0
 router.post("/reset", authMiddleware, validate(resetGoalSchema), goalController.resetGoal);
 
+// POST /api/v1/goals/bulk-delete - Bulk delete goals
+router.post("/bulk-delete", authMiddleware, goalController.bulkDeleteGoals);
+
 // DELETE /api/v1/goals/:goalId - Delete a goal
 router.delete("/:goalId", authMiddleware, goalController.deleteGoal);
 
