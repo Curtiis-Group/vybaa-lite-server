@@ -5,6 +5,7 @@ import routes from "./routes";
 import config from "./utils/config.util";
 import logger from "./utils/logger.util";
 import { requestLogger } from "./middleware/request-logger.middleware";
+import { schedulerService } from "./services/scheduler.service";
 
 dotenv.config();
 
@@ -22,4 +23,20 @@ app.use("/api", routes);
 
 app.listen(config.PORT, () => {
     logger.info(`🚀 Server running on port ${config.PORT}`);
+    
+    // Start notification scheduler
+    schedulerService.start();
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    logger.info('SIGTERM signal received: closing HTTP server');
+    schedulerService.stop();
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    logger.info('SIGINT signal received: closing HTTP server');
+    schedulerService.stop();
+    process.exit(0);
 });

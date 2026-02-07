@@ -36,13 +36,15 @@ model User {
 
   // Token management
   refreshToken String? @map("refresh_token")
+  fcmTokens    String[] @default([]) @map("fcm_tokens") // Array of FCM device tokens
 
   // OTP fields (for password reset and account confirmation)
   otpCode      String?   @map("otp_code")
   otpExpiresAt DateTime? @map("otp_expires_at")
 
   // Relations
-  goals Goal[]
+  goals         Goal[]
+  notifications Notification[]
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
@@ -79,4 +81,29 @@ model CheckIn {
 
   @@unique([goalId, checkInDate])
   @@map("check_ins")
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  goalId String? @map("goal_id")
+
+  type    String // "goal_reminder", "goal_completed", "streak_milestone", "system"
+  title   String
+  message String
+  data    String? // JSON string for additional data
+
+  isRead Boolean @default(false) @map("is_read")
+
+  scheduledFor DateTime? @map("scheduled_for") // When the notification should be sent
+  sentAt       DateTime? @map("sent_at") // When the notification was actually sent
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, isRead])
+  @@index([scheduledFor])
+  @@map("notifications")
 }

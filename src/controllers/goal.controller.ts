@@ -1,6 +1,8 @@
 import { Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { notificationService } from "../services/notification.service";
+import { pushNotificationService } from "../services/push-notification.service";
 import logger from "../utils/logger.util";
 
 // Helper function to get date string in user's timezone (YYYY-MM-DD)
@@ -25,12 +27,12 @@ function isMoreThanOneDayAgo(date: Date, timezone?: string): boolean {
   const now = new Date();
   const dateStr = getDateString(date, timezone);
   const nowStr = getDateString(now, timezone);
-  
+
   // Parse dates and compare
   const dateObj = new Date(dateStr + "T00:00:00");
   const nowObj = new Date(nowStr + "T00:00:00");
   const diffDays = Math.floor((nowObj.getTime() - dateObj.getTime()) / (1000 * 60 * 60 * 24));
-  
+
   return diffDays > 1;
 }
 
@@ -43,7 +45,7 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
       await prisma.checkIn.deleteMany({
         where: { goalId: goal.id },
       });
-      
+
       await prisma.goal.update({
         where: { id: goal.id },
         data: {
@@ -62,7 +64,7 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
     await prisma.checkIn.deleteMany({
       where: { goalId: goal.id },
     });
-    
+
     await prisma.goal.update({
       where: { id: goal.id },
       data: {
@@ -107,16 +109,33 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
     const page = parseInt(String(pageParam || '1')) || 1;
     const limit = parseInt(String(limitParam || '10')) || 10;
     const skip = (page - 1) * limit;
-    
+
+    if (false) {
+      const userFCMS = await prisma.user.findUnique({
+        where: {
+          id: userId
+        }
+      })
+      if (userFCMS) {
+        await pushNotificationService.sendFCMMulticast(
+          userFCMS.fcmTokens,
+          "notification.title",
+          "notification.message",
+          {},
+          false
+        );
+      }
+    }
+
     // Parse canCheckIn filter (optional boolean filter)
-    const canCheckInFilter = canCheckInParam !== undefined 
+    const canCheckInFilter = canCheckInParam !== undefined
       ? canCheckInParam === 'true' || canCheckInParam === '1'
       : undefined;
 
     // Validate pagination parameters
     if (page < 1 || limit < 1 || limit > 100) {
-      return res.status(400).json({ 
-        msg: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-100" 
+      return res.status(400).json({
+        msg: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-100"
       });
     }
 
@@ -228,13 +247,13 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
     // Fetch updated goal if it was reset
     const updatedGoal = wasReset
       ? await prisma.goal.findUnique({
-          where: { id: goal.id },
-          include: {
-            checkIns: {
-              orderBy: { checkInDate: "desc" },
-            },
+        where: { id: goal.id },
+        include: {
+          checkIns: {
+            orderBy: { checkInDate: "desc" },
           },
-        })
+        },
+      })
       : goal;
 
     const canCheckIn = await canCheckInToday(updatedGoal!.id, timezone);
@@ -289,13 +308,13 @@ export async function getGoalById(req: AuthRequest, res: Response) {
     // Fetch updated goal if it was reset
     const updatedGoal = wasReset
       ? await prisma.goal.findUnique({
-          where: { id: goal.id },
-          include: {
-            checkIns: {
-              orderBy: { checkInDate: "desc" },
-            },
+        where: { id: goal.id },
+        include: {
+          checkIns: {
+            orderBy: { checkInDate: "desc" },
           },
-        })
+        },
+      })
       : goal;
 
     const canCheckIn = await canCheckInToday(updatedGoal!.id, timezone);
@@ -436,7 +455,7 @@ export async function checkIn(req: AuthRequest, res: Response) {
 
     // Check if goal should be reset first (MOVED BEFORE check-in validation)
     const wasReset = await checkAndResetGoal(goal, timezone);
-    
+
     // Fetch fresh goal data after potential reset
     const freshGoal = await prisma.goal.findUnique({
       where: { id: goal.id },
@@ -479,6 +498,24 @@ export async function checkIn(req: AuthRequest, res: Response) {
         lastCheckInDate: checkInDate,
       },
     });
+
+    // Send notification if goal is completed
+    if (newCurrentDay >= freshGoal.targetDays) {
+      await notificationService.sendGoalCompletedNotification(
+        userId,
+        freshGoal.id,
+        freshGoal.goalText
+      );
+    }
+    // Send streak milestone notifications (every 7 days)
+    else if (newCurrentDay % 7 === 0) {
+      await notificationService.sendStreakMilestoneNotification(
+        userId,
+        freshGoal.id,
+        newCurrentDay,
+        freshGoal.goalText
+      );
+    }
 
     res.json({
       msg: "Check-in successful",

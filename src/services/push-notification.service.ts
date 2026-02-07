@@ -1,0 +1,251 @@
+import { firebaseClient } from "../config/firebase.config";
+import logger from "../utils/logger.util";
+
+export class PushNotificationService {
+  private buildBaseMessage(
+    title: string,
+    body: string,
+    payload: Record<string, any> = {},
+    silent = false
+  ) {
+    const data = Object.keys(payload || {}).reduce((acc, key) => {
+      acc[key] =
+        typeof payload[key] === "string"
+          ? payload[key]
+          : JSON.stringify(payload[key]);
+      return acc;
+    }, {} as Record<string, string>);
+
+    return {
+      data,
+      notification: silent ? undefined : { title, body },
+      webpush: {
+        headers: { Urgency: "high" },
+        notification: {
+          body,
+          requireInteraction: true,
+          badge: "/badge-icon.png",
+        },
+      },
+      android: {
+        notification: {
+          channelId: silent ? "" : "vybaa_notifications",
+          sound: silent ? undefined : "default",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: silent ? undefined : "default",
+            badge: 1,
+          },
+        },
+      },
+    };
+  }
+
+  /**
+   * Send FCM push notification to multiple tokens
+   * @param userFcmTokens Array of FCM tokens to send to
+   * @param title Notification title
+   * @param body Notification body
+   * @param payload Additional data payload (notification ID, type, etc.)
+   * @param silent If true, send as data-only notification (no visual notification)
+   */
+  async sendFCMPush(
+    userFcmTokens: string[],
+    title: string,
+    body: string,
+    payload: Record<string, any> = {},
+    silent = false
+  ) {
+    if (!userFcmTokens || userFcmTokens.length === 0) {
+      logger.debug("No FCM tokens provided, skipping push notification");
+      return [];
+    }
+
+    const message = this.buildBaseMessage(title, body, payload, silent);
+
+    const results = await Promise.allSettled(
+      userFcmTokens.map(async (token: string) => {
+        try {
+          const result = await firebaseClient()
+            .messaging()
+            .send({
+              ...message,
+              token,
+            } as any);
+          logger.debug("FCM push sent successfully", {
+            token: token.substring(0, 20) + "...",
+            result,
+          });
+          return { success: true, token, result };
+        } catch (error: any) {
+          console.log(error);
+
+          logger.error("Failed to send FCM push", {
+            token: token.substring(0, 20) + "...",
+            error: error.message,
+            code: error.code,
+          });
+
+          // Handle invalid tokens - they should be removed from database
+          if (
+            error.code === "messaging/invalid-registration-token" ||
+            error.code === "messaging/registration-token-not-registered"
+          ) {
+            logger.warn("Invalid FCM token detected, should be removed", {
+              token: token.substring(0, 20) + "...",
+            });
+          }
+
+          return { success: false, token, error: error.message };
+        }
+      })
+    );
+
+    const successful = results.filter(
+      (r) => r.status === "fulfilled" && r.value.success
+    ).length;
+    const failed = results.length - successful;
+
+    if (failed > 0) {
+      logger.warn("Some FCM pushes failed", {
+        successful,
+        failed,
+        total: results.length,
+      });
+    } else {
+      logger.info("All FCM pushes sent successfully", { count: successful });
+    }
+
+    return results.map((r) =>
+      r.status === "fulfilled" ? r.value : { success: false, error: "Unknown error" }
+    );
+  }
+
+  /**
+   * Send a multicast message to up to 500 tokens at a time using Admin SDK sendEachForMulticast.
+   * Automatically chunks if tokens > 500.
+   */
+  async sendFCMMulticast(
+    userFcmTokens: string[],
+    title: string,
+    body: string,
+    payload: Record<string, any> = {},
+    silent = false
+  ) {
+    if (!userFcmTokens?.length) {
+      logger.debug("No FCM tokens provided for multicast, skipping");
+      return { successCount: 0, failureCount: 0, failedTokens: [] as string[] };
+    }
+
+    const chunkSize = 500;
+    const base = this.buildBaseMessage(title, body, payload, silent);
+    const failedTokens: string[] = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (let i = 0; i < userFcmTokens.length; i += chunkSize) {
+      const tokens = userFcmTokens.slice(i, i + chunkSize);
+      try {
+        const resp = await firebaseClient()
+          .messaging()
+          .sendEachForMulticast({
+            ...base,
+            tokens,
+          } as any);
+        successCount += resp.successCount;
+        failureCount += resp.failureCount;
+        if (resp.failureCount > 0) {
+          resp.responses.forEach((r, idx) => {
+            if (!r.success) failedTokens.push(tokens[idx]);
+          });
+        }
+      } catch (error: any) {
+        logger.error("Multicast send failed for chunk", {
+          error: error?.message,
+        });
+        // Consider all in chunk failed
+        failureCount += tokens.length;
+        failedTokens.push(...tokens);
+      }
+    }
+
+    if (failureCount > 0) {
+      logger.warn("Multicast sends completed with failures", {
+        successCount,
+        failureCount,
+      });
+    } else {
+      logger.info("Multicast sends completed successfully", { successCount });
+    }
+
+    return { successCount, failureCount, failedTokens };
+  }
+
+  /**
+   * Send a customized list of up to 500 messages using sendEach.
+   * Accepts per-recipient overrides (title/body/payload/silent).
+   * Automatically chunks if >500.
+   */
+  async sendFCMBatchMessages(
+    messages: Array<{
+      token: string;
+      title: string;
+      body: string;
+      payload?: Record<string, any>;
+      silent?: boolean;
+    }>
+  ) {
+    if (!messages?.length)
+      return { successCount: 0, failureCount: 0, failedTokens: [] as string[] };
+
+    const chunkSize = 500;
+    const failedTokens: string[] = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (let i = 0; i < messages.length; i += chunkSize) {
+      const chunk = messages.slice(i, i + chunkSize);
+      const built = chunk.map((m) => ({
+        ...this.buildBaseMessage(
+          m.title,
+          m.body,
+          m.payload || {},
+          m.silent || false
+        ),
+        token: m.token,
+      })) as any;
+      try {
+        const resp = await firebaseClient().messaging().sendEach(built);
+        successCount += resp.successCount;
+        failureCount += resp.failureCount;
+        if (resp.failureCount > 0) {
+          resp.responses.forEach((r, idx) => {
+            if (!r.success) failedTokens.push(chunk[idx].token);
+          });
+        }
+      } catch (error: any) {
+        logger.error("Batch sendEach failed for chunk", {
+          error: error?.message,
+        });
+        failureCount += chunk.length;
+        failedTokens.push(...chunk.map((m) => m.token));
+      }
+    }
+
+    if (failureCount > 0) {
+      logger.warn("Batch sendEach completed with failures", {
+        successCount,
+        failureCount,
+      });
+    } else {
+      logger.info("Batch sendEach completed successfully", { successCount });
+    }
+
+    return { successCount, failureCount, failedTokens };
+  }
+}
+
+export const pushNotificationService = new PushNotificationService();

@@ -7,6 +7,11 @@ type Env = {
     CLOUDINARY_CLOUD_NAME?: string
     CLOUDINARY_API_KEY?: string
     CLOUDINARY_API_SECRET?: string
+
+    FIREBASE_PROJECT_ID?: string
+    FIREBASE_PRIVATE_KEY?: string
+    FIREBASE_CLIENT_EMAIL?: string
+    ABLY_API_KEY?: string
 }
 
 export const Env: Env = {
@@ -18,5 +23,12 @@ export const Env: Env = {
     CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
     CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
     CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
+
+    FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
+    FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PROJECT_ID,
+    FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
+
+    ABLY_API_KEY: process.env.ABLY_API_KEY,
+
     ...process.env as any
 }

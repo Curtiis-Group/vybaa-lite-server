@@ -12,4 +12,10 @@ router.put("/me", authMiddleware, validate(updateProfileSchema), userController.
 // GET /api/v1/users/me
 router.get("/me", authMiddleware, userController.getProfile);
 
+// POST /api/v1/users/fcm-token
+router.post("/fcm-token", authMiddleware, userController.registerFCMToken);
+
+// DELETE /api/v1/users/fcm-token
+router.delete("/fcm-token", authMiddleware, userController.removeFCMToken);
+
 export default router;

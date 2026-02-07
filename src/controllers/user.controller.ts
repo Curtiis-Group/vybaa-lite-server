@@ -59,3 +59,92 @@ export async function getProfile(req: AuthRequest, res: Response) {
     res.status(500).json({ msg: "Internal server error" });
   }
 }
+
+/**
+ * Register or update FCM token for push notifications
+ */
+export async function registerFCMToken(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { fcmToken } = req.body;
+
+    if (!fcmToken || typeof fcmToken !== "string") {
+      return res.status(400).json({ msg: "Valid FCM token is required" });
+    }
+
+    // Get current user
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmTokens: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    // Add token if it doesn't exist
+    const tokens = user.fcmTokens || [];
+    if (!tokens.includes(fcmToken)) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          fcmTokens: [...tokens, fcmToken],
+        },
+      });
+      logger.info("FCM token registered", { userId, token: fcmToken.substring(0, 20) + "..." });
+    } else {
+      logger.debug("FCM token already registered", { userId });
+    }
+
+    res.json({
+      msg: "FCM token registered successfully",
+    });
+  } catch (error) {
+    logger.error("Register FCM token error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/**
+ * Remove FCM token (e.g., on logout)
+ */
+export async function removeFCMToken(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { fcmToken } = req.body;
+
+    if (!fcmToken || typeof fcmToken !== "string") {
+      return res.status(400).json({ msg: "Valid FCM token is required" });
+    }
+
+    // Get current user
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmTokens: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    // Remove token
+    const tokens = user.fcmTokens || [];
+    const updatedTokens = tokens.filter((t) => t !== fcmToken);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        fcmTokens: updatedTokens,
+      },
+    });
+
+    logger.info("FCM token removed", { userId, token: fcmToken.substring(0, 20) + "..." });
+
+    res.json({
+      msg: "FCM token removed successfully",
+    });
+  } catch (error) {
+    logger.error("Remove FCM token error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
