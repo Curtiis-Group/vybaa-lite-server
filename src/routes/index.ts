@@ -5,6 +5,7 @@ import goalRoutes from "./goal.routes";
 import insightsRoutes from "./insights.routes";
 import uploadRoutes from "./upload.routes";
 import notificationRoutes from "./notification.routes";
+import achievementRoutes from "./achievement.routes";
 
 const router: Router = Router();
 
@@ -25,5 +26,8 @@ router.use("/v1/upload", uploadRoutes);
 
 // Mount notification routes at /api/v1/notifications
 router.use("/v1/notifications", notificationRoutes);
+
+// Mount achievement routes at /api/v1/achievements
+router.use("/v1/achievements", achievementRoutes);
 
 export default router;

@@ -45,6 +45,7 @@ model User {
   // Relations
   goals         Goal[]
   notifications Notification[]
+  achievements  Achievement[]
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
@@ -106,4 +107,25 @@ model Notification {
   @@index([userId, isRead])
   @@index([scheduledFor])
   @@map("notifications")
+}
+
+model Achievement {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  goalId String? @map("goal_id")
+
+  type        String // "streak_milestone", "goal_completed", "total_goals", "total_checkins", "perfect_week", "comeback", "early_bird"
+  milestone   Int    // Day number or count (3, 7, 14, 21, 30, 50, 100, 365)
+  title       String // "Adventurous Streaker", "Consistency Champion"
+  description String // "Reached 10 consecutive days"
+  badgeIcon   String @map("badge_icon") // Emoji or icon identifier
+
+  earnedAt DateTime @default(now()) @map("earned_at")
+
+  @@unique([userId, type, milestone])
+  @@index([userId])
+  @@map("achievements")
 }

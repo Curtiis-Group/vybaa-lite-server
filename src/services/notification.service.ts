@@ -323,6 +323,20 @@ class NotificationService {
       data: { goalId, goalText, days },
     });
   }
+
+  /**
+   * Send streak reset notification
+   */
+  async sendStreakResetNotification(userId: string, goalId: string, previousDays: number, goalText: string) {
+    return this.createNotification({
+      userId,
+      goalId,
+      type: "system",
+      title: "⚠️ Streak Reset",
+      message: `Your ${previousDays}-day streak for "${goalText}" was reset due to a missed check-in.`,
+      data: { goalId, goalText, previousDays, resetReason: "missed_checkin" },
+    });
+  }
 }
 
 export const notificationService = new NotificationService();

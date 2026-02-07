@@ -3,6 +3,7 @@ import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { notificationService } from "../services/notification.service";
 import { pushNotificationService } from "../services/push-notification.service";
+import { achievementService } from "../services/achievement.service";
 import logger from "../utils/logger.util";
 
 // Helper function to get date string in user's timezone (YYYY-MM-DD)
@@ -37,10 +38,12 @@ function isMoreThanOneDayAgo(date: Date, timezone?: string): boolean {
 }
 
 // Helper function to check if goal should be reset
-async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean> {
+async function checkAndResetGoal(goal: any, timezone?: string, userId?: string): Promise<boolean> {
   if (!goal.lastCheckInDate) {
     // If never checked in and started more than 1 day ago, reset
     if (isMoreThanOneDayAgo(goal.startedAt, timezone)) {
+      const previousDay = goal.currentDay;
+      
       // Delete all check-ins when resetting
       await prisma.checkIn.deleteMany({
         where: { goalId: goal.id },
@@ -53,6 +56,17 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
           lastCheckInDate: null,
         },
       });
+
+      // Send notification about streak reset (only if they had progress)
+      if (userId && previousDay > 0) {
+        await notificationService.sendStreakResetNotification(
+          userId,
+          goal.id,
+          previousDay,
+          goal.goalText
+        );
+      }
+      
       return true;
     }
     return false;
@@ -60,6 +74,8 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
 
   // If last check-in was more than 1 day ago, reset
   if (isMoreThanOneDayAgo(goal.lastCheckInDate, timezone)) {
+    const previousDay = goal.currentDay;
+    
     // Delete all check-ins when resetting
     await prisma.checkIn.deleteMany({
       where: { goalId: goal.id },
@@ -72,6 +88,17 @@ async function checkAndResetGoal(goal: any, timezone?: string): Promise<boolean>
         lastCheckInDate: null,
       },
     });
+
+    // Send notification about streak reset (only if they had progress)
+    if (userId && previousDay > 0) {
+      await notificationService.sendStreakResetNotification(
+        userId,
+        goal.id,
+        previousDay,
+        goal.goalText
+      );
+    }
+
     return true;
   }
 
@@ -161,7 +188,7 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
     // Check and reset goals that need resetting
     const goalsWithReset = await Promise.all(
       goals.map(async (goal) => {
-        const wasReset = await checkAndResetGoal(goal, timezone);
+        const wasReset = await checkAndResetGoal(goal, timezone, userId);
         if (wasReset) {
           return await prisma.goal.findUnique({
             where: { id: goal.id },
@@ -242,7 +269,7 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
     }
 
     // Check if goal should be reset (automatic reset logic)
-    const wasReset = await checkAndResetGoal(goal, timezone);
+    const wasReset = await checkAndResetGoal(goal, timezone, userId);
 
     // Fetch updated goal if it was reset
     const updatedGoal = wasReset
@@ -303,7 +330,7 @@ export async function getGoalById(req: AuthRequest, res: Response) {
     }
 
     // Check if goal should be reset (automatic reset logic)
-    const wasReset = await checkAndResetGoal(goal, timezone);
+    const wasReset = await checkAndResetGoal(goal, timezone, userId);
 
     // Fetch updated goal if it was reset
     const updatedGoal = wasReset
@@ -454,8 +481,8 @@ export async function checkIn(req: AuthRequest, res: Response) {
     }
 
     // Check if goal should be reset first (MOVED BEFORE check-in validation)
-    const wasReset = await checkAndResetGoal(goal, timezone);
-
+    const wasReset = await checkAndResetGoal(goal, timezone, userId);
+    
     // Fetch fresh goal data after potential reset
     const freshGoal = await prisma.goal.findUnique({
       where: { id: goal.id },
@@ -499,6 +526,14 @@ export async function checkIn(req: AuthRequest, res: Response) {
       },
     });
 
+    // Check and award achievements
+    const awardedAchievements = await achievementService.checkAndAwardBadges(
+      userId,
+      freshGoal.id,
+      newCurrentDay,
+      wasReset
+    );
+
     // Send notification if goal is completed
     if (newCurrentDay >= freshGoal.targetDays) {
       await notificationService.sendGoalCompletedNotification(
@@ -506,6 +541,9 @@ export async function checkIn(req: AuthRequest, res: Response) {
         freshGoal.id,
         freshGoal.goalText
       );
+      
+      // Check for total goals completed achievement
+      await achievementService.checkTotalGoalsAchievement(userId);
     }
     // Send streak milestone notifications (every 7 days)
     else if (newCurrentDay % 7 === 0) {
@@ -520,14 +558,17 @@ export async function checkIn(req: AuthRequest, res: Response) {
     res.json({
       msg: "Check-in successful",
       data: {
-        id: updated.id,
-        goalText: updated.goalText,
-        targetDays: updated.targetDays,
-        currentDay: updated.currentDay,
-        lastCheckInDate: updated.lastCheckInDate?.toISOString() || null,
-        startedAt: updated.startedAt.toISOString(),
-        reminderTime: updated.reminderTime,
-        canCheckIn: false, // After checking in, can't check in again today
+        goal: {
+          id: updated.id,
+          goalText: updated.goalText,
+          targetDays: updated.targetDays,
+          currentDay: updated.currentDay,
+          lastCheckInDate: updated.lastCheckInDate?.toISOString() || null,
+          startedAt: updated.startedAt.toISOString(),
+          reminderTime: updated.reminderTime,
+          canCheckIn: false, // After checking in, can't check in again today
+        },
+        achievements: awardedAchievements,
       },
     });
   } catch (error) {
