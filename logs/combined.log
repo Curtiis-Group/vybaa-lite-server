@@ -1516,3 +1516,61 @@
 {"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 11:54:00","userId":"cml5a0int0000153e9sxl0dei"}
 {"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 11:54:00","userId":"cml5a0int0000153e9sxl0dei"}
 {"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 11:54:00","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:16:40","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:16:40","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:16:40","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:16:40","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:18:57"}
+{"level":"info","message":"Notification cmlc819rf000815lh8fj9rxso sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:18:57"}
+{"level":"info","message":"Badge awarded: Rising Star to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:18:57"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:18:59"}
+{"level":"info","message":"Notification cmlc81g8y000l15lhlhjdqly6 sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:18:59"}
+{"level":"info","message":"Badge awarded: Week Warrior to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:18:59"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:01"}
+{"level":"info","message":"Notification cmlc81hpk000p15lhjtdt4h2a sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:01"}
+{"level":"info","message":"Badge awarded: Flawless Week to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:01"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:05"}
+{"level":"info","message":"Notification cmlc81j08001915lh24zo1hky sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:05"}
+{"level":"info","message":"Badge awarded: Fortnight Fighter to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:05"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:07"}
+{"level":"info","message":"Notification cmlc81lvp002015lh9oz9mpa3 sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:07"}
+{"level":"info","message":"Badge awarded: Habit Hero to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:07"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:11"}
+{"level":"info","message":"Notification cmlc81np3003015lh9ot2h7og sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:11"}
+{"level":"info","message":"Badge awarded: Month Master to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:11"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:13"}
+{"level":"info","message":"Notification cmlc81quy004k15lhhzj9vait sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:13"}
+{"level":"info","message":"Badge awarded: Legendary Streaker to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:13"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:17"}
+{"level":"info","message":"Notification cmlc81sj2006f15lhuv0kflv5 sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:17"}
+{"level":"info","message":"Badge awarded: Dedication Dynamo to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:17"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:18"}
+{"level":"info","message":"Notification cmlc81uzw006j15lh6hf8w33h sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:18"}
+{"level":"info","message":"Badge awarded: Consistency Champion to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:18"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:22"}
+{"level":"info","message":"Notification cmlc81wdj006n15lht5f12bw0 sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:22"}
+{"level":"info","message":"Badge awarded: Dawn Warrior to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:22"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:19:25"}
+{"level":"info","message":"Notification cmlc81yzz006r15lhqv0gagdo sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:25"}
+{"level":"info","message":"Badge awarded: Phoenix Rising to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:25"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:52","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:19:52","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:22:49","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:22:49","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:25:37","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:25:37","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:25:37","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:25:38","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:25:53","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:25:53","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:27:11","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-07 12:27:11","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:29:34"}
+{"level":"info","message":"Notification cmlc8f03e000515px0dnj4e7x sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:29:34"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:29:47"}
+{"level":"info","message":"Notification cmlc8fc4s000915pxul5busvf sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:29:47"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:29:53"}
+{"level":"info","message":"Notification cmlc8fgdt000d15pxwau3bd1w sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:29:53"}
+{"level":"info","message":"Multicast sends completed successfully","service":"vybaa-lite-server","successCount":1,"timestamp":"2026-02-07 12:30:05"}
+{"level":"info","message":"Notification cmlc8fpb5000n15px7s1p0guk sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:30:05"}
+{"level":"info","message":"Badge awarded: Century Champion to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-07 12:30:05"}
