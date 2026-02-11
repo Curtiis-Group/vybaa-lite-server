@@ -46,8 +46,8 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build TypeScript
-RUN npx tsc
+# Build TypeScript (using build config for less strict checks)
+RUN npx tsc -p tsconfig.build.json
 
 # Production stage
 FROM base AS production

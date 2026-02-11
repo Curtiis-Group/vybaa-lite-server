@@ -2,17 +2,12 @@
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout
-    // "rootDir": "./src",
-    // "outDir": "./dist",
+    "rootDir": "./src",
+    "outDir": "./dist",
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-
-    "types": [],
-    // For nodejs:
-    // "lib": ["esnext"],
-    // "types": ["node"],
-    // and npm install -D @types/node
+    "types": ["node"],
 
     // Other Outputs
     "sourceMap": true,
@@ -21,7 +16,8 @@
 
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    // Disabled for Prisma compatibility
+    // "exactOptionalPropertyTypes": true,
 
     // Style Options
     // "noImplicitReturns": true,
@@ -37,12 +33,9 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
 
-
     // Module Resolution
-     "target": "ES2020",
+    "target": "ES2020",
     "module": "CommonJS",
-    "rootDir": "./",
-    "outDir": "./dist",
 
     "strict": true,
     "esModuleInterop": true,
@@ -51,5 +44,7 @@
 
     "noImplicitAny": true,
     "skipLibCheck": true
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

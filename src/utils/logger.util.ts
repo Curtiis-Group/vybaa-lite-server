@@ -59,15 +59,9 @@ const logger = winston.createLogger({
   ],
 });
 
-// Extend Winston logger type to include stream for HTTP logging
-interface LoggerWithStream extends winston.Logger {
-  stream?: {
-    write: (message: string) => void;
-  };
-}
-
 // Create a stream object for Morgan HTTP request logging
-(logger as LoggerWithStream).stream = {
+// Using any to avoid type conflicts with Winston's stream property
+(logger as any).stream = {
   write: (message: string) => {
     logger.info(message.trim());
   },

@@ -40,7 +40,14 @@ build
 coverage
 .nyc_output
 
+# Documentation
+*.md
+!README.md
+
 # Misc
 .cache
 tmp
 temp
+
+# GitHub
+.github
