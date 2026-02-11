@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: vybaa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vybaa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vybaa_password}
+      POSTGRES_DB: ${POSTGRES_DB:-vybaa_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - vybaa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vybaa}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Server Application
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: vybaa-server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: ${PORT:-4000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vybaa}:${POSTGRES_PASSWORD:-vybaa_password}@postgres:5432/${POSTGRES_DB:-vybaa_db}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      ABLY_API_KEY: ${ABLY_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    ports:
+      - "${PORT:-4000}:4000"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vybaa-network
+    command: sh -c "npx prisma migrate deploy && node dist/server.js"
+
+  # Development Server (use this for local development)
+  server-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    container_name: vybaa-server-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: ${PORT:-4000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vybaa}:${POSTGRES_PASSWORD:-vybaa_password}@postgres:5432/${POSTGRES_DB:-vybaa_db}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      ABLY_API_KEY: ${ABLY_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    ports:
+      - "${PORT:-4000}:4000"
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vybaa-network
+    profiles:
+      - dev
+
+networks:
+  vybaa-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

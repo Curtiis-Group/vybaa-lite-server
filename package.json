@@ -6,7 +6,18 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/server.ts",
-    "db:sync": "prisma generate && prisma db push"
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "db:sync": "prisma generate && prisma db push",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "generate-secrets": "node scripts/generate-secrets.js",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:dev": "docker-compose --profile dev up server-dev"
   },
   "keywords": [],
   "author": "",

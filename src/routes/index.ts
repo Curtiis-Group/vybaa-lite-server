@@ -11,6 +11,24 @@ import journalRoutes from "./journal.routes";
 
 const router: Router = Router();
 
+// Health check endpoint
+router.get("/health", (req, res) => {
+    res.status(200).json({ 
+        status: "ok", 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
+// Root endpoint
+router.get("/", (req, res) => {
+    res.status(200).json({ 
+        message: "Vybaa API Server",
+        version: "1.0.0",
+        status: "running"
+    });
+});
+
 // Mount auth routes at /api/v1/auth
 router.use("/v1/auth", authRoutes);
 

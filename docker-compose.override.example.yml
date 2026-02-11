@@ -1,0 +1,28 @@
+# docker-compose.override.yml
+# Copy this file to docker-compose.override.yml for local customizations
+# This file is gitignored and won't be committed
+
+version: '3.8'
+
+services:
+  # Override server configuration for local development
+  server:
+    ports:
+      - "4001:4000"  # Use different port locally
+    environment:
+      # Add local environment overrides here
+      LOG_LEVEL: debug
+  
+  # Override postgres configuration
+  postgres:
+    ports:
+      - "5433:5432"  # Use different port locally if you have local postgres running
+    
+  # Add additional services for local development
+  # adminer:
+  #   image: adminer
+  #   restart: always
+  #   ports:
+  #     - 8080:8080
+  #   networks:
+  #     - vybaa-network
