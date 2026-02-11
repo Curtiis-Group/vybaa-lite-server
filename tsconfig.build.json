@@ -8,6 +8,7 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
+    "noImplicitAny": false,
     // Override paths for cleaner output
     "rootDir": "./src",
     "outDir": "./dist"
