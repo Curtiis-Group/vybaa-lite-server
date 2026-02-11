@@ -7,6 +7,7 @@ import uploadRoutes from "./upload.routes";
 import notificationRoutes from "./notification.routes";
 import achievementRoutes from "./achievement.routes";
 import chillRoutes from "./chill.routes";
+import journalRoutes from "./journal.routes";
 
 const router: Router = Router();
 
@@ -33,5 +34,8 @@ router.use("/v1/achievements", achievementRoutes);
 
 // Mount chill routes at /api/v1/chill
 router.use("/v1/chill", chillRoutes);
+
+// Mount journal routes at /api/v1/journals
+router.use("/v1/journals", journalRoutes);
 
 export default router;

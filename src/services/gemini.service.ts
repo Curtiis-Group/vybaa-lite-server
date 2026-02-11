@@ -218,6 +218,72 @@ Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concis
 
     return `You've completed ${completed} session${completed !== 1 ? "s" : ""}. Keep practicing breathing exercises to regulate your emotions.`;
   }
+
+  /**
+   * Generate AI summary of user's journal entries
+   */
+  async generateJournalSummary(
+    entries: Array<{ date: Date; content: string; mood: string | null }>
+  ): Promise<string> {
+    try {
+      if (entries.length === 0) {
+        return "You haven't written any journal entries yet. Start journaling to reflect on your thoughts and see insights about your journey.";
+      }
+
+      const genAI = this.getClient();
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+      // Format entries for prompt
+      const entriesText = entries
+        .slice(0, 20) // Limit to last 20 for context
+        .map((e, i) => {
+          const date = new Date(e.date).toLocaleDateString();
+          const contentPreview = e.content.length > 200 ? e.content.substring(0, 200) + "..." : e.content;
+          return `${i + 1}. Date: ${date}\n   Mood: ${e.mood || "Not recorded"}\n   Entry: "${contentPreview}"`;
+        })
+        .join("\n\n");
+
+      const prompt = `You are a compassionate life coach analyzing a user's journal entries to provide gentle insights.
+
+Here are their recent journal entries:
+${entriesText}
+
+Please provide a very short, concise summary (2-4 sentences maximum) that:
+1. Identifies the main theme or pattern in their reflections
+2. Highlights one positive insight or growth moment
+3. Offers warm encouragement
+
+Keep it brief, supportive, and insightful. Write in second person ("You have been...").
+
+Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concise sentences.`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text().trim();
+
+      logger.info("Journal summary generated successfully");
+      return text;
+    } catch (error) {
+      logger.error("Error generating journal summary:", error);
+      return this.getFallbackJournalSummary(entries);
+    }
+  }
+
+  /**
+   * Fallback journal summary if AI fails
+   */
+  private getFallbackJournalSummary(
+    entries: Array<{ date: Date; content: string; mood: string | null }>
+  ): string {
+    const withMood = entries.filter((e) => e.mood).length;
+    const total = entries.length;
+
+    if (total === 0) {
+      return "You haven't written any journal entries yet. Start journaling to reflect on your thoughts and see insights about your journey.";
+    }
+
+    return `You've journaled ${total} time${total !== 1 ? "s" : ""}. Reflecting on your thoughts helps you understand yourself better.`;
+  }
 }
 
 export const geminiService = new GeminiService();
