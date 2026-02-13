@@ -12,9 +12,15 @@ export async function getTodayJournal(req: AuthRequest, res: Response) {
 
     const journal = await journalService.getOrCreateTodayEntry(userId);
 
+    // Map 'content' to 'entry' for frontend compatibility
+    const mappedJournal = {
+      ...journal,
+      entry: journal.content,
+    };
+
     res.json({
       msg: "Today's journal retrieved successfully",
-      data: journal,
+      data: { journal: mappedJournal },
     });
   } catch (error) {
     logger.error("Get today's journal error:", { error, userId: req.userId });
@@ -41,9 +47,15 @@ export async function getJournalByDate(req: AuthRequest, res: Response) {
       return res.status(404).json({ msg: "Journal entry not found for this date" });
     }
 
+    // Map 'content' to 'entry' for frontend compatibility
+    const mappedJournal = {
+      ...journal,
+      entry: journal.content,
+    };
+
     res.json({
       msg: "Journal entry retrieved successfully",
-      data: journal,
+      data: { journal: mappedJournal },
     });
   } catch (error) {
     logger.error("Get journal by date error:", { error, userId: req.userId });
@@ -65,9 +77,15 @@ export async function getJournals(req: AuthRequest, res: Response) {
 
     const result = await journalService.getJournalEntries(userId, page, limit);
 
+    // Map 'content' to 'entry' for frontend compatibility
+    const mappedJournals = result.journals.map(journal => ({
+      ...journal,
+      entry: journal.content,
+    }));
+
     res.json({
       msg: "Journal entries retrieved successfully",
-      data: result.journals,
+      data: mappedJournals,
       pagination: result.pagination,
     });
   } catch (error) {
@@ -98,9 +116,15 @@ export async function createJournal(req: AuthRequest, res: Response) {
 
     const journal = await journalService.createJournal(userId, journalDate, journalContent.trim(), mood, tags);
 
+    // Map 'content' to 'entry' for frontend compatibility
+    const mappedJournal = {
+      ...journal,
+      entry: journal.content,
+    };
+
     res.status(201).json({
       msg: "Journal entry created successfully",
-      data: { journal },
+      data: { journal: mappedJournal },
     });
   } catch (error: any) {
     if (error.code === "P2002") {
