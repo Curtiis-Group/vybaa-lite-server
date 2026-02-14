@@ -12,6 +12,8 @@ import {
   verifyGoogleToken,
   verifyRefreshToken,
 } from "../utils/auth.util";
+import { generateUniqueUsername } from "../utils/username.util";
+import { uploadImageFromUrl } from "../utils/cloudinary.util";
 
 // Helper function to format user response
 export function formatUserResponse(user: any) {
@@ -26,6 +28,7 @@ export function formatUserResponse(user: any) {
     lifeGoal: user.lifeGoal || undefined,
     isConfirmed: user.isConfirmed,
     isFirstTime: user.isFirstTime,
+    lastUsernameChangeAt: user.lastUsernameChangeAt?.toISOString() || undefined,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };
@@ -83,12 +86,18 @@ export async function register(req: Request, res: Response) {
 
     const hashedPassword = await hashPassword(password);
 
+    // Generate unique username from first name or email
+    const baseName = firstName || email.split('@')[0];
+    const username = await generateUniqueUsername(baseName);
+
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
         firstName,
         lastName,
+        username,
+        lastUsernameChangeAt: new Date(), // Set initial change date
         isConfirmed: false,
         isFirstTime: true,
       },
@@ -140,15 +149,40 @@ export async function googleAuth(req: Request, res: Response) {
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
+      // Generate unique username
+      const baseName = firstName || googleUser.email.split('@')[0];
+      const username = await generateUniqueUsername(baseName);
+
+      // Upload Google avatar to Cloudinary (async, non-blocking)
+      let cloudinaryAvatarUrl: string | undefined = undefined;
+      if (googleUser.picture) {
+        try {
+          const uploadedUrl = await uploadImageFromUrl(
+            googleUser.picture,
+            googleUser.sub, // Use Google ID as temp ID
+            'google-avatars'
+          );
+          cloudinaryAvatarUrl = uploadedUrl || undefined;
+        } catch (error) {
+          logger.warn('Failed to upload Google avatar to Cloudinary, using Google URL', {
+            email: googleUser.email,
+            error,
+          });
+          cloudinaryAvatarUrl = googleUser.picture || undefined;
+        }
+      }
+
       user = await prisma.user.create({
         data: {
           email: googleUser.email,
           firstName,
           lastName,
+          username,
           googleId: googleUser.sub,
-          avatarUrl: googleUser.picture || undefined,
+          avatarUrl: cloudinaryAvatarUrl,
           isConfirmed: true, // Google users are pre-verified
           isFirstTime: true,
+          lastUsernameChangeAt: new Date(), // Set initial change date
         },
       });
     } else {
@@ -158,24 +192,64 @@ export async function googleAuth(req: Request, res: Response) {
         const firstName = nameParts[0] || "";
         const lastName = nameParts.slice(1).join(" ") || "";
 
+        // Upload avatar to Cloudinary if available
+        let cloudinaryAvatarUrl = user.avatarUrl;
+        if (googleUser.picture && !user.avatarUrl) {
+          try {
+            const uploadedUrl = await uploadImageFromUrl(
+              googleUser.picture,
+              user.id,
+              'google-avatars'
+            );
+            cloudinaryAvatarUrl = uploadedUrl || googleUser.picture || undefined;
+          } catch (error) {
+            logger.warn('Failed to upload Google avatar to Cloudinary', {
+              userId: user.id,
+              error,
+            });
+            cloudinaryAvatarUrl = googleUser.picture || user.avatarUrl || undefined;
+          }
+        }
+
         user = await prisma.user.update({
           where: { id: user.id },
           data: {
             googleId: googleUser.sub,
             firstName: user.firstName || firstName || undefined,
             lastName: user.lastName || lastName || undefined,
-            avatarUrl: googleUser.picture || user.avatarUrl || undefined,
+            avatarUrl: cloudinaryAvatarUrl,
           },
         });
       } else {
-        // Update avatar if available
+        // Update avatar if available and not already set
         if (googleUser.picture && !user.avatarUrl) {
-          user = await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              avatarUrl: googleUser.picture,
-            },
-          });
+          try {
+            const uploadedUrl = await uploadImageFromUrl(
+              googleUser.picture,
+              user.id,
+              'google-avatars'
+            );
+            const cloudinaryAvatarUrl = uploadedUrl || googleUser.picture;
+
+            user = await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                avatarUrl: cloudinaryAvatarUrl,
+              },
+            });
+          } catch (error) {
+            logger.warn('Failed to upload Google avatar to Cloudinary', {
+              userId: user.id,
+              error,
+            });
+            // Use Google URL as fallback
+            user = await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                avatarUrl: googleUser.picture,
+              },
+            });
+          }
         }
       }
     }

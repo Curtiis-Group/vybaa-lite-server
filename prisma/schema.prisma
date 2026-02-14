@@ -26,6 +26,7 @@ model User {
   avatarUrl   String? @map("avatar_url")
   currentMood String? @map("current_mood")
   lifeGoal    String? @map("life_goal")
+  lastUsernameChangeAt DateTime? @map("last_username_change_at") // Track username changes for cooldown
 
   // Auth fields
   isConfirmed Boolean @default(false) @map("is_confirmed")

@@ -2,6 +2,7 @@ import { Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import logger from "../utils/logger.util";
+import { canChangeUsername, sanitizeUsername, validateUsername } from "../utils/username.util";
 import { formatUserResponse } from "./auth.controller";
 
 export async function updateProfile(req: AuthRequest, res: Response) {
@@ -11,9 +12,50 @@ export async function updateProfile(req: AuthRequest, res: Response) {
 
     const updateData: any = {};
 
+    // Handle username change with 7-day cooldown
+    if (username !== undefined) {
+      // Get current user to check last username change
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true, lastUsernameChangeAt: true },
+      });
+
+      if (!currentUser) {
+        return res.status(404).json({ msg: "User not found" });
+      }
+
+      // Check if username is actually changing
+      if (username !== currentUser.username) {
+        // Sanitize and force lowercase
+        const sanitizedUsername = sanitizeUsername(username);
+        
+        // Validate username format
+        const validation = validateUsername(sanitizedUsername);
+        if (!validation.valid) {
+          return res.status(400).json({ msg: validation.error });
+        }
+
+        // Check 7-day cooldown
+        const cooldownCheck = canChangeUsername(currentUser.lastUsernameChangeAt);
+        if (!cooldownCheck.canChange) {
+          return res.status(400).json({ 
+            msg: `You can change your username again in ${cooldownCheck.daysRemaining} day(s)`,
+            data: {
+              canChange: false,
+              daysRemaining: cooldownCheck.daysRemaining,
+              nextAvailableDate: cooldownCheck.nextAvailableDate.toISOString(),
+            }
+          });
+        }
+
+        // Username is valid and cooldown passed
+        updateData.username = sanitizedUsername;
+        updateData.lastUsernameChangeAt = new Date();
+      }
+    }
+
     if (firstName !== undefined) updateData.firstName = firstName;
     if (lastName !== undefined) updateData.lastName = lastName;
-    if (username !== undefined) updateData.username = username;
     if (profileImageId !== undefined) {
       // If you have an image storage system, map profileImageId to avatarUrl
       // For now, we'll just store it as avatarUrl
@@ -145,6 +187,39 @@ export async function removeFCMToken(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     logger.error("Remove FCM token error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/**
+ * Check if user can change username (7-day cooldown check)
+ */
+export async function checkUsernameAvailability(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { lastUsernameChangeAt: true, username: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const cooldownCheck = canChangeUsername(user.lastUsernameChangeAt);
+
+    res.json({
+      msg: "Username change availability checked",
+      data: {
+        canChange: cooldownCheck.canChange,
+        daysRemaining: cooldownCheck.daysRemaining,
+        nextAvailableDate: cooldownCheck.nextAvailableDate.toISOString(),
+        currentUsername: user.username,
+      },
+    });
+  } catch (error) {
+    logger.error("Check username availability error:", { error, userId: req.userId });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
