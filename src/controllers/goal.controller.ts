@@ -455,8 +455,10 @@ export async function updateGoal(req: AuthRequest, res: Response) {
 export async function checkIn(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { goalId } = req.body;
+    const { goalId, notes, attachments } = req.body;
     const timezone = req.headers["x-user-tz"] as string | undefined;
+    
+    logger.info("Check-in request:", { userId, goalId, hasNotes: !!notes, hasAttachments: !!attachments, attachmentsCount: attachments?.length || 0 });
     const today = new Date();
     const todayStr = getDateString(today, timezone);
 
@@ -513,6 +515,8 @@ export async function checkIn(req: AuthRequest, res: Response) {
       data: {
         goalId: freshGoal.id,
         checkInDate,
+        notes: notes || null, // Store notes if provided
+        attachments: attachments && attachments.length > 0 ? JSON.stringify(attachments) : null, // Store attachments as JSON
       },
     });
 

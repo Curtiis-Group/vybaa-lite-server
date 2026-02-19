@@ -86,6 +86,8 @@ model CheckIn {
   goal   Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
   checkInDate DateTime @map("check_in_date")
+  notes       String?  @db.Text // Optional notes for the check-in
+  attachments String?  // JSON array of attachments: [{type: 'image'|'audio', url: string, publicId?: string, name?: string}]
 
   createdAt DateTime @default(now()) @map("created_at")
 

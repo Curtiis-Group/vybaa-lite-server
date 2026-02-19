@@ -12,25 +12,35 @@ export async function uploadImage(req: AuthRequest, res: Response) {
       return res.status(400).json({ msg: "No image provided" });
     }
 
-    // Validate base64 image format
-    if (!image.startsWith('data:image/')) {
-      return res.status(400).json({ msg: "Invalid image format" });
-    }
-
-    // Upload to Cloudinary
-    const uploadResult = await cloudinary.uploader.upload(image, {
+    // Determine resource type based on data URL
+    let resourceType: 'image' | 'video' | 'raw' = 'image';
+    let uploadOptions: any = {
       folder: `vybaa/${folder}`,
       public_id: `${userId}_${Date.now()}`,
-      resource_type: 'image',
-      transformation: [
+      resource_type: resourceType,
+    };
+
+    if (image.startsWith('data:image/')) {
+      resourceType = 'image';
+      uploadOptions.resource_type = 'image';
+      uploadOptions.transformation = [
         { width: 800, height: 800, crop: 'limit' },
         { quality: 'auto:good' },
         { fetch_format: 'auto' },
-      ],
-    });
+      ];
+    } else if (image.startsWith('data:audio/')) {
+      resourceType = 'video'; // Cloudinary uses 'video' resource type for audio files
+      uploadOptions.resource_type = 'video';
+      // No transformations for audio
+    } else {
+      return res.status(400).json({ msg: "Invalid file format. Only images and audio are supported." });
+    }
+
+    // Upload to Cloudinary
+    const uploadResult = await cloudinary.uploader.upload(image, uploadOptions);
 
     res.json({
-      msg: "Image uploaded successfully",
+      msg: "File uploaded successfully",
       data: {
         url: uploadResult.secure_url,
         publicId: uploadResult.public_id,
@@ -38,9 +48,9 @@ export async function uploadImage(req: AuthRequest, res: Response) {
     });
   } catch (error: any) {
     console.log(error)
-    logger.error("Image upload error:", { error, userId: req.userId });
+    logger.error("File upload error:", { error, userId: req.userId });
     res.status(500).json({ 
-      msg: "Image upload failed",
+      msg: "File upload failed",
       error: error.message 
     });
   }

@@ -218,7 +218,8 @@ class NotificationService {
       });
 
       const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      // Use UTC date to avoid timezone issues
+      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
       for (const goal of goals) {
         if (!goal.reminderTime) continue;
@@ -226,13 +227,13 @@ class NotificationService {
         // Parse reminder time (format: "HH:MM")
         const [hours, minutes] = goal.reminderTime.split(":").map(Number);
         
-        // Calculate scheduled time for today
+        // Calculate scheduled time for today using UTC
         const scheduledTime = new Date(today);
-        scheduledTime.setHours(hours || 0, minutes, 0, 0);
+        scheduledTime.setUTCHours(hours || 0, minutes, 0, 0);
 
         // If the time has already passed today, schedule for tomorrow
         if (scheduledTime <= now) {
-          scheduledTime.setDate(scheduledTime.getDate() + 1);
+          scheduledTime.setUTCDate(scheduledTime.getUTCDate() + 1);
         }
 
         // Check if there's already a scheduled reminder for this goal at this time
