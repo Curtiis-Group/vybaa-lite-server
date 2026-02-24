@@ -772,6 +772,95 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
   }
 }
 
+export async function getTemplateParticipants(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { templateId } = req.params;
+    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
+    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+
+    const page = parseInt(String(pageParam || "1")) || 1;
+    const limit = parseInt(String(limitParam || "20")) || 20;
+    const skip = (page - 1) * limit;
+
+    const template = await prisma.goalTemplate.findUnique({
+      where: { id: templateId },
+      include: {
+        community: true,
+      },
+    });
+
+    if (!template) {
+      return res.status(404).json({ msg: "Template not found" });
+    }
+
+    // Check if user is member of community
+    if (!(await isMember(template.communityId, userId))) {
+      return res.status(403).json({ msg: "Must be a member to view template participants" });
+    }
+
+    // Get goals started from this template with user info and progress
+    const [goals, totalCount] = await Promise.all([
+      prisma.goal.findMany({
+        where: {
+          templateId: templateId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              firstName: true,
+              lastName: true,
+              avatarUrl: true,
+            },
+          },
+        },
+        orderBy: {
+          startedAt: "desc",
+        },
+        take: limit,
+        skip,
+      }),
+      prisma.goal.count({
+        where: {
+          templateId: templateId,
+        },
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    res.json({
+      msg: "Template participants retrieved successfully",
+      data: goals.map((goal) => ({
+        goalId: goal.id,
+        userId: goal.userId,
+        user: goal.user,
+        currentDay: goal.currentDay,
+        targetDays: goal.targetDays,
+        progress: Math.round((goal.currentDay / goal.targetDays) * 100),
+        lastCheckInDate: goal.lastCheckInDate?.toISOString() || null,
+        startedAt: goal.startedAt.toISOString(),
+        isCompleted: goal.currentDay >= goal.targetDays,
+      })),
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasNextPage,
+        hasPrevPage,
+      },
+    });
+  } catch (error) {
+    logger.error("Get template participants error:", { error, userId: req.userId, templateId: req.params.templateId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
 export async function deleteTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;

@@ -256,7 +256,7 @@ model GoalTemplate {
   communityId String   @map("community_id")
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
   
-  goalText    String   @map("goal_text") // Aligned with Goal model
+  goalText    String?   @map("goal_text") // Aligned with Goal model
   targetDays  Int      @map("target_days")
   reminderTime String? @map("reminder_time") // Format: "HH:MM" (24-hour format)
   

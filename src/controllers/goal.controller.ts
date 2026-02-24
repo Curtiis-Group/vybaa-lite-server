@@ -60,11 +60,13 @@ async function checkAndResetGoal(goal: any, timezone?: string, userId?: string):
 
       // Send notification about streak reset (only if they had progress)
       if (userId && previousDay > 0) {
+        const communityName = (goal as any).community?.name;
         await notificationService.sendStreakResetNotification(
           userId,
           goal.id,
           previousDay,
-          goal.goalText
+          goal.goalText,
+          communityName
         );
       }
       
@@ -92,11 +94,13 @@ async function checkAndResetGoal(goal: any, timezone?: string, userId?: string):
 
     // Send notification about streak reset (only if they had progress)
     if (userId && previousDay > 0) {
+      const communityName = (goal as any).community?.name;
       await notificationService.sendStreakResetNotification(
         userId,
         goal.id,
         previousDay,
-        goal.goalText
+        goal.goalText,
+        communityName
       );
     }
 
@@ -537,9 +541,16 @@ export async function checkIn(req: AuthRequest, res: Response) {
     // Check if goal should be reset first (MOVED BEFORE check-in validation)
     const wasReset = await checkAndResetGoal(goal, timezone, userId);
     
-    // Fetch fresh goal data after potential reset
+    // Fetch fresh goal data after potential reset (with community info for notifications)
     const freshGoal = await prisma.goal.findUnique({
       where: { id: goal.id },
+      include: {
+        community: {
+          select: {
+            name: true,
+          },
+        },
+      },
     });
 
     if (!freshGoal) {
@@ -597,10 +608,12 @@ export async function checkIn(req: AuthRequest, res: Response) {
 
     // Send notification if goal is completed
     if (newCurrentDay >= freshGoal.targetDays) {
+      const communityName = freshGoal.community?.name;
       await notificationService.sendGoalCompletedNotification(
         userId,
         freshGoal.id,
-        freshGoal.goalText
+        freshGoal.goalText,
+        communityName
       );
       
       // Create community activity for goal completion
@@ -613,11 +626,13 @@ export async function checkIn(req: AuthRequest, res: Response) {
     }
     // Send streak milestone notifications (every 7 days)
     else if (newCurrentDay % 7 === 0) {
+      const communityName = freshGoal.community?.name;
       await notificationService.sendStreakMilestoneNotification(
         userId,
         freshGoal.id,
         newCurrentDay,
-        freshGoal.goalText
+        freshGoal.goalText,
+        communityName
       );
     }
 

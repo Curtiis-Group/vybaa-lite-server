@@ -73,6 +73,9 @@ router.delete("/templates/:templateId", authMiddleware, validate(templateIdParam
 // POST /api/v1/communities/templates/:templateId/start - Start goal from template
 router.post("/templates/:templateId/start", authMiddleware, validate(templateIdParamSchema, "params"), validate(startGoalFromTemplateSchema), communityController.startGoalFromTemplate);
 
+// GET /api/v1/communities/templates/:templateId/participants - Get template participants with progress
+router.get("/templates/:templateId/participants", authMiddleware, validate(templateIdParamSchema, "params"), communityController.getTemplateParticipants);
+
 // ==================== Activity Feed ====================
 
 // GET /api/v1/communities/:communityId/activity - Get activity feed

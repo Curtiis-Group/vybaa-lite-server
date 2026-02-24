@@ -4060,3 +4060,74 @@
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 14:36:01"}
 {"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 14:36:01"}
 {"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 14:36:01"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 14:36:58"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 14:37:01"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 14:37:01"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 14:37:01"}
+{"failureCount":2,"level":"warn","message":"Multicast sends completed with failures","service":"vybaa-lite-server","successCount":2,"timestamp":"2026-02-24 15:00:06"}
+{"level":"info","message":"Notification cmlz95jdx0005153v0klqwxly sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-24 15:00:06"}
+{"level":"info","message":"Processed 1 pending notifications","service":"vybaa-lite-server","timestamp":"2026-02-24 15:00:06"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Start goal from template error:","service":"vybaa-lite-server","templateId":"cmm0n5r5x000h15q1k01jbfzj","timestamp":"2026-02-24 15:09:54","userId":"cml5a0int0000153e9sxl0dei"}
+{"communityId":"cmm0mfjfa000915q1y8dpmv6i","error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Create template error:","service":"vybaa-lite-server","timestamp":"2026-02-24 15:10:19","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"info","message":"SIGINT signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:10:28"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:11:26"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:11:26"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:11:26"}
+{"level":"info","message":"Scheduled reminder for goal cmlc9f0dq003o15unkkbnlwcn at 2026-02-25T14:00:00.000Z","service":"vybaa-lite-server","timestamp":"2026-02-24 15:11:27"}
+{"attachmentsCount":0,"goalId":"cmm0opb67000715q73w5khzd8","hasAttachments":false,"hasNotes":true,"level":"info","message":"Check-in request:","service":"vybaa-lite-server","timestamp":"2026-02-24 15:12:58","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:28:58"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:00"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:00"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:00"}
+{"level":"info","message":"Scheduled reminder for goal cmm0opb67000715q73w5khzd8 at 2026-02-24T16:10:00.000Z","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:03"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:13"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:15"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:15"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:29:15"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-24 15:32:17","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-24 15:32:17","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-24 15:32:17","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-24 15:32:17","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:27"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:28"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:28"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:28"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:49"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:50"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:50"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:33:50"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:34:02"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:34:04"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:34:04"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:34:04"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:14"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:16"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:16"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:16"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:33"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:37"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:37"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:35:37"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-02-24 15:36:13"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-02-24 15:36:19"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-02-24 15:36:19"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-02-24 15:36:19"}
+{"failureCount":2,"level":"warn","message":"Multicast sends completed with failures","service":"vybaa-lite-server","successCount":2,"timestamp":"2026-02-24 16:00:21"}
+{"level":"info","message":"Notification cmlzbt6v0000115jaxr4h905a sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-24 16:00:21"}
+{"level":"info","message":"Processed 1 pending notifications","service":"vybaa-lite-server","timestamp":"2026-02-24 16:00:21"}
+{"level":"info","message":"Scheduled reminder for goal cmm0opb67000715q73w5khzd8 at 2026-02-25T16:10:00.000Z","service":"vybaa-lite-server","timestamp":"2026-02-24 17:29:19"}
+{"level":"info","message":"Scheduled reminder for goal cmlc9f0dx006h15unwei0qhy4 at 2026-02-25T15:00:00.000Z","service":"vybaa-lite-server","timestamp":"2026-02-24 17:29:19"}
+{"level":"info","message":"Scheduled reminder for goal cmlc9f0dz006k15unyw5y92lj at 2026-02-25T16:00:00.000Z","service":"vybaa-lite-server","timestamp":"2026-02-24 17:29:19"}
+{"failureCount":2,"level":"warn","message":"Multicast sends completed with failures","service":"vybaa-lite-server","successCount":2,"timestamp":"2026-02-24 17:29:22"}
+{"level":"info","message":"Notification cmlzdycnh000315jaf8e7qryb sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-24 17:29:22"}
+{"failureCount":2,"level":"warn","message":"Multicast sends completed with failures","service":"vybaa-lite-server","successCount":2,"timestamp":"2026-02-24 17:29:23"}
+{"level":"info","message":"Notification cmm0pbe8q000115d5melzfvt7 sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-24 17:29:23"}
+{"level":"info","message":"Processed 2 pending notifications","service":"vybaa-lite-server","timestamp":"2026-02-24 17:29:23"}
+{"failureCount":2,"level":"warn","message":"Multicast sends completed with failures","service":"vybaa-lite-server","successCount":2,"timestamp":"2026-02-24 18:04:19"}
+{"level":"info","message":"Notification cmlzg3ih7000515jaho3ma4kg sent to user cml5a0int0000153e9sxl0dei","service":"vybaa-lite-server","timestamp":"2026-02-24 18:04:19"}
+{"level":"info","message":"Processed 1 pending notifications","service":"vybaa-lite-server","timestamp":"2026-02-24 18:04:19"}
+{"level":"info","message":"Scheduled reminder for goal cmlc9f0e0006r15uno4kqrrw5 at 2026-02-25T17:00:00.000Z","service":"vybaa-lite-server","timestamp":"2026-02-24 18:58:15"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-24 19:53:39","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-24 19:53:39","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"debug","message":"FCM token already registered","service":"vybaa-lite-server","timestamp":"2026-02-24 19:53:39","userId":"cml5a0int0000153e9sxl0dei"}
+{"level":"info","message":"Scheduled reminder for goal cmm0yux4a0009155wphli08b0 at 2026-02-25T16:10:00.000Z","service":"vybaa-lite-server","timestamp":"2026-02-24 19:58:15"}

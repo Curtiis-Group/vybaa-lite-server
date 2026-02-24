@@ -300,42 +300,57 @@ class NotificationService {
   /**
    * Send goal completed notification
    */
-  async sendGoalCompletedNotification(userId: string, goalId: string, goalText: string) {
+  async sendGoalCompletedNotification(userId: string, goalId: string, goalText: string, communityName?: string) {
+    const title = communityName 
+      ? "Community Goal Completed! 🎉"
+      : "Goal Completed!";
+    const message = communityName
+      ? `Congratulations! You've completed your goal in ${communityName}: ${goalText}`
+      : `Congratulations! You've completed your goal: ${goalText}`;
+    
     return this.createNotification({
       userId,
       goalId,
       type: "goal_completed",
-      title: "Goal Completed!",
-      message: `Congratulations! You've completed your goal: ${goalText}`,
-      data: { goalId, goalText },
+      title,
+      message,
+      data: { goalId, goalText, communityName },
     });
   }
 
   /**
    * Send streak milestone notification
    */
-  async sendStreakMilestoneNotification(userId: string, goalId: string, days: number, goalText: string) {
+  async sendStreakMilestoneNotification(userId: string, goalId: string, days: number, goalText: string, communityName?: string) {
+    const message = communityName
+      ? `Amazing! You're on a ${days}-day streak in ${communityName} for: ${goalText}`
+      : `Amazing! You're on a ${days}-day streak for: ${goalText}`;
+    
     return this.createNotification({
       userId,
       goalId,
       type: "streak_milestone",
       title: `${days}-Day Streak!`,
-      message: `Amazing! You're on a ${days}-day streak for: ${goalText}`,
-      data: { goalId, goalText, days },
+      message,
+      data: { goalId, goalText, days, communityName },
     });
   }
 
   /**
    * Send streak reset notification
    */
-  async sendStreakResetNotification(userId: string, goalId: string, previousDays: number, goalText: string) {
+  async sendStreakResetNotification(userId: string, goalId: string, previousDays: number, goalText: string, communityName?: string) {
+    const message = communityName
+      ? `Your ${previousDays}-day streak in ${communityName} for "${goalText}" was reset due to a missed check-in.`
+      : `Your ${previousDays}-day streak for "${goalText}" was reset due to a missed check-in.`;
+    
     return this.createNotification({
       userId,
       goalId,
       type: "system",
       title: "Streak Reset",
-      message: `Your ${previousDays}-day streak for "${goalText}" was reset due to a missed check-in.`,
-      data: { goalId, goalText, previousDays, resetReason: "missed_checkin" },
+      message,
+      data: { goalId, goalText, previousDays, resetReason: "missed_checkin", communityName },
     });
   }
 }
