@@ -1,9 +1,10 @@
 import { Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
+import { achievementService } from "../services/achievement.service";
+import { communityActivityService } from "../services/community-activity.service";
 import { notificationService } from "../services/notification.service";
 import { pushNotificationService } from "../services/push-notification.service";
-import { achievementService } from "../services/achievement.service";
 import logger from "../utils/logger.util";
 
 // Helper function to get date string in user's timezone (YYYY-MM-DD)
@@ -182,6 +183,12 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
           orderBy: { checkInDate: "desc" },
           take: 1,
         },
+        community: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
@@ -212,6 +219,12 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
           createdAt: goal!.createdAt.toISOString(),
           reminderTime: goal!.reminderTime,
           canCheckIn,
+          templateId: goal!.templateId || null,
+          communityId: goal!.communityId || null,
+          community: goal!.communityId ? {
+            id: goal!.community?.id || goal!.communityId,
+            name: goal!.community?.name || 'Community',
+          } : null,
         };
       })
     );
@@ -258,6 +271,12 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
         checkIns: {
           orderBy: { checkInDate: "desc" },
         },
+        community: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
@@ -296,6 +315,9 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
         startedAt: updatedGoal!.startedAt.toISOString(),
         wasReset,
         canCheckIn,
+        templateId: updatedGoal!.templateId || null,
+        communityId: updatedGoal!.communityId || null,
+        community: updatedGoal!.community || null,
       },
     });
   } catch (error) {
@@ -318,6 +340,12 @@ export async function getGoalById(req: AuthRequest, res: Response) {
       include: {
         checkIns: {
           orderBy: { checkInDate: "desc" },
+        },
+        community: {
+          select: {
+            id: true,
+            name: true,
+          },
         },
       },
     });
@@ -358,6 +386,9 @@ export async function getGoalById(req: AuthRequest, res: Response) {
         reminderTime: updatedGoal!.reminderTime,
         wasReset,
         canCheckIn,
+        templateId: updatedGoal!.templateId || null,
+        communityId: updatedGoal!.communityId || null,
+        community: updatedGoal!.community || null,
       },
     });
   } catch (error) {
@@ -382,6 +413,24 @@ export async function createGoal(req: AuthRequest, res: Response) {
       },
     });
 
+    // Create community activity if goal was started from template
+    if (goal.templateId && goal.communityId) {
+      await communityActivityService.createGoalStartedActivity(goal.id, userId, goal.templateId);
+    }
+
+    // Fetch goal with community info if it exists
+    const goalWithCommunity = await prisma.goal.findUnique({
+      where: { id: goal.id },
+      include: {
+        community: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
     res.json({
       msg: "Goal created successfully",
       data: {
@@ -393,6 +442,9 @@ export async function createGoal(req: AuthRequest, res: Response) {
         lastCheckInDate: null,
         reminderTime: goal.reminderTime,
         canCheckIn: true, // New goals can always be checked in
+        templateId: goal.templateId || null,
+        communityId: goal.communityId || null,
+        community: goalWithCommunity?.community || null,
       },
     });
   } catch (error) {
@@ -538,6 +590,11 @@ export async function checkIn(req: AuthRequest, res: Response) {
       wasReset
     );
 
+    // Create community activity for check-in
+    if (freshGoal.communityId) {
+      await communityActivityService.createCheckInActivity(freshGoal.id, userId);
+    }
+
     // Send notification if goal is completed
     if (newCurrentDay >= freshGoal.targetDays) {
       await notificationService.sendGoalCompletedNotification(
@@ -545,6 +602,11 @@ export async function checkIn(req: AuthRequest, res: Response) {
         freshGoal.id,
         freshGoal.goalText
       );
+      
+      // Create community activity for goal completion
+      if (freshGoal.communityId) {
+        await communityActivityService.createGoalCompletedActivity(freshGoal.id, userId);
+      }
       
       // Check for total goals completed achievement
       await achievementService.checkTotalGoalsAchievement(userId);
@@ -559,6 +621,19 @@ export async function checkIn(req: AuthRequest, res: Response) {
       );
     }
 
+    // Fetch updated goal with community info
+    const updatedGoalWithCommunity = await prisma.goal.findUnique({
+      where: { id: updated.id },
+      include: {
+        community: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
     res.json({
       msg: "Check-in successful",
       data: {
@@ -571,6 +646,9 @@ export async function checkIn(req: AuthRequest, res: Response) {
           startedAt: updated.startedAt.toISOString(),
           reminderTime: updated.reminderTime,
           canCheckIn: false, // After checking in, can't check in again today
+          templateId: updatedGoalWithCommunity?.templateId || null,
+          communityId: updatedGoalWithCommunity?.communityId || null,
+          community: updatedGoalWithCommunity?.community || null,
         },
         achievements: awardedAchievements,
       },

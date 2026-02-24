@@ -5,6 +5,7 @@ import {
   type BadgeDefinition,
 } from "../config/badges.config";
 import { notificationService } from "./notification.service";
+import { communityActivityService } from "./community-activity.service";
 import logger from "../utils/logger.util";
 
 export interface AwardedAchievement {
@@ -89,6 +90,11 @@ class AchievementService {
           milestone,
         },
       });
+
+      // Create community activity for achievement
+      if (goalId) {
+        await communityActivityService.createAchievementActivity(achievement.id, userId, goalId);
+      }
 
       logger.info(`Badge awarded: ${badgeDef.title} to user ${userId}`);
 

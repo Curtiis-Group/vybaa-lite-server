@@ -49,6 +49,14 @@ model User {
   achievements  Achievement[]
   chillSessions ChillSession[]
   journals      Journal[]
+  
+  // Community relations
+  ownedCommunities    Community[]           @relation("CommunityOwner")
+  communityMemberships CommunityMember[]
+  createdTemplates    GoalTemplate[]        @relation("TemplateCreator")
+  communityActivities  CommunityActivity[]
+  activityReactions   ActivityReaction[]
+  activityComments    ActivityComment[]
 
   // Summary caching
   lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
@@ -72,11 +80,20 @@ model Goal {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id])
 
+  // Community relations
+  templateId  String?       @map("template_id")
+  template   GoalTemplate? @relation(fields: [templateId], references: [id])
+  communityId String?       @map("community_id")
+  community   Community?   @relation(fields: [communityId], references: [id])
+
   checkIns CheckIn[]
 
   startedAt DateTime @map("started_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
+  
+  @@index([templateId])
+  @@index([communityId])
 }
 
 model CheckIn {
@@ -177,4 +194,135 @@ model Journal {
   @@unique([userId, date])
   @@index([userId, date])
   @@map("journals")
+}
+
+enum CommunityMemberRole {
+  OWNER
+  MOD
+  MEMBER
+}
+
+enum CommunityActivityType {
+  GOAL_STARTED
+  GOAL_CHECK_IN
+  GOAL_COMPLETED
+  ACHIEVEMENT_EARNED
+  TEMPLATE_CREATED
+}
+
+model Community {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  coverImage  String?  @map("cover_image")
+  isPublic    Boolean  @default(true) @map("is_public")
+  category    String?
+  
+  ownerId String @map("owner_id")
+  owner   User   @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  members   CommunityMember[]
+  templates GoalTemplate[]
+  activities CommunityActivity[]
+  goals     Goal[]
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  
+  @@index([ownerId])
+  @@index([isPublic, createdAt])
+  @@map("communities")
+}
+
+model CommunityMember {
+  id          String   @id @default(cuid())
+  communityId String   @map("community_id")
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  role CommunityMemberRole @default(MEMBER)
+  
+  joinedAt DateTime @default(now()) @map("joined_at")
+  
+  @@unique([communityId, userId])
+  @@index([userId])
+  @@index([communityId])
+  @@map("community_members")
+}
+
+model GoalTemplate {
+  id          String   @id @default(cuid())
+  communityId String   @map("community_id")
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  
+  goalText    String   @map("goal_text") // Aligned with Goal model
+  targetDays  Int      @map("target_days")
+  reminderTime String? @map("reminder_time") // Format: "HH:MM" (24-hour format)
+  
+  createdBy String @map("created_by")
+  creator   User   @relation("TemplateCreator", fields: [createdBy], references: [id])
+  
+  startedGoals Goal[]
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  
+  @@index([communityId])
+  @@index([createdBy])
+  @@map("goal_templates")
+}
+
+model CommunityActivity {
+  id          String   @id @default(cuid())
+  communityId String   @map("community_id")
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type     CommunityActivityType
+  goalId   String?  @map("goal_id")
+  metadata String?  @db.Text // JSON string for additional data
+  
+  reactions ActivityReaction[]
+  comments  ActivityComment[]
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  @@index([communityId, createdAt])
+  @@index([userId])
+  @@index([goalId])
+  @@map("community_activities")
+}
+
+model ActivityReaction {
+  id         String   @id @default(cuid())
+  activityId String   @map("activity_id")
+  activity   CommunityActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  @@unique([activityId, userId])
+  @@index([activityId])
+  @@index([userId])
+  @@map("activity_reactions")
+}
+
+model ActivityComment {
+  id         String   @id @default(cuid())
+  activityId String   @map("activity_id")
+  activity   CommunityActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  text      String   @db.Text
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  
+  @@index([activityId])
+  @@index([userId])
+  @@map("activity_comments")
 }

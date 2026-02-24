@@ -50,7 +50,8 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     const duration = Date.now() - start;
 
     console.log(
-      `${chalk.dim("←")} ${methodColor(req.method)} ${chalk.white(
+      //put the datestamp i this format 2026-02-24 13:28:31
+      `[${chalk.yellow(new Date().toISOString())}]${chalk.dim("←")} ${methodColor(req.method)} ${chalk.white(
         req.originalUrl
       )} ${statusColor(res.statusCode)} ${chalk.gray(`${duration}ms`)} ${chalk.dim(
         req.ip

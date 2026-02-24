@@ -1,6 +1,7 @@
-import winston from "winston";
-import path from "path";
+import chalk from "chalk";
 import { existsSync, mkdirSync } from "fs";
+import path from "path";
+import winston from "winston";
 
 const logDir = "logs";
 
@@ -21,8 +22,10 @@ const logFormat = winston.format.combine(
 const consoleFormat = winston.format.combine(
   winston.format.colorize(),
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-  winston.format.printf(({ timestamp, level, message, ...meta }) => {
-    let msg = `${timestamp} [${level}]: ${message}`;
+  winston.format.printf(({ timestamp, level, message, service,  ...meta }) => {
+
+
+    let msg = `${chalk.bold(chalk.blue(`[${service}]`))}[${level}][${chalk.yellow(timestamp)}]=> ${message}`;
     if (Object.keys(meta).length > 0) {
       msg += ` ${JSON.stringify(meta)}`;
     }

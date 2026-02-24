@@ -8,6 +8,7 @@ import notificationRoutes from "./notification.routes";
 import achievementRoutes from "./achievement.routes";
 import chillRoutes from "./chill.routes";
 import journalRoutes from "./journal.routes";
+import communityRoutes from "./community.routes";
 
 const router: Router = Router();
 
@@ -55,5 +56,8 @@ router.use("/v1/chill", chillRoutes);
 
 // Mount journal routes at /api/v1/journals
 router.use("/v1/journals", journalRoutes);
+
+// Mount community routes at /api/v1/communities
+router.use("/v1/communities", communityRoutes);
 
 export default router;
