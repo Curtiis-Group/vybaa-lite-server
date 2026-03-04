@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { NextFunction, Request, Response } from "express";
+import { metricsService } from "../services/metrics.service";
 
 export function requestLogger(req: Request, res: Response, next: NextFunction) {
   const start = Date.now();
@@ -57,6 +58,15 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
         req.ip
       )}`
     );
+
+    // Fire-and-forget metrics record; do not await to avoid impacting latency.
+    metricsService
+      .record("http_request_duration_ms", duration, {
+        route: req.originalUrl,
+        method: req.method,
+        status: res.statusCode,
+      })
+      .catch(() => {});
 
     return originalSend.call(this, data);
   };

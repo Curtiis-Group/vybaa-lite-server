@@ -295,6 +295,19 @@ model CommunityActivity {
   @@map("community_activities")
 }
 
+model ServerMetric {
+  id        String   @id @default(cuid())
+
+  name      String
+  tags      String[] @default([])
+  value     Float
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([name, createdAt])
+  @@map("server_metrics")
+}
+
 model ActivityReaction {
   id         String   @id @default(cuid())
   activityId String   @map("activity_id")

@@ -1,6 +1,8 @@
 import { getAblyClient } from "../config/ably.config";
 import { prisma } from "../config/db.config";
 import logger from "../utils/logger.util";
+import { cacheService } from "./cache.service";
+import { metricsService } from "./metrics.service";
 import { pushNotificationService } from "./push-notification.service";
 
 export interface CreateNotificationData {
@@ -208,6 +210,17 @@ class NotificationService {
    */
   async scheduleGoalReminders() {
     try {
+      // Ensure we only run the heavy scheduling logic once per UTC day.
+      const now = new Date();
+      const todayKey = now.toISOString().split("T")[0]; // YYYY-MM-DD (UTC)
+      const cacheKey = "scheduler:goalReminders:lastRunDate";
+
+      const lastRun = await cacheService.get<string>(cacheKey);
+      if (lastRun === todayKey) {
+        // Already scheduled for today; skip DB work.
+        return;
+      }
+
       const goals = await prisma.goal.findMany({
         where: {
           reminderTime: { not: null },
@@ -217,9 +230,10 @@ class NotificationService {
         },
       });
 
-      const now = new Date();
       // Use UTC date to avoid timezone issues
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+      let scheduledCount = 0;
 
       for (const goal of goals) {
         if (!goal.reminderTime) continue;
@@ -262,9 +276,22 @@ class NotificationService {
             scheduledFor: scheduledTime,
           });
 
-          logger.info(`Scheduled reminder for goal ${goal.id} at ${scheduledTime.toISOString()}`);
+          scheduledCount++;
+          logger.info(
+            `Scheduled reminder for goal ${goal.id} at ${scheduledTime.toISOString()}`,
+          );
         }
       }
+
+      // Mark this day's scheduling as completed; TTL slightly over 24h for safety.
+      await cacheService.set(cacheKey, todayKey, 26 * 60 * 60);
+
+      // Record metrics (fire-and-forget)
+      metricsService
+        .record("scheduler_goal_reminders_scheduled", scheduledCount, {
+          day: todayKey!,
+        })
+        .catch(() => {});
     } catch (error) {
       logger.error("Error scheduling goal reminders:", error);
     }
@@ -283,14 +310,96 @@ class NotificationService {
           scheduledFor: { lte: now },
           sentAt: null,
         },
+        select: {
+          id: true,
+          type: true,
+          goalId: true,
+        },
       });
 
-      for (const notification of pendingNotifications) {
-        await this.sendNotification(notification.id);
+      if (pendingNotifications.length === 0) {
+        return;
       }
 
-      if (pendingNotifications.length > 0) {
-        logger.info(`Processed ${pendingNotifications.length} pending notifications`);
+      // Preload goals for goal_reminder notifications so we can avoid
+      // sending reminders after a goal has already been completed today.
+      const goalReminderNotifications = pendingNotifications.filter(
+        (n) => n.type === "goal_reminder" && n.goalId,
+      );
+
+      const goalIds = Array.from(
+        new Set(
+          goalReminderNotifications
+            .map((n) => n.goalId)
+            .filter((id): id is string => !!id),
+        ),
+      );
+
+      const goalsById: Record<string, { lastCheckInDate: Date | null }> = {};
+
+      if (goalIds.length > 0) {
+        const goals = await prisma.goal.findMany({
+          where: { id: { in: goalIds } },
+          select: { id: true, lastCheckInDate: true },
+        });
+
+        for (const goal of goals) {
+          goalsById[goal.id] = {
+            lastCheckInDate: goal.lastCheckInDate,
+          };
+        }
+      }
+
+      const isSameUtcDate = (a: Date, b: Date) => {
+        return (
+          a.getUTCFullYear() === b.getUTCFullYear() &&
+          a.getUTCMonth() === b.getUTCMonth() &&
+          a.getUTCDate() === b.getUTCDate()
+        );
+      };
+
+      let processedCount = 0;
+      let skippedBecauseCheckedIn = 0;
+
+      for (const notification of pendingNotifications) {
+        // For goal reminders, skip sending if the goal has already been
+        // checked in for "today" (UTC date comparison).
+        if (notification.type === "goal_reminder" && notification.goalId) {
+          const goal = goalsById[notification.goalId];
+          if (goal?.lastCheckInDate && isSameUtcDate(goal.lastCheckInDate, now)) {
+            // Mark as sent without sending a push/real-time notification,
+            // so it won't be retried again for this cycle.
+            await prisma.notification.update({
+              where: { id: notification.id },
+              data: { sentAt: now },
+            });
+            processedCount++;
+            skippedBecauseCheckedIn++;
+            continue;
+          }
+        }
+
+        await this.sendNotification(notification.id);
+        processedCount++;
+      }
+
+      if (processedCount > 0) {
+        logger.info(`Processed ${processedCount} pending notifications`);
+      }
+
+      // Record metrics (fire-and-forget)
+      if (processedCount > 0) {
+        metricsService
+          .record("scheduler_notifications_processed", processedCount)
+          .catch(() => {});
+      }
+      if (skippedBecauseCheckedIn > 0) {
+        metricsService
+          .record(
+            "scheduler_notifications_skipped_already_checked_in",
+            skippedBecauseCheckedIn,
+          )
+          .catch(() => {});
       }
     } catch (error) {
       logger.error("Error processing pending notifications:", error);
