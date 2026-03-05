@@ -405,6 +405,9 @@ export async function leaveCommunity(req: AuthRequest, res: Response) {
       },
     });
 
+    // Create activity entry for leaving the community
+    await communityActivityService.createMemberLeftActivity(communityId, userId);
+
     res.json({
       msg: "Left community successfully",
       data: null,
@@ -1011,10 +1014,24 @@ export async function getActivityFeed(req: AuthRequest, res: Response) {
           },
         });
 
+        const createdAtDate = activity.createdAt;
+        const hourBucket = new Date(
+          Date.UTC(
+            createdAtDate.getUTCFullYear(),
+            createdAtDate.getUTCMonth(),
+            createdAtDate.getUTCDate(),
+            createdAtDate.getUTCHours(),
+            0,
+            0,
+            0
+          )
+        ).toISOString();
+
         return {
           ...activity,
           createdAt: activity.createdAt.toISOString(),
           hasUserReacted: !!userReaction,
+          hourBucket,
         };
       })
     );

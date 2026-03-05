@@ -112,6 +112,40 @@ class CommunityActivityService {
   }
 
   /**
+   * Create activity when a user's streak is reset for a community goal
+   */
+  async createStreakResetActivity(goalId: string, userId: string, previousDays: number): Promise<void> {
+    try {
+      const goal = await prisma.goal.findUnique({
+        where: { id: goalId },
+        include: {
+          template: true,
+        },
+      });
+
+      if (!goal || !goal.communityId) {
+        return; // Not a community goal, skip
+      }
+
+      await prisma.communityActivity.create({
+        data: {
+          communityId: goal.communityId,
+          userId,
+          type: CommunityActivityType.GOAL_STREAK_RESET,
+          goalId,
+          metadata: JSON.stringify({
+            previousDays,
+            templateId: goal.templateId,
+            goalText: goal.goalText,
+          }),
+        },
+      });
+    } catch (error) {
+      logger.error("Create streak reset activity error:", { error, goalId, userId });
+    }
+  }
+
+  /**
    * Create activity when an achievement is earned for a community goal
    */
   async createAchievementActivity(achievementId: string, userId: string, goalId: string | null): Promise<void> {
@@ -184,6 +218,54 @@ class CommunityActivityService {
       });
     } catch (error) {
       logger.error("Create template created activity error:", { error, templateId, userId, communityId });
+    }
+  }
+
+  /**
+   * Create activity when a member leaves a community
+   */
+  async createMemberLeftActivity(communityId: string, userId: string): Promise<void> {
+    try {
+      await prisma.communityActivity.create({
+        data: {
+          communityId,
+          userId,
+          type: CommunityActivityType.MEMBER_LEFT,
+          metadata: JSON.stringify({}),
+        },
+      });
+    } catch (error) {
+      logger.error("Create member left activity error:", { error, communityId, userId });
+    }
+  }
+
+  /**
+   * Create activity when a community goal is deleted
+   */
+  async createGoalDeletedActivity(goalId: string, userId: string): Promise<void> {
+    try {
+      const goal = await prisma.goal.findUnique({
+        where: { id: goalId },
+      });
+
+      if (!goal || !goal.communityId) {
+        return; // Not a community goal, skip
+      }
+
+      await prisma.communityActivity.create({
+        data: {
+          communityId: goal.communityId,
+          userId,
+          type: CommunityActivityType.GOAL_DELETED,
+          goalId,
+          metadata: JSON.stringify({
+            goalText: goal.goalText,
+            targetDays: goal.targetDays,
+          }),
+        },
+      });
+    } catch (error) {
+      logger.error("Create goal deleted activity error:", { error, goalId, userId });
     }
   }
 }

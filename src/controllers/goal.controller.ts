@@ -68,6 +68,15 @@ async function checkAndResetGoal(goal: any, timezone?: string, userId?: string):
           goal.goalText,
           communityName
         );
+
+        // Create community activity for streak reset (if it's a community goal)
+        if (goal.communityId) {
+          await communityActivityService.createStreakResetActivity(
+            goal.id,
+            userId,
+            previousDay
+          );
+        }
       }
       
       return true;
@@ -102,6 +111,15 @@ async function checkAndResetGoal(goal: any, timezone?: string, userId?: string):
         goal.goalText,
         communityName
       );
+
+      // Create community activity for streak reset (if it's a community goal)
+      if (goal.communityId) {
+        await communityActivityService.createStreakResetActivity(
+          goal.id,
+          userId,
+          previousDay
+        );
+      }
     }
 
     return true;
@@ -757,6 +775,11 @@ export async function deleteGoal(req: AuthRequest, res: Response) {
     await prisma.goal.delete({
       where: { id: goal.id },
     });
+
+    // Create community activity for goal deletion (if it's a community goal)
+    if (goal.communityId) {
+      await communityActivityService.createGoalDeletedActivity(goal.id, userId);
+    }
 
     res.json({
       msg: "Goal deleted successfully",
