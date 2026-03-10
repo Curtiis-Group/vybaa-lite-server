@@ -36,6 +36,33 @@ export const communityIdParamSchema = z.object({
   communityId: z.string().min(1, "Community ID is required"),
 });
 
+const milestoneSchema = z.object({
+  id: z.string().optional(), // Present when updating existing milestones
+  name: z
+    .string()
+    .min(1, "Milestone name is required")
+    .max(100, "Milestone name must be less than 100 characters"),
+  description: z
+    .string()
+    .max(500, "Description must be less than 500 characters")
+    .optional(),
+  triggerType: z.enum(["DAY", "PERCENTAGE"]),
+  triggerValue: z
+    .number()
+    .int("Trigger value must be an integer")
+    .min(1, "Trigger value must be at least 1")
+    .max(365, "Trigger value cannot exceed 365"),
+  points: z
+    .number()
+    .int("Points must be an integer")
+    .min(0, "Points cannot be negative"),
+  order: z
+    .number()
+    .int("Order must be an integer")
+    .min(0, "Order cannot be negative")
+    .optional(),
+});
+
 // Goal template creation schema (aligned with goal creation)
 export const createTemplateSchema = z.object({
   goalText: z
@@ -51,6 +78,7 @@ export const createTemplateSchema = z.object({
     .string()
     .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
     .optional(),
+  milestones: z.array(milestoneSchema).optional(),
 });
 
 // Goal template update schema (aligned with goal update)
@@ -71,6 +99,7 @@ export const updateTemplateSchema = z.object({
     .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
     .nullable()
     .optional(),
+  milestones: z.array(milestoneSchema).optional(),
 });
 
 // Template ID param schema
@@ -115,4 +144,24 @@ export const activityIdParamSchema = z.object({
 // Comment ID param schema
 export const commentIdParamSchema = z.object({
   commentId: z.string().min(1, "Comment ID is required"),
+});
+
+// ==================== Invite schemas ====================
+
+// Create invite schema
+export const createInviteSchema = z.object({
+  inviteeUsername: z.string().min(1).max(20).optional(),
+  inviteeEmail: z.string().email("Must be a valid email").optional(),
+  maxUses: z.number().int().min(-1).default(-1).optional(), // -1 = unlimited
+  expiresInDays: z.number().int().min(1).max(30).optional(), // optional expiry
+});
+
+// Invite code param schema
+export const inviteCodeParamSchema = z.object({
+  code: z.string().min(1, "Invite code is required"),
+});
+
+// Join by code schema
+export const joinByCodeSchema = z.object({
+  code: z.string().min(1, "Invite code is required"),
 });

@@ -14,6 +14,9 @@ import {
   createCommentSchema,
   activityIdParamSchema,
   commentIdParamSchema,
+  createInviteSchema,
+  inviteCodeParamSchema,
+  joinByCodeSchema,
 } from "../validators/community.validators";
 import * as communityController from "../controllers/community.controller";
 
@@ -97,5 +100,22 @@ router.delete("/activity/comments/:commentId", authMiddleware, validate(commentI
 
 // GET /api/v1/communities/:communityId/stats - Get community stats
 router.get("/:communityId/stats", authMiddleware, validate(communityIdParamSchema, "params"), communityController.getCommunityStats);
+
+// ==================== Invites ====================
+
+// POST /api/v1/communities/:communityId/invites - Create invite
+router.post("/:communityId/invites", authMiddleware, validate(communityIdParamSchema, "params"), validate(createInviteSchema), communityController.createInvite);
+
+// GET /api/v1/communities/:communityId/invites - List community invites (owner/mod only)
+router.get("/:communityId/invites", authMiddleware, validate(communityIdParamSchema, "params"), communityController.getCommunityInvites);
+
+// GET /api/v1/communities/invites/:code - Get invite details by code
+router.get("/invites/:code", authMiddleware, validate(inviteCodeParamSchema, "params"), communityController.getInviteByCode);
+
+// POST /api/v1/communities/invites/:code/join - Join community via invite code
+router.post("/invites/:code/join", authMiddleware, validate(inviteCodeParamSchema, "params"), communityController.joinByInviteCode);
+
+// DELETE /api/v1/communities/invites/:inviteId - Revoke an invite
+router.delete("/invites/:inviteId", authMiddleware, communityController.revokeInvite);
 
 export default router;

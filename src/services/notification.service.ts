@@ -1,5 +1,6 @@
 import { getAblyClient } from "../config/ably.config";
 import { prisma } from "../config/db.config";
+import { getStreakMilestonePoints } from "../config/points.config";
 import logger from "../utils/logger.util";
 import { cacheService } from "./cache.service";
 import { metricsService } from "./metrics.service";
@@ -431,17 +432,20 @@ class NotificationService {
    * Send streak milestone notification
    */
   async sendStreakMilestoneNotification(userId: string, goalId: string, days: number, goalText: string, communityName?: string) {
+    const points = getStreakMilestonePoints(days);
+    const pointsText = points > 0 ? ` (+${points} Play Points)` : "";
+    
     const message = communityName
-      ? `Amazing! You're on a ${days}-day streak in ${communityName} for: ${goalText}`
-      : `Amazing! You're on a ${days}-day streak for: ${goalText}`;
+      ? `Amazing! You're on a ${days}-day streak in ${communityName} for: ${goalText}${pointsText}`
+      : `Amazing! You're on a ${days}-day streak for: ${goalText}${pointsText}`;
     
     return this.createNotification({
       userId,
       goalId,
       type: "streak_milestone",
-      title: `${days}-Day Streak!`,
+      title: `${days}-Day Streak!${pointsText}`,
       message,
-      data: { goalId, goalText, days, communityName },
+      data: { goalId, goalText, days, communityName, points },
     });
   }
 
@@ -460,6 +464,215 @@ class NotificationService {
       title: "Streak Reset",
       message,
       data: { goalId, goalText, previousDays, resetReason: "missed_checkin", communityName },
+    });
+  }
+
+  /**
+   * Send notification when someone joins a community (notify owner and mods)
+   */
+  async sendMemberJoinedNotification(communityId: string, newMemberId: string, newMemberName: string, communityName: string) {
+    // Get all owners and mods to notify
+    const ownersAndMods = await prisma.communityMember.findMany({
+      where: {
+        communityId,
+        role: { in: ["OWNER", "MOD"] },
+        userId: { not: newMemberId }, // Don't notify the person who joined
+      },
+      select: { userId: true },
+    });
+
+    const notifications = ownersAndMods.map((member) =>
+      this.createNotification({
+        userId: member.userId,
+        type: "system",
+        title: "New Member Joined",
+        message: `${newMemberName} joined ${communityName}`,
+        data: { communityId, newMemberId, communityName },
+      })
+    );
+
+    await Promise.all(notifications);
+  }
+
+  /**
+   * Send notification when someone leaves a community (notify owner and mods)
+   */
+  async sendMemberLeftNotification(communityId: string, leftMemberId: string, leftMemberName: string, communityName: string) {
+    // Get all owners and mods to notify
+    const ownersAndMods = await prisma.communityMember.findMany({
+      where: {
+        communityId,
+        role: { in: ["OWNER", "MOD"] },
+        userId: { not: leftMemberId }, // Don't notify the person who left
+      },
+      select: { userId: true },
+    });
+
+    const notifications = ownersAndMods.map((member) =>
+      this.createNotification({
+        userId: member.userId,
+        type: "system",
+        title: "Member Left",
+        message: `${leftMemberName} left ${communityName}`,
+        data: { communityId, leftMemberId, communityName },
+      })
+    );
+
+    await Promise.all(notifications);
+  }
+
+  /**
+   * Send notification when a new template is created (notify all members except creator)
+   */
+  async sendTemplateCreatedNotification(communityId: string, templateId: string, templateGoalText: string, creatorName: string, communityName: string, creatorId: string) {
+    // Get all members except the creator
+    const members = await prisma.communityMember.findMany({
+      where: {
+        communityId,
+        userId: { not: creatorId }, // Exclude creator
+      },
+      select: { userId: true },
+    });
+
+    const notifications = members
+      .filter((member) => member.userId) // Safety check
+      .map((member) =>
+        this.createNotification({
+          userId: member.userId,
+          type: "system",
+          title: "New Goal Template",
+          message: `${creatorName} created a new goal template in ${communityName}: ${templateGoalText}`,
+          data: { communityId, templateId, templateGoalText, communityName },
+        })
+      );
+
+    await Promise.all(notifications);
+  }
+
+  /**
+   * Send notification when someone starts a goal from your template
+   */
+  async sendGoalStartedFromTemplateNotification(templateCreatorId: string, starterName: string, templateGoalText: string, communityName: string, goalId: string) {
+    return this.createNotification({
+      userId: templateCreatorId,
+      goalId,
+      type: "system",
+      title: "Someone Started Your Template",
+      message: `${starterName} started a goal from your template "${templateGoalText}" in ${communityName}`,
+      data: { goalId, templateGoalText, communityName, starterName },
+    });
+  }
+
+  /**
+   * Send notification when someone reacts to your activity
+   */
+  async sendActivityReactionNotification(activityOwnerId: string, reactorName: string, activityType: string, communityName: string, activityId: string) {
+    // Don't notify if user reacted to their own activity
+    if (!activityOwnerId) return;
+
+    return this.createNotification({
+      userId: activityOwnerId,
+      type: "system",
+      title: "New Reaction",
+      message: `${reactorName} reacted to your activity in ${communityName}`,
+      data: { activityId, activityType, communityName, reactorName },
+    });
+  }
+
+  /**
+   * Send notification when someone comments on your activity
+   */
+  async sendActivityCommentNotification(activityOwnerId: string, commenterName: string, commentText: string, communityName: string, activityId: string) {
+    // Don't notify if user commented on their own activity
+    if (!activityOwnerId) return;
+
+    const truncatedComment = commentText.length > 50 ? commentText.substring(0, 50) + "..." : commentText;
+
+    return this.createNotification({
+      userId: activityOwnerId,
+      type: "system",
+      title: "New Comment",
+      message: `${commenterName} commented on your activity in ${communityName}: "${truncatedComment}"`,
+      data: { activityId, commentText, communityName, commenterName },
+    });
+  }
+
+  /**
+   * Send notification when user's role is changed
+   */
+  async sendRoleChangedNotification(userId: string, newRole: string, communityName: string, changedBy: string) {
+    const roleLabel = newRole === "MOD" ? "moderator" : "member";
+    return this.createNotification({
+      userId,
+      type: "system",
+      title: "Role Updated",
+      message: `${changedBy} changed your role to ${roleLabel} in ${communityName}`,
+      data: { communityId: "", newRole, communityName, changedBy },
+    });
+  }
+
+  /**
+   * Send notification when a community is deleted (notify all members)
+   */
+  async sendCommunityDeletedNotification(communityId: string, communityName: string) {
+    const members = await prisma.communityMember.findMany({
+      where: { communityId },
+      select: { userId: true },
+    });
+
+    const notifications = members.map((member) =>
+      this.createNotification({
+        userId: member.userId,
+        type: "system",
+        title: "Community Deleted",
+        message: `The community "${communityName}" has been deleted`,
+        data: { communityId, communityName },
+      })
+    );
+
+    await Promise.all(notifications);
+  }
+
+  /**
+   * Send notification when a template is deleted (notify users who started goals from it)
+   */
+  async sendTemplateDeletedNotification(templateId: string, templateGoalText: string, communityName: string) {
+    // Find all goals started from this template
+    const goals = await prisma.goal.findMany({
+      where: { templateId },
+      select: { userId: true, id: true },
+      distinct: ["userId"], // Get unique users
+    });
+
+    const notifications = goals.map((goal) =>
+      this.createNotification({
+        userId: goal.userId,
+        goalId: goal.id,
+        type: "system",
+        title: "Template Deleted",
+        message: `The goal template "${templateGoalText}" in ${communityName} has been deleted`,
+        data: { templateId, templateGoalText, communityName, goalId: goal.id },
+      })
+    );
+
+    await Promise.all(notifications);
+  }
+
+  /**
+   * Send notification when a milestone is reached
+   */
+  async sendMilestoneReachedNotification(userId: string, goalId: string, milestoneName: string, points: number, goalText: string, communityName?: string) {
+    const message = communityName
+      ? `You reached the milestone "${milestoneName}" (+${points} pts) in ${communityName} for: ${goalText}`
+      : `You reached the milestone "${milestoneName}" (+${points} pts) for: ${goalText}`;
+
+    return this.createNotification({
+      userId,
+      goalId,
+      type: "system",
+      title: "Milestone Reached! 🎯",
+      message,
+      data: { goalId, milestoneName, points, goalText, communityName },
     });
   }
 }

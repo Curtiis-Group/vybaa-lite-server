@@ -1,8 +1,10 @@
 import { Response } from "express";
 import { prisma } from "../config/db.config";
+import { isStreakMilestoneWithPoints } from "../config/points.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { achievementService } from "../services/achievement.service";
 import { communityActivityService } from "../services/community-activity.service";
+import { milestoneService } from "../services/milestone.service";
 import { notificationService } from "../services/notification.service";
 import { pushNotificationService } from "../services/push-notification.service";
 import logger from "../utils/logger.util";
@@ -120,6 +122,13 @@ async function checkAndResetGoal(goal: any, timezone?: string, userId?: string):
           previousDay
         );
       }
+
+      // Clear all pending points for this goal (streak reset = lose all milestone rewards)
+      await prisma.goalPendingPoints.deleteMany({
+        where: { goalId: goal.id },
+      });
+
+      logger.info(`Cleared pending points for goal ${goal.id} due to streak reset`);
     }
 
     return true;
@@ -602,7 +611,8 @@ export async function checkIn(req: AuthRequest, res: Response) {
     });
 
     // Increment current day and update last check-in date
-    const newCurrentDay = freshGoal.currentDay + 1;
+    const previousDay = freshGoal.currentDay;
+    const newCurrentDay = previousDay + 1;
     const updated = await prisma.goal.update({
       where: { id: freshGoal.id },
       data: {
@@ -610,6 +620,13 @@ export async function checkIn(req: AuthRequest, res: Response) {
         lastCheckInDate: checkInDate,
       },
     });
+
+    // Check and award milestones for this goal
+    // 1. Community template milestones (if applicable)
+    await milestoneService.checkAndAwardMilestones(freshGoal.id, userId, previousDay);
+    
+    // 2. Main app streak milestones (for all goals)
+    await milestoneService.checkAndAwardStreakMilestones(freshGoal.id, userId, previousDay, newCurrentDay);
 
     // Check and award achievements
     const awardedAchievements = await achievementService.checkAndAwardBadges(
@@ -639,11 +656,38 @@ export async function checkIn(req: AuthRequest, res: Response) {
         await communityActivityService.createGoalCompletedActivity(freshGoal.id, userId);
       }
       
+      // Transfer pending points to user balance
+      const pendingPoints = await prisma.goalPendingPoints.findUnique({
+        where: { goalId: freshGoal.id },
+      });
+
+      if (pendingPoints && pendingPoints.totalPendingPoints > 0) {
+        await prisma.$transaction([
+          // Add points to user balance
+          prisma.user.update({
+            where: { id: userId },
+            data: {
+              points: {
+                increment: pendingPoints.totalPendingPoints,
+              },
+            },
+          }),
+          // Delete pending points record (points are now in wallet)
+          prisma.goalPendingPoints.delete({
+            where: { goalId: freshGoal.id },
+          }),
+        ]);
+
+        logger.info(
+          `Transferred ${pendingPoints.totalPendingPoints} points to user ${userId} for completed goal ${freshGoal.id}`
+        );
+      }
+      
       // Check for total goals completed achievement
       await achievementService.checkTotalGoalsAchievement(userId);
     }
-    // Send streak milestone notifications (every 7 days)
-    else if (newCurrentDay % 7 === 0) {
+    // Send streak milestone notifications for milestone days that award points
+    else if (isStreakMilestoneWithPoints(newCurrentDay)) {
       const communityName = freshGoal.community?.name;
       await notificationService.sendStreakMilestoneNotification(
         userId,

@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import { NextFunction, Request, Response } from "express";
 import { z, ZodError } from "zod";
 
 type ValidationTarget = "body" | "params" | "query";
@@ -16,8 +16,10 @@ export function validate(schema: z.ZodSchema, target: ValidationTarget = "body")
           message: err.message,
         }));
 
+        console.log(errors)
+
         return res.status(400).json({
-          msg: "Validation failed",
+          msg: "Validation failed:"+(errors?.[0] as any)?.message,
           errors,
         });
       }

@@ -9,6 +9,7 @@ import achievementRoutes from "./achievement.routes";
 import chillRoutes from "./chill.routes";
 import journalRoutes from "./journal.routes";
 import communityRoutes from "./community.routes";
+import logger from "../utils/logger.util";
 
 const router: Router = Router();
 
@@ -59,5 +60,31 @@ router.use("/v1/journals", journalRoutes);
 
 // Mount community routes at /api/v1/communities
 router.use("/v1/communities", communityRoutes);
+
+// ==================== Dev-only client log bridge ====================
+if (process.env.NODE_ENV !== "production") {
+  router.post("/v1/debug/client-log", (req, res) => {
+    const { level = "info", message, timestamp } = (req as any).body || {};
+
+    const safeMessage =
+      typeof message === "string" ? message : JSON.stringify(message ?? {});
+
+    switch (level) {
+      case "error":
+        logger.error(safeMessage, { source: "client-console", timestamp });
+        break;
+      case "warn":
+        logger.warn(safeMessage, { source: "client-console", timestamp });
+        break;
+      case "log":
+      case "info":
+      default:
+        logger.info(safeMessage, { source: "client-console", timestamp });
+        break;
+    }
+
+    res.status(204).end();
+  });
+}
 
 export default router;

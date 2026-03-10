@@ -20,12 +20,12 @@ model User {
   password String? // Nullable for OAuth users
 
   // User bio/profile fields
-  firstName   String? @map("first_name")
-  lastName    String? @map("last_name")
-  username    String? @unique
-  avatarUrl   String? @map("avatar_url")
-  currentMood String? @map("current_mood")
-  lifeGoal    String? @map("life_goal")
+  firstName            String?   @map("first_name")
+  lastName             String?   @map("last_name")
+  username             String?    @unique // Required - auto-generated on signup
+  avatarUrl            String?   @map("avatar_url")
+  currentMood          String?   @map("current_mood")
+  lifeGoal             String?   @map("life_goal")
   lastUsernameChangeAt DateTime? @map("last_username_change_at") // Track username changes for cooldown
 
   // Auth fields
@@ -35,8 +35,10 @@ model User {
   // OAuth fields
   googleId String? @unique @map("google_id")
 
+  points Float? @default(0)
+
   // Token management
-  refreshToken String? @map("refresh_token")
+  refreshToken String?  @map("refresh_token")
   fcmTokens    String[] @default([]) @map("fcm_tokens") // Array of FCM device tokens
 
   // OTP fields (for password reset and account confirmation)
@@ -49,14 +51,16 @@ model User {
   achievements  Achievement[]
   chillSessions ChillSession[]
   journals      Journal[]
-  
+
   // Community relations
-  ownedCommunities    Community[]           @relation("CommunityOwner")
+  ownedCommunities     Community[]         @relation("CommunityOwner")
   communityMemberships CommunityMember[]
-  createdTemplates    GoalTemplate[]        @relation("TemplateCreator")
+  createdTemplates     GoalTemplate[]      @relation("TemplateCreator")
   communityActivities  CommunityActivity[]
-  activityReactions   ActivityReaction[]
-  activityComments    ActivityComment[]
+  activityReactions    ActivityReaction[]
+  activityComments     ActivityComment[]
+  createdInvites       CommunityInvite[]   @relation("InviteCreator")
+  receivedInvites      CommunityInvite[]   @relation("InviteRecipient")
 
   // Summary caching
   lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
@@ -82,16 +86,18 @@ model Goal {
 
   // Community relations
   templateId  String?       @map("template_id")
-  template   GoalTemplate? @relation(fields: [templateId], references: [id])
+  template    GoalTemplate? @relation(fields: [templateId], references: [id])
   communityId String?       @map("community_id")
-  community   Community?   @relation(fields: [communityId], references: [id])
+  community   Community?    @relation(fields: [communityId], references: [id])
 
-  checkIns CheckIn[]
+  checkIns      CheckIn[]
+  pendingPoints GoalPendingPoints?
 
-  startedAt DateTime @map("started_at")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  
+  startedAt         DateTime           @map("started_at")
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  goalMilestoneHits GoalMilestoneHit[]
+
   @@index([templateId])
   @@index([communityId])
 }
@@ -104,7 +110,7 @@ model CheckIn {
 
   checkInDate DateTime @map("check_in_date")
   notes       String?  @db.Text // Optional notes for the check-in
-  attachments String?  // JSON array of attachments: [{type: 'image'|'audio', url: string, publicId?: string, name?: string}]
+  attachments String? // JSON array of attachments: [{type: 'image'|'audio', url: string, publicId?: string, name?: string}]
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -146,7 +152,7 @@ model Achievement {
   goalId String? @map("goal_id")
 
   type        String // "streak_milestone", "goal_completed", "total_goals", "total_checkins", "perfect_week", "comeback", "early_bird"
-  milestone   Int    // Day number or count (3, 7, 14, 21, 30, 50, 100, 365)
+  milestone   Int // Day number or count (3, 7, 14, 21, 30, 50, 100, 365)
   title       String // "Adventurous Streaker", "Consistency Champion"
   description String // "Reached 10 consecutive days"
   badgeIcon   String @map("badge_icon") // Emoji or icon identifier
@@ -164,8 +170,8 @@ model ChillSession {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  emotion         String    // User's emotional input
-  duration        Int       // Session duration in minutes
+  emotion         String // User's emotional input
+  duration        Int // Session duration in minutes
   completed       Boolean   @default(false)
   completedAt     DateTime? @map("completed_at")
   postSessionMood String?   @map("post_session_mood") // How user felt after session
@@ -185,7 +191,7 @@ model Journal {
 
   date    DateTime // Date of the journal entry (date only, no time)
   content String   @db.Text // Journal entry text
-  mood    String?  // Mood/emotion tag (e.g., "happy", "anxious", "calm")
+  mood    String? // Mood/emotion tag (e.g., "happy", "anxious", "calm")
   tags    String[] @default([]) // Additional tags
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -209,45 +215,74 @@ enum CommunityActivityType {
   GOAL_STREAK_RESET
   GOAL_DELETED
   MEMBER_LEFT
+  MILESTONE_REACHED
   ACHIEVEMENT_EARNED
   TEMPLATE_CREATED
 }
 
 model Community {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
-  description String?  @db.Text
-  coverImage  String?  @map("cover_image")
-  isPublic    Boolean  @default(true) @map("is_public")
+  description String? @db.Text
+  coverImage  String? @map("cover_image")
+  isPublic    Boolean @default(false) @map("is_public") // Communities are invite-only by default
   category    String?
-  
+
   ownerId String @map("owner_id")
   owner   User   @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  
-  members   CommunityMember[]
-  templates GoalTemplate[]
+
+  members    CommunityMember[]
+  templates  GoalTemplate[]
   activities CommunityActivity[]
-  goals     Goal[]
-  
+  goals      Goal[]
+  invites    CommunityInvite[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-  
+
   @@index([ownerId])
   @@index([isPublic, createdAt])
   @@map("communities")
 }
 
-model CommunityMember {
-  id          String   @id @default(cuid())
-  communityId String   @map("community_id")
+model CommunityInvite {
+  id          String    @id @default(cuid())
+  communityId String    @map("community_id")
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  userId      String   @map("user_id")
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  code      String  @unique // Short shareable code e.g. "A3K9F2"
+  createdBy String  @map("created_by")
+  creator   User    @relation("InviteCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  // For targeted invites
+  inviteeEmail    String? @map("invitee_email")
+  inviteeUsername String? @map("invitee_username")
+  inviteeUserId   String? @map("invitee_user_id")
+  invitee         User?   @relation("InviteRecipient", fields: [inviteeUserId], references: [id], onDelete: SetNull)
+
+  maxUses  Int      @default(-1) @map("max_uses") // -1 = unlimited
+  uses     Int      @default(0)
+  expiresAt DateTime? @map("expires_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([communityId])
+  @@index([code])
+  @@index([inviteeUserId])
+  @@map("community_invites")
+}
+
+model CommunityMember {
+  id          String    @id @default(cuid())
+  communityId String    @map("community_id")
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   role CommunityMemberRole @default(MEMBER)
-  
+
   joinedAt DateTime @default(now()) @map("joined_at")
-  
+
   @@unique([communityId, userId])
   @@index([userId])
   @@index([communityId])
@@ -255,43 +290,82 @@ model CommunityMember {
 }
 
 model GoalTemplate {
-  id          String   @id @default(cuid())
-  communityId String   @map("community_id")
+  id          String    @id @default(cuid())
+  communityId String    @map("community_id")
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  
-  goalText    String?   @map("goal_text") // Aligned with Goal model
-  targetDays  Int      @map("target_days")
+
+  goalText     String? @map("goal_text") // Aligned with Goal model
+  targetDays   Int     @map("target_days")
   reminderTime String? @map("reminder_time") // Format: "HH:MM" (24-hour format)
-  
+
   createdBy String @map("created_by")
   creator   User   @relation("TemplateCreator", fields: [createdBy], references: [id])
-  
+
   startedGoals Goal[]
-  
+  milestones   TemplateMilestone[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-  
+
   @@index([communityId])
   @@index([createdBy])
   @@map("goal_templates")
 }
 
+enum MilestoneTriggerType {
+  DAY
+  PERCENTAGE
+}
+
+model TemplateMilestone {
+  id           String               @id @default(cuid())
+  templateId   String               @map("template_id")
+  template     GoalTemplate         @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  triggerType  MilestoneTriggerType @map("trigger_type")
+  triggerValue Int                  @map("trigger_value")
+  points       Float                @default(0)
+  order        Int                  @default(0)
+
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at")
+  goalMilestoneHits GoalMilestoneHit[]
+
+  @@index([templateId, order])
+  @@map("template_milestones")
+}
+
+model GoalMilestoneHit {
+  id          String            @id @default(cuid())
+  goalId      String            @map("goal_id")
+  goal        Goal              @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  milestoneId String            @map("milestone_id")
+  milestone   TemplateMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  awardedAt   DateTime          @default(now()) @map("awarded_at")
+
+  @@unique([goalId, milestoneId])
+  @@index([goalId])
+  @@index([milestoneId])
+  @@map("goal_milestone_hits")
+}
+
 model CommunityActivity {
-  id          String   @id @default(cuid())
-  communityId String   @map("community_id")
+  id          String    @id @default(cuid())
+  communityId String    @map("community_id")
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  userId      String   @map("user_id")
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   type     CommunityActivityType
-  goalId   String?  @map("goal_id")
-  metadata String?  @db.Text // JSON string for additional data
-  
+  goalId   String?               @map("goal_id")
+  metadata String?               @db.Text // JSON string for additional data
+
   reactions ActivityReaction[]
   comments  ActivityComment[]
-  
+
   createdAt DateTime @default(now()) @map("created_at")
-  
+
   @@index([communityId, createdAt])
   @@index([userId])
   @@index([goalId])
@@ -299,11 +373,11 @@ model CommunityActivity {
 }
 
 model ServerMetric {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  name      String
-  tags      String[] @default([])
-  value     Float
+  name  String
+  tags  String[] @default([])
+  value Float
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -312,14 +386,14 @@ model ServerMetric {
 }
 
 model ActivityReaction {
-  id         String   @id @default(cuid())
-  activityId String   @map("activity_id")
+  id         String            @id @default(cuid())
+  activityId String            @map("activity_id")
   activity   CommunityActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  userId     String   @map("user_id")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  userId     String            @map("user_id")
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now()) @map("created_at")
-  
+
   @@unique([activityId, userId])
   @@index([activityId])
   @@index([userId])
@@ -327,18 +401,31 @@ model ActivityReaction {
 }
 
 model ActivityComment {
-  id         String   @id @default(cuid())
-  activityId String   @map("activity_id")
+  id         String            @id @default(cuid())
+  activityId String            @map("activity_id")
   activity   CommunityActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  userId     String   @map("user_id")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  text      String   @db.Text
-  
+  userId     String            @map("user_id")
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  text String @db.Text
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-  
+
   @@index([activityId])
   @@index([userId])
   @@map("activity_comments")
+}
+
+model GoalPendingPoints {
+  id     String @id @default(cuid())
+  goalId String @unique @map("goal_id")
+  goal   Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  totalPendingPoints Int @default(0) @map("total_pending_points") // Sum of all milestone points earned but not yet released
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("goal_pending_points")
 }

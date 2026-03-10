@@ -14,15 +14,11 @@ class CommunityActivityService {
       const goal = await prisma.goal.findUnique({
         where: { id: goalId },
         include: {
-          template: {
-            include: {
-              community: true,
-            },
-          },
+          template: true,
         },
       });
 
-      if (!goal || !goal.template || !goal.communityId) {
+      if (!goal || !goal.communityId) {
         return; // Not a community goal, skip
       }
 
@@ -34,7 +30,7 @@ class CommunityActivityService {
           goalId,
           metadata: JSON.stringify({
             templateId,
-            templateTitle: goal.template.title,
+            goalText: goal.goalText,
           }),
         },
       });
@@ -70,6 +66,7 @@ class CommunityActivityService {
           metadata: JSON.stringify({
             currentDay: goal.currentDay,
             templateId: goal.templateId,
+            goalText: goal.goalText,
           }),
         },
       });
@@ -103,6 +100,7 @@ class CommunityActivityService {
           metadata: JSON.stringify({
             targetDays: goal.targetDays,
             templateId: goal.templateId,
+            goalText: goal.goalText,
           }),
         },
       });
@@ -184,6 +182,7 @@ class CommunityActivityService {
             milestone: achievement.milestone,
             title: achievement.title,
             templateId: goal.templateId,
+            goalText: goal.goalText,
           }),
         },
       });
@@ -212,7 +211,7 @@ class CommunityActivityService {
           type: CommunityActivityType.TEMPLATE_CREATED,
           metadata: JSON.stringify({
             templateId,
-            templateTitle: template.title,
+            templateTitle: template.goalText,
           }),
         },
       });
@@ -266,6 +265,38 @@ class CommunityActivityService {
       });
     } catch (error) {
       logger.error("Create goal deleted activity error:", { error, goalId, userId });
+    }
+  }
+
+  /**
+   * Create activity when a milestone is reached for a community goal
+   */
+  async createMilestoneReachedActivity(goalId: string, userId: string, milestone: { id: string; name: string; points: number }): Promise<void> {
+    try {
+      const goal = await prisma.goal.findUnique({
+        where: { id: goalId },
+      });
+
+      if (!goal || !goal.communityId) {
+        return; // Not a community goal, skip
+      }
+
+      await prisma.communityActivity.create({
+        data: {
+          communityId: goal.communityId,
+          userId,
+          type: CommunityActivityType.MILESTONE_REACHED,
+          goalId,
+          metadata: JSON.stringify({
+            milestoneId: milestone.id,
+            milestoneName: milestone.name,
+            points: milestone.points,
+            goalText: goal.goalText,
+          }),
+        },
+      });
+    } catch (error) {
+      logger.error("Create milestone reached activity error:", { error, goalId, userId, milestoneId: milestone.id });
     }
   }
 }

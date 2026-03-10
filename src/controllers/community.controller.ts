@@ -2,8 +2,10 @@ import { Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { communityActivityService } from "../services/community-activity.service";
+import { notificationService } from "../services/notification.service";
 import logger from "../utils/logger.util";
 import { CommunityMemberRole, CommunityActivityType } from "@prisma/client";
+import crypto from "crypto";
 
 // Helper function to check if user is owner or mod of community
 async function isOwnerOrMod(communityId: string, userId: string): Promise<boolean> {
@@ -97,13 +99,12 @@ export async function createCommunity(req: AuthRequest, res: Response) {
   }
 }
 
+// Communities are invite-only: this now returns only the communities the user has joined
 export async function getCommunities(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
     const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
-    const isPublicParam = Array.isArray(req.query.isPublic) ? req.query.isPublic[0] : req.query.isPublic;
-    const categoryParam = Array.isArray(req.query.category) ? req.query.category[0] : req.query.category;
 
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "10")) || 10;
@@ -115,53 +116,36 @@ export async function getCommunities(req: AuthRequest, res: Response) {
       });
     }
 
-    const where: any = {};
-    if (isPublicParam !== undefined) {
-      where.isPublic = isPublicParam === "true" || isPublicParam === "1";
-    }
-    if (categoryParam) {
-      where.category = categoryParam;
-    }
+    // Only return communities this user is a member of
+    const totalCount = await prisma.communityMember.count({ where: { userId } });
 
-    const totalCount = await prisma.community.count({ where });
-
-    const communities = await prisma.community.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
+    const memberships = await prisma.communityMember.findMany({
+      where: { userId },
+      orderBy: { joinedAt: "desc" },
       skip,
       take: limit,
       include: {
-        owner: {
-          select: {
-            id: true,
-            username: true,
-            firstName: true,
-            lastName: true,
-            avatarUrl: true,
-          },
-        },
-        _count: {
-          select: {
-            members: true,
-            templates: true,
-            goals: true,
+        community: {
+          include: {
+            owner: {
+              select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true },
+            },
+            _count: {
+              select: { members: true, templates: true, goals: true },
+            },
           },
         },
       },
     });
 
-    // Check if user is member of each community
-    const communitiesWithMembership = await Promise.all(
-      communities.map(async (community) => {
-        const isUserMember = await isMember(community.id, userId);
-        return {
-          ...community,
-          createdAt: community.createdAt.toISOString(),
-          updatedAt: community.updatedAt.toISOString(),
-          isMember: isUserMember,
-        };
-      })
-    );
+    const communities = memberships.map((m) => ({
+      ...m.community,
+      createdAt: m.community.createdAt.toISOString(),
+      updatedAt: m.community.updatedAt.toISOString(),
+      isMember: true,
+      userRole: m.role,
+      joinedAt: m.joinedAt.toISOString(),
+    }));
 
     const totalPages = Math.ceil(totalCount / limit);
     const hasNextPage = page < totalPages;
@@ -169,7 +153,7 @@ export async function getCommunities(req: AuthRequest, res: Response) {
 
     res.json({
       msg: "Communities retrieved successfully",
-      data: communitiesWithMembership,
+      data: communities,
       pagination: {
         page,
         limit,
@@ -306,9 +290,23 @@ export async function deleteCommunity(req: AuthRequest, res: Response) {
       return res.status(403).json({ msg: "Only the owner can delete the community" });
     }
 
+    // Get community info before deleting
+    const community = await prisma.community.findUnique({
+      where: { id: communityId },
+      select: { name: true },
+    });
+
     await prisma.community.delete({
       where: { id: communityId },
     });
+
+    // Notify all members about community deletion
+    if (community) {
+      notificationService.sendCommunityDeletedNotification(
+        communityId,
+        community.name
+      ).catch((err) => logger.error("Error sending community deleted notification:", err));
+    }
 
     res.json({
       msg: "Community deleted successfully",
@@ -373,6 +371,15 @@ export async function joinCommunity(req: AuthRequest, res: Response) {
       },
     });
 
+    // Notify owner and mods about new member
+    const memberName = member.user.username || member.user.firstName || "Someone";
+    notificationService.sendMemberJoinedNotification(
+      communityId,
+      userId,
+      memberName,
+      community.name
+    ).catch((err) => logger.error("Error sending member joined notification:", err));
+
     res.json({
       msg: "Joined community successfully",
       data: {
@@ -396,6 +403,29 @@ export async function leaveCommunity(req: AuthRequest, res: Response) {
       return res.status(400).json({ msg: "Owner cannot leave the community. Transfer ownership or delete the community instead." });
     }
 
+    // Get user info before deleting
+    const leavingMember = await prisma.communityMember.findUnique({
+      where: {
+        communityId_userId: {
+          communityId,
+          userId,
+        },
+      },
+      include: {
+        user: {
+          select: {
+            username: true,
+            firstName: true,
+          },
+        },
+        community: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
     await prisma.communityMember.delete({
       where: {
         communityId_userId: {
@@ -407,6 +437,17 @@ export async function leaveCommunity(req: AuthRequest, res: Response) {
 
     // Create activity entry for leaving the community
     await communityActivityService.createMemberLeftActivity(communityId, userId);
+
+    // Notify owner and mods about member leaving
+    if (leavingMember) {
+      const memberName = leavingMember.user.username || leavingMember.user.firstName || "Someone";
+      notificationService.sendMemberLeftNotification(
+        communityId,
+        userId,
+        memberName,
+        leavingMember.community.name
+      ).catch((err) => logger.error("Error sending member left notification:", err));
+    }
 
     res.json({
       msg: "Left community successfully",
@@ -454,6 +495,7 @@ export async function getCommunityMembers(req: AuthRequest, res: Response) {
             firstName: true,
             lastName: true,
             avatarUrl: true,
+            points: true, // Include total earned rewards
           },
         },
       },
@@ -468,6 +510,7 @@ export async function getCommunityMembers(req: AuthRequest, res: Response) {
       data: members.map((member) => ({
         ...member,
         joinedAt: member.joinedAt.toISOString(),
+        totalRewards: member.user.points || 0, // Total earned rewards
       })),
       pagination: {
         page,
@@ -518,8 +561,26 @@ export async function updateMemberRole(req: AuthRequest, res: Response) {
             avatarUrl: true,
           },
         },
+        community: {
+          select: {
+            name: true,
+          },
+        },
       },
     });
+
+    // Notify user whose role was changed
+    const changer = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, firstName: true },
+    });
+    const changerName = changer?.username || changer?.firstName || "Admin";
+    notificationService.sendRoleChangedNotification(
+      targetUserId,
+      role,
+      member.community.name,
+      changerName
+    ).catch((err) => logger.error("Error sending role changed notification:", err));
 
     res.json({
       msg: "Member role updated successfully",
@@ -540,7 +601,7 @@ export async function createTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const { communityId } = req.params;
-    const { goalText, targetDays, reminderTime } = req.body;
+    const { goalText, targetDays, reminderTime, milestones } = req.body;
 
     // Check if user is owner or mod
     if (!(await isOwnerOrMod(communityId, userId))) {
@@ -554,6 +615,19 @@ export async function createTemplate(req: AuthRequest, res: Response) {
         targetDays,
         reminderTime: reminderTime || null,
         createdBy: userId,
+        milestones:
+          milestones && milestones.length > 0
+            ? {
+                create: milestones.map((m: any, index: number) => ({
+                  name: m.name,
+                  description: m.description || null,
+                  triggerType: m.triggerType,
+                  triggerValue: m.triggerValue,
+                  points: m.points ?? 0,
+                  order: m.order ?? index,
+                })),
+              }
+            : undefined,
       },
       include: {
         creator: {
@@ -570,11 +644,29 @@ export async function createTemplate(req: AuthRequest, res: Response) {
             startedGoals: true,
           },
         },
+        milestones: true,
       },
     });
 
     // Create community activity for template creation
     await communityActivityService.createTemplateCreatedActivity(template.id, userId, communityId);
+
+    // Notify all members about new template
+    const creatorName = template.creator.username || template.creator.firstName || "Someone";
+    const community = await prisma.community.findUnique({
+      where: { id: communityId },
+      select: { name: true },
+    });
+    if (community) {
+      notificationService.sendTemplateCreatedNotification(
+        communityId,
+        template.id,
+        template.goalText || "",
+        creatorName,
+        community.name,
+        userId
+      ).catch((err) => logger.error("Error sending template created notification:", err));
+    }
 
     res.json({
       msg: "Template created successfully",
@@ -628,6 +720,11 @@ export async function getTemplates(req: AuthRequest, res: Response) {
         _count: {
           select: {
             startedGoals: true,
+          },
+        },
+        milestones: {
+          orderBy: {
+            order: "asc",
           },
         },
       },
@@ -688,6 +785,11 @@ export async function getTemplateById(req: AuthRequest, res: Response) {
             startedGoals: true,
           },
         },
+        milestones: {
+          orderBy: {
+            order: "asc",
+          },
+        },
       },
     });
 
@@ -718,7 +820,7 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const { templateId } = req.params;
-    const { goalText, targetDays, reminderTime } = req.body;
+    const { goalText, targetDays, reminderTime, milestones } = req.body;
 
     const template = await prisma.goalTemplate.findUnique({
       where: { id: templateId },
@@ -736,29 +838,100 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
       return res.status(403).json({ msg: "Only owners, moderators, or template creator can update templates" });
     }
 
-    const updatedTemplate = await prisma.goalTemplate.update({
-      where: { id: templateId },
-      data: {
-        ...(goalText && { goalText }),
-        ...(targetDays && { targetDays }),
-        ...(reminderTime !== undefined && { reminderTime: reminderTime || null }),
-      },
-      include: {
-        creator: {
-          select: {
-            id: true,
-            username: true,
-            firstName: true,
-            lastName: true,
-            avatarUrl: true,
+    const updatedTemplate = await prisma.$transaction(async (tx) => {
+      const updated = await tx.goalTemplate.update({
+        where: { id: templateId },
+        data: {
+          ...(goalText && { goalText }),
+          ...(typeof targetDays === "number" && { targetDays }),
+          ...(reminderTime !== undefined && { reminderTime: reminderTime || null }),
+        },
+      });
+
+      if (Array.isArray(milestones)) {
+        const incomingIds = milestones.filter((m: any) => !!m.id).map((m: any) => m.id as string);
+
+        // If there are no incoming milestones, delete all existing milestones
+        if (milestones.length === 0) {
+          await tx.templateMilestone.deleteMany({
+            where: { templateId },
+          });
+        } else {
+          // Delete milestones that are not in the incoming list (only if we have at least one id)
+          if (incomingIds.length > 0) {
+            await tx.templateMilestone.deleteMany({
+              where: {
+                templateId,
+                id: {
+                  notIn: incomingIds,
+                },
+              },
+            });
+          } else {
+            // No existing ids passed, clear all then recreate
+            await tx.templateMilestone.deleteMany({
+              where: { templateId },
+            });
+          }
+
+          // Upsert/create incoming milestones
+          for (let index = 0; index < milestones.length; index++) {
+            const m = milestones[index];
+            const order = typeof m.order === "number" ? m.order : index;
+
+            if (m.id) {
+              await tx.templateMilestone.update({
+                where: { id: m.id },
+                data: {
+                  name: m.name,
+                  description: m.description || null,
+                  triggerType: m.triggerType,
+                  triggerValue: m.triggerValue,
+                  points: m.points ?? 0,
+                  order,
+                },
+              });
+            } else {
+              await tx.templateMilestone.create({
+                data: {
+                  templateId,
+                  name: m.name,
+                  description: m.description || null,
+                  triggerType: m.triggerType,
+                  triggerValue: m.triggerValue,
+                  points: m.points ?? 0,
+                  order,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      return tx.goalTemplate.findUniqueOrThrow({
+        where: { id: templateId },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              username: true,
+              firstName: true,
+              lastName: true,
+              avatarUrl: true,
+            },
+          },
+          _count: {
+            select: {
+              startedGoals: true,
+            },
+          },
+          milestones: {
+            orderBy: {
+              order: "asc",
+            },
           },
         },
-        _count: {
-          select: {
-            startedGoals: true,
-          },
-        },
-      },
+      });
     });
 
     res.json({
@@ -885,9 +1058,30 @@ export async function deleteTemplate(req: AuthRequest, res: Response) {
       return res.status(403).json({ msg: "Only owners, moderators, or template creator can delete templates" });
     }
 
+    // Get template and community info before deleting
+    const templateWithCommunity = await prisma.goalTemplate.findUnique({
+      where: { id: templateId },
+      include: {
+        community: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
     await prisma.goalTemplate.delete({
       where: { id: templateId },
     });
+
+    // Notify users who started goals from this template
+    if (templateWithCommunity) {
+      notificationService.sendTemplateDeletedNotification(
+        templateId,
+        templateWithCommunity.goalText || "",
+        templateWithCommunity.community.name
+      ).catch((err) => logger.error("Error sending template deleted notification:", err));
+    }
 
     res.json({
       msg: "Template deleted successfully",
@@ -921,6 +1115,12 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
       return res.status(403).json({ msg: "Must be a member to start goals from templates" });
     }
 
+    // Get user info for notification
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, firstName: true },
+    });
+
     // Create goal from template
     const goal = await prisma.goal.create({
       data: {
@@ -933,6 +1133,18 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
         startedAt: new Date(),
       },
     });
+
+    // Notify template creator (if not the same user)
+    if (template.createdBy !== userId) {
+      const starterName = user?.username || user?.firstName || "Someone";
+      notificationService.sendGoalStartedFromTemplateNotification(
+        template.createdBy,
+        starterName,
+        template.goalText || "",
+        template.community.name,
+        goal.id
+      ).catch((err) => logger.error("Error sending goal started notification:", err));
+    }
 
     res.json({
       msg: "Goal started from template successfully",
@@ -1114,6 +1326,22 @@ export async function reactToActivity(req: AuthRequest, res: Response) {
       },
     });
 
+    // Notify activity owner (if not the same user)
+    if (activity.userId !== userId) {
+      const reactor = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { username: true, firstName: true },
+      });
+      const reactorName = reactor?.username || reactor?.firstName || "Someone";
+      notificationService.sendActivityReactionNotification(
+        activity.userId,
+        reactorName,
+        activity.type,
+        activity.community.name,
+        activityId
+      ).catch((err) => logger.error("Error sending reaction notification:", err));
+    }
+
     res.json({
       msg: "Reaction added successfully",
       data: { reacted: true },
@@ -1164,6 +1392,18 @@ export async function createComment(req: AuthRequest, res: Response) {
         },
       },
     });
+
+    // Notify activity owner (if not the same user)
+    if (activity.userId !== userId) {
+      const commenterName = comment.user.username || comment.user.firstName || "Someone";
+      notificationService.sendActivityCommentNotification(
+        activity.userId,
+        commenterName,
+        text,
+        activity.community.name,
+        activityId
+      ).catch((err) => logger.error("Error sending comment notification:", err));
+    }
 
     res.json({
       msg: "Comment created successfully",
@@ -1417,6 +1657,312 @@ export async function getMyCommunities(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     logger.error("Get my communities error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+// ==================== Invite System ====================
+
+/** Generate a short, unique, uppercase invite code */
+async function generateInviteCode(): Promise<string> {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no O, 0, I, 1 to avoid confusion
+  let code: string;
+  let exists = true;
+  do {
+    code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    const existing = await prisma.communityInvite.findUnique({ where: { code } });
+    exists = !!existing;
+  } while (exists);
+  return code;
+}
+
+/** POST /communities/:communityId/invites - Create invite link/code or invite by username/email */
+export async function createInvite(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { communityId } = req.params;
+    const { inviteeUsername, inviteeEmail, maxUses, expiresInDays } = req.body;
+
+    // Must be member (or owner/mod) to create invite
+    if (!(await isMember(communityId, userId))) {
+      return res.status(403).json({ msg: "Must be a member to create invites" });
+    }
+
+    const community = await prisma.community.findUnique({
+      where: { id: communityId },
+      include: { owner: { select: { username: true, firstName: true } } },
+    });
+    if (!community) return res.status(404).json({ msg: "Community not found" });
+
+    const code = await generateInviteCode();
+
+    let inviteeUserId: string | undefined;
+    if (inviteeUsername) {
+      const target = await prisma.user.findUnique({ where: { username: inviteeUsername } });
+      if (!target) return res.status(404).json({ msg: `User @${inviteeUsername} not found` });
+      if (await isMember(communityId, target.id)) {
+        return res.status(400).json({ msg: `@${inviteeUsername} is already a member` });
+      }
+      inviteeUserId = target.id;
+
+      // Notify the invitee
+      notificationService.createNotification({
+        userId: target.id,
+        type: "system" as any,
+        title: "You've been invited!",
+        message: `You were invited to join "${community.name}". Use code ${code} or tap the link to join.`,
+        data: { communityId, communityName: community.name, code, type: "community_invite" },
+      }).catch((err) => logger.error("Error sending invite notification:", err));
+    }
+
+    const expiresAt = expiresInDays
+      ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+      : undefined;
+
+    const invite = await prisma.communityInvite.create({
+      data: {
+        communityId,
+        code,
+        createdBy: userId,
+        inviteeEmail: inviteeEmail || undefined,
+        inviteeUsername: inviteeUsername || undefined,
+        inviteeUserId: inviteeUserId || undefined,
+        maxUses: maxUses ?? -1,
+        expiresAt: expiresAt,
+      },
+    });
+
+    res.json({
+      msg: "Invite created successfully",
+      data: {
+        id: invite.id,
+        code: invite.code,
+        communityId: invite.communityId,
+        communityName: community.name,
+        inviteeUsername: invite.inviteeUsername,
+        inviteeEmail: invite.inviteeEmail,
+        maxUses: invite.maxUses,
+        uses: invite.uses,
+        expiresAt: invite.expiresAt?.toISOString() || null,
+        createdAt: invite.createdAt.toISOString(),
+        // Deep link for sharing
+        link: `https://vybaa.app/invite/${invite.code}`,
+      },
+    });
+  } catch (error) {
+    logger.error("Create invite error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/** GET /communities/invites/:code - Get invite details (public preview) */
+export async function getInviteByCode(req: AuthRequest, res: Response) {
+  try {
+    const { code } = req.params;
+
+    const invite = await prisma.communityInvite.findUnique({
+      where: { code: code.toUpperCase() },
+      include: {
+        community: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            coverImage: true,
+            _count: { select: { members: true } },
+          },
+        },
+        creator: {
+          select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true },
+        },
+      },
+    });
+
+    if (!invite) return res.status(404).json({ msg: "Invite not found or expired" });
+
+    // Check expiry
+    if (invite.expiresAt && invite.expiresAt < new Date()) {
+      return res.status(410).json({ msg: "This invite has expired" });
+    }
+
+    // Check max uses
+    if (invite.maxUses !== -1 && invite.uses >= invite.maxUses) {
+      return res.status(410).json({ msg: "This invite has reached its maximum uses" });
+    }
+
+    res.json({
+      msg: "Invite found",
+      data: {
+        id: invite.id,
+        code: invite.code,
+        community: invite.community,
+        invitedBy: invite.creator,
+        expiresAt: invite.expiresAt?.toISOString() || null,
+        createdAt: invite.createdAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    logger.error("Get invite error:", { error, code: req.params.code });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/** POST /communities/invites/:code/join - Join community via invite code */
+export async function joinByInviteCode(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { code } = req.params;
+
+    const invite = await prisma.communityInvite.findUnique({
+      where: { code: code.toUpperCase() },
+      include: {
+        community: { select: { id: true, name: true, _count: { select: { members: true } } } },
+      },
+    });
+
+    if (!invite) return res.status(404).json({ msg: "Invite not found" });
+
+    // Check expiry
+    if (invite.expiresAt && invite.expiresAt < new Date()) {
+      return res.status(410).json({ msg: "This invite has expired" });
+    }
+
+    // Check max uses
+    if (invite.maxUses !== -1 && invite.uses >= invite.maxUses) {
+      return res.status(410).json({ msg: "This invite has reached its maximum uses" });
+    }
+
+    const communityId = invite.communityId;
+
+    // Already a member?
+    if (await isMember(communityId, userId)) {
+      return res.status(400).json({ msg: "You are already a member of this community" });
+    }
+
+    // If targeted invite, check it's for this user
+    if (invite.inviteeUserId && invite.inviteeUserId !== userId) {
+      return res.status(403).json({ msg: "This invite is for a different user" });
+    }
+
+    // Add member
+    const [member] = await prisma.$transaction([
+      prisma.communityMember.create({
+        data: { communityId, userId, role: "MEMBER" },
+      }),
+      prisma.communityInvite.update({
+        where: { id: invite.id },
+        data: { uses: { increment: 1 } },
+      }),
+    ]);
+
+    // Get user for notifications
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, firstName: true, lastName: true },
+    });
+
+    const displayName =
+      user?.username ||
+      [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+      "Someone";
+
+    // Notify community owner/mods
+    await notificationService.sendMemberJoinedNotification(
+      communityId,
+      userId,
+      displayName,
+      invite.community.name
+    );
+
+    // Fetch the community with full info to return
+    const community = await prisma.community.findUnique({
+      where: { id: communityId },
+      include: {
+        owner: { select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true } },
+        _count: { select: { members: true, templates: true, goals: true } },
+      },
+    });
+
+    res.json({
+      msg: `Joined "${invite.community.name}" successfully!`,
+      data: {
+        community: community
+          ? {
+              ...community,
+              createdAt: community.createdAt.toISOString(),
+              updatedAt: community.updatedAt.toISOString(),
+              isMember: true,
+              userRole: "MEMBER",
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    logger.error("Join by code error:", { error, userId: req.userId, code: req.params.code });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/** GET /communities/:communityId/invites - List invites for a community (owner/mod only) */
+export async function getCommunityInvites(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { communityId } = req.params;
+
+    if (!(await isOwnerOrMod(communityId, userId))) {
+      return res.status(403).json({ msg: "Only owners and moderators can view invites" });
+    }
+
+    const invites = await prisma.communityInvite.findMany({
+      where: { communityId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        creator: { select: { id: true, username: true, firstName: true } },
+        invitee: { select: { id: true, username: true, firstName: true } },
+      },
+    });
+
+    res.json({
+      msg: "Invites retrieved",
+      data: invites.map((inv) => ({
+        id: inv.id,
+        code: inv.code,
+        link: `https://vybaa.app/invite/${inv.code}`,
+        invitedBy: inv.creator,
+        invitee: inv.invitee || null,
+        inviteeUsername: inv.inviteeUsername,
+        inviteeEmail: inv.inviteeEmail,
+        maxUses: inv.maxUses,
+        uses: inv.uses,
+        expiresAt: inv.expiresAt?.toISOString() || null,
+        createdAt: inv.createdAt.toISOString(),
+        isExpired: inv.expiresAt ? inv.expiresAt < new Date() : false,
+        isMaxed: inv.maxUses !== -1 && inv.uses >= inv.maxUses,
+      })),
+    });
+  } catch (error) {
+    logger.error("Get invites error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/** DELETE /communities/invites/:inviteId - Revoke an invite */
+export async function revokeInvite(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const { inviteId } = req.params;
+
+    const invite = await prisma.communityInvite.findUnique({ where: { id: inviteId } });
+    if (!invite) return res.status(404).json({ msg: "Invite not found" });
+
+    if (!(await isOwnerOrMod(invite.communityId, userId)) && invite.createdBy !== userId) {
+      return res.status(403).json({ msg: "Not authorized to revoke this invite" });
+    }
+
+    await prisma.communityInvite.delete({ where: { id: inviteId } });
+    res.json({ msg: "Invite revoked" });
+  } catch (error) {
+    logger.error("Revoke invite error:", { error, userId: req.userId });
     res.status(500).json({ msg: "Internal server error" });
   }
 }

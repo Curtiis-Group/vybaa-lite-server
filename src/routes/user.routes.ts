@@ -4,6 +4,7 @@ import { validate } from "../middleware/validation.middleware";
 import { updateProfileSchema } from "../validators/auth.validators";
 import * as userController from "../controllers/user.controller";
 import * as usernameController from "../controllers/username.controller";
+import * as rewardsController from "../controllers/rewards.controller";
 
 const router: Router = Router();
 
@@ -24,5 +25,8 @@ router.post("/fcm-token", authMiddleware, userController.registerFCMToken);
 
 // DELETE /api/v1/users/fcm-token
 router.delete("/fcm-token", authMiddleware, userController.removeFCMToken);
+
+// GET /api/v1/users/rewards
+router.get("/rewards", authMiddleware, rewardsController.getRewards);
 
 export default router;
