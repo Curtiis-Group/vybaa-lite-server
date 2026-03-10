@@ -25,6 +25,7 @@ export const STREAK_MILESTONE_POINTS: MilestonePointsConfig[] = [
 
 
 
+
 /**
  * Get points for a specific streak milestone
  */

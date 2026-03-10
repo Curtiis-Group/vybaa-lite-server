@@ -51513,3 +51513,8 @@
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-10 03:36:36"}
 {"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-10 03:36:36"}
 {"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-10 03:36:36"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-10 03:38:46"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-10 03:38:47"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-10 03:38:47"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-10 03:38:47"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-10 03:38:47"}
