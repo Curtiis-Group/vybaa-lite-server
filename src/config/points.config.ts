@@ -23,6 +23,8 @@ export const STREAK_MILESTONE_POINTS: MilestonePointsConfig[] = [
   { milestone: 365, points: 10.0 }, // Immortal Achiever
 ];
 
+
+
 /**
  * Get points for a specific streak milestone
  */
