@@ -15,8 +15,9 @@ function validate(schema, target = "body") {
                     field: err.path.join("."),
                     message: err.message,
                 }));
+                console.log(errors);
                 return res.status(400).json({
-                    msg: "Validation failed",
+                    msg: "Validation failed:" + errors?.[0]?.message,
                     errors,
                 });
             }

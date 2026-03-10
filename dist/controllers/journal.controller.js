@@ -20,9 +20,14 @@ async function getTodayJournal(req, res) {
     try {
         const userId = req.userId;
         const journal = await journal_service_1.journalService.getOrCreateTodayEntry(userId);
+        // Map 'content' to 'entry' for frontend compatibility
+        const mappedJournal = {
+            ...journal,
+            entry: journal.content,
+        };
         res.json({
             msg: "Today's journal retrieved successfully",
-            data: journal,
+            data: { journal: mappedJournal },
         });
     }
     catch (error) {
@@ -45,9 +50,14 @@ async function getJournalByDate(req, res) {
         if (!journal) {
             return res.status(404).json({ msg: "Journal entry not found for this date" });
         }
+        // Map 'content' to 'entry' for frontend compatibility
+        const mappedJournal = {
+            ...journal,
+            entry: journal.content,
+        };
         res.json({
             msg: "Journal entry retrieved successfully",
-            data: journal,
+            data: { journal: mappedJournal },
         });
     }
     catch (error) {
@@ -66,9 +76,14 @@ async function getJournals(req, res) {
         const page = parseInt(String(pageParam || "1")) || 1;
         const limit = parseInt(String(limitParam || "20")) || 20;
         const result = await journal_service_1.journalService.getJournalEntries(userId, page, limit);
+        // Map 'content' to 'entry' for frontend compatibility
+        const mappedJournals = result.journals.map(journal => ({
+            ...journal,
+            entry: journal.content,
+        }));
         res.json({
             msg: "Journal entries retrieved successfully",
-            data: result.journals,
+            data: mappedJournals,
             pagination: result.pagination,
         });
     }
@@ -94,9 +109,14 @@ async function createJournal(req, res) {
             return res.status(400).json({ msg: "Invalid date format" });
         }
         const journal = await journal_service_1.journalService.createJournal(userId, journalDate, journalContent.trim(), mood, tags);
+        // Map 'content' to 'entry' for frontend compatibility
+        const mappedJournal = {
+            ...journal,
+            entry: journal.content,
+        };
         res.status(201).json({
             msg: "Journal entry created successfully",
-            data: { journal },
+            data: { journal: mappedJournal },
         });
     }
     catch (error) {

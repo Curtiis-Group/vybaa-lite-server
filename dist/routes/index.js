@@ -13,6 +13,8 @@ const notification_routes_1 = __importDefault(require("./notification.routes"));
 const achievement_routes_1 = __importDefault(require("./achievement.routes"));
 const chill_routes_1 = __importDefault(require("./chill.routes"));
 const journal_routes_1 = __importDefault(require("./journal.routes"));
+const community_routes_1 = __importDefault(require("./community.routes"));
+const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const router = (0, express_1.Router)();
 // Health check endpoint
 router.get("/health", (req, res) => {
@@ -48,4 +50,27 @@ router.use("/v1/achievements", achievement_routes_1.default);
 router.use("/v1/chill", chill_routes_1.default);
 // Mount journal routes at /api/v1/journals
 router.use("/v1/journals", journal_routes_1.default);
+// Mount community routes at /api/v1/communities
+router.use("/v1/communities", community_routes_1.default);
+// ==================== Dev-only client log bridge ====================
+if (process.env.NODE_ENV !== "production") {
+    router.post("/v1/debug/client-log", (req, res) => {
+        const { level = "info", message, timestamp } = req.body || {};
+        const safeMessage = typeof message === "string" ? message : JSON.stringify(message ?? {});
+        switch (level) {
+            case "error":
+                logger_util_1.default.error(safeMessage, { source: "client-console", timestamp });
+                break;
+            case "warn":
+                logger_util_1.default.warn(safeMessage, { source: "client-console", timestamp });
+                break;
+            case "log":
+            case "info":
+            default:
+                logger_util_1.default.info(safeMessage, { source: "client-console", timestamp });
+                break;
+        }
+        res.status(204).end();
+    });
+}
 exports.default = router;

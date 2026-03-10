@@ -6,7 +6,6 @@ import { achievementService } from "../services/achievement.service";
 import { communityActivityService } from "../services/community-activity.service";
 import { milestoneService } from "../services/milestone.service";
 import { notificationService } from "../services/notification.service";
-import { pushNotificationService } from "../services/push-notification.service";
 import logger from "../utils/logger.util";
 
 // Helper function to get date string in user's timezone (YYYY-MM-DD)
@@ -169,22 +168,22 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
     const limit = parseInt(String(limitParam || '10')) || 10;
     const skip = (page - 1) * limit;
 
-    if (false) {
-      const userFCMS = await prisma.user.findUnique({
-        where: {
-          id: userId
-        }
-      })
-      if (userFCMS) {
-        await pushNotificationService.sendFCMMulticast(
-          userFCMS.fcmTokens,
-          "notification.title",
-          "notification.message",
-          {},
-          false
-        );
-      }
-    }
+    // if (false) {
+    //   const userFCMS = await prisma.user.findUnique({
+    //     where: {
+    //       id: userId
+    //     }
+    //   })
+    //   if (userFCMS) {
+    //     await pushNotificationService.sendFCMMulticast(
+    //       userFCMS.fcmTokens,
+    //       "notification.title",
+    //       "notification.message",
+    //       {},
+    //       false
+    //     );
+    //   }
+    // }
 
     // Parse canCheckIn filter (optional boolean filter)
     const canCheckInFilter = canCheckInParam !== undefined
@@ -253,8 +252,8 @@ export async function getAllGoals(req: AuthRequest, res: Response) {
           templateId: goal!.templateId || null,
           communityId: goal!.communityId || null,
           community: goal!.communityId ? {
-            id: goal!.community?.id || goal!.communityId,
-            name: goal!.community?.name || 'Community',
+            id: (goal as any)!.community?.id || goal!.communityId,
+            name: (goal as any)!.community?.name || 'Community',
           } : null,
         };
       })
@@ -348,7 +347,7 @@ export async function getCurrentGoal(req: AuthRequest, res: Response) {
         canCheckIn,
         templateId: updatedGoal!.templateId || null,
         communityId: updatedGoal!.communityId || null,
-        community: updatedGoal!.community || null,
+        community: (updatedGoal as any)!.community || null,
       },
     });
   } catch (error) {
@@ -419,7 +418,7 @@ export async function getGoalById(req: AuthRequest, res: Response) {
         canCheckIn,
         templateId: updatedGoal!.templateId || null,
         communityId: updatedGoal!.communityId || null,
-        community: updatedGoal!.community || null,
+        community: (updatedGoal as any)!.community || null,
       },
     });
   } catch (error) {

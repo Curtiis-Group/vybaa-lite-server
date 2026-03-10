@@ -48,7 +48,7 @@ class RedisCache implements CacheService {
     // Lazy require so that the app can still run in memory-only mode
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { createClient } = require("redis") as typeof import("redis");
+      const { createClient } = require("redis") as any;
       const url = (Env as any).REDIS_URL || process.env.REDIS_URL;
 
       if (!url) {

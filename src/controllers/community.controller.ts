@@ -1,11 +1,10 @@
+import { CommunityMemberRole } from "@prisma/client";
 import { Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { communityActivityService } from "../services/community-activity.service";
 import { notificationService } from "../services/notification.service";
 import logger from "../utils/logger.util";
-import { CommunityMemberRole, CommunityActivityType } from "@prisma/client";
-import crypto from "crypto";
 
 // Helper function to check if user is owner or mod of community
 async function isOwnerOrMod(communityId: string, userId: string): Promise<boolean> {
@@ -172,7 +171,7 @@ export async function getCommunities(req: AuthRequest, res: Response) {
 export async function getCommunityById(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+    const { communityId } = req.params as { communityId: string};
 
     const community = await prisma.community.findUnique({
       where: { id: communityId },
@@ -229,7 +228,7 @@ export async function getCommunityById(req: AuthRequest, res: Response) {
 export async function updateCommunity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+    const { communityId } = req.params as { communityId: string};
     const { name, description, coverImage, isPublic, category } = req.body;
 
     // Check if user is owner
@@ -283,7 +282,7 @@ export async function updateCommunity(req: AuthRequest, res: Response) {
 export async function deleteCommunity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+    const { communityId } = req.params as { communityId: string};
 
     // Check if user is owner
     if (!(await isOwner(communityId, userId))) {
@@ -396,7 +395,7 @@ export async function joinCommunity(req: AuthRequest, res: Response) {
 export async function leaveCommunity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+    const { communityId } = req.params as { communityId: string};
 
     // Check if user is owner
     if (await isOwner(communityId, userId)) {
@@ -462,7 +461,7 @@ export async function leaveCommunity(req: AuthRequest, res: Response) {
 export async function getCommunityMembers(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+    const { communityId } = req.params  as { communityId: string};
     const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
     const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
 
@@ -530,7 +529,8 @@ export async function getCommunityMembers(req: AuthRequest, res: Response) {
 export async function updateMemberRole(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+    const { communityId: $communityId } = req.params;
+    const communityId = String($communityId)
     const { userId: targetUserId, role } = req.body;
 
     // Check if requester is owner or mod
@@ -600,7 +600,7 @@ export async function updateMemberRole(req: AuthRequest, res: Response) {
 export async function createTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+   const { communityId } = req.params  as { communityId: string};
     const { goalText, targetDays, reminderTime, milestones } = req.body;
 
     // Check if user is owner or mod
@@ -685,7 +685,7 @@ export async function createTemplate(req: AuthRequest, res: Response) {
 export async function getTemplates(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+   const { communityId } = req.params  as { communityId: string};
     const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
     const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
 
@@ -759,7 +759,7 @@ export async function getTemplates(req: AuthRequest, res: Response) {
 export async function getTemplateById(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params;
+    const { templateId } = req.params   as { templateId: string};
 
     const template = await prisma.goalTemplate.findUnique({
       where: { id: templateId },
@@ -819,7 +819,7 @@ export async function getTemplateById(req: AuthRequest, res: Response) {
 export async function updateTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params;
+    const { templateId } = req.params   as { templateId: string};
     const { goalText, targetDays, reminderTime, milestones } = req.body;
 
     const template = await prisma.goalTemplate.findUnique({
@@ -951,7 +951,7 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
 export async function getTemplateParticipants(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params;
+    const { templateId } = req.params   as { templateId: string};
     const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
     const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
 
@@ -1040,7 +1040,7 @@ export async function getTemplateParticipants(req: AuthRequest, res: Response) {
 export async function deleteTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params;
+    const { templateId } = req.params   as { templateId: string};
 
     const template = await prisma.goalTemplate.findUnique({
       where: { id: templateId },
@@ -1096,7 +1096,7 @@ export async function deleteTemplate(req: AuthRequest, res: Response) {
 export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params;
+    const { templateId } = req.params   as { templateId: string};
     const { reminderTime } = req.body;
 
     const template = await prisma.goalTemplate.findUnique({
@@ -1125,7 +1125,7 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
     const goal = await prisma.goal.create({
       data: {
         userId,
-        goalText: template.goalText,
+        goalText: template?.goalText!,
         targetDays: template.targetDays,
         reminderTime: reminderTime || template.reminderTime || null,
         templateId: template.id,
@@ -1173,7 +1173,7 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
 export async function getActivityFeed(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+   const { communityId } = req.params  as { communityId: string};
     const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
     const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
 
@@ -1273,7 +1273,7 @@ export async function getActivityFeed(req: AuthRequest, res: Response) {
 export async function reactToActivity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { activityId } = req.params;
+    const { activityId } = req.params   as { activityId: string};
 
     // Check if activity exists and user is member of community
     const activity = await prisma.communityActivity.findUnique({
@@ -1355,7 +1355,7 @@ export async function reactToActivity(req: AuthRequest, res: Response) {
 export async function createComment(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { activityId } = req.params;
+    const { activityId } = req.params   as { activityId: string};
     const { text } = req.body;
 
     // Check if activity exists and user is member of community
@@ -1422,7 +1422,7 @@ export async function createComment(req: AuthRequest, res: Response) {
 export async function getComments(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { activityId } = req.params;
+    const { activityId } = req.params   as { activityId: string};
     const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
     const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
 
@@ -1497,7 +1497,7 @@ export async function getComments(req: AuthRequest, res: Response) {
 export async function deleteComment(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { commentId } = req.params;
+    const { commentId } = req.params   as { commentId: string};
 
     const comment = await prisma.activityComment.findUnique({
       where: { id: commentId },
@@ -1516,9 +1516,9 @@ export async function deleteComment(req: AuthRequest, res: Response) {
 
     // Check if user is comment author, owner, or mod
     const isCommentAuthor = comment.userId === userId;
-    const isOwnerOrMod = await isOwnerOrMod(comment.activity.communityId, userId);
+    const isOwnerOrModd = await isOwnerOrMod((comment as any)?.activity?.communityId, userId);
 
-    if (!isCommentAuthor && !isOwnerOrMod) {
+    if (!isCommentAuthor && !isOwnerOrModd) {
       return res.status(403).json({ msg: "Only comment author, owner, or moderators can delete comments" });
     }
 
@@ -1541,7 +1541,7 @@ export async function deleteComment(req: AuthRequest, res: Response) {
 export async function getCommunityStats(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+   const { communityId } = req.params  as { communityId: string};
 
     // Check if user is member
     if (!(await isMember(communityId, userId))) {
@@ -1680,7 +1680,7 @@ async function generateInviteCode(): Promise<string> {
 export async function createInvite(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+   const { communityId } = req.params  as { communityId: string};
     const { inviteeUsername, inviteeEmail, maxUses, expiresInDays } = req.body;
 
     // Must be member (or owner/mod) to create invite
@@ -1758,10 +1758,10 @@ export async function createInvite(req: AuthRequest, res: Response) {
 /** GET /communities/invites/:code - Get invite details (public preview) */
 export async function getInviteByCode(req: AuthRequest, res: Response) {
   try {
-    const { code } = req.params;
+    const { code } = req.params as any;
 
     const invite = await prisma.communityInvite.findUnique({
-      where: { code: code.toUpperCase() },
+      where: { code: code?.toUpperCase() },
       include: {
         community: {
           select: {
@@ -1811,10 +1811,10 @@ export async function getInviteByCode(req: AuthRequest, res: Response) {
 export async function joinByInviteCode(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { code } = req.params;
+    const { code } = req.params as any;
 
     const invite = await prisma.communityInvite.findUnique({
-      where: { code: code.toUpperCase() },
+      where: { code: code!?.toUpperCase() },
       include: {
         community: { select: { id: true, name: true, _count: { select: { members: true } } } },
       },
@@ -1907,7 +1907,7 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
 export async function getCommunityInvites(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params;
+   const { communityId } = req.params  as { communityId: string};
 
     if (!(await isOwnerOrMod(communityId, userId))) {
       return res.status(403).json({ msg: "Only owners and moderators can view invites" });
@@ -1950,7 +1950,7 @@ export async function getCommunityInvites(req: AuthRequest, res: Response) {
 export async function revokeInvite(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { inviteId } = req.params;
+    const { inviteId } = req.params as any;
 
     const invite = await prisma.communityInvite.findUnique({ where: { id: inviteId } });
     if (!invite) return res.status(404).json({ msg: "Invite not found" });

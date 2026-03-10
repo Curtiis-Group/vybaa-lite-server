@@ -6,7 +6,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.notificationService = void 0;
 const ably_config_1 = require("../config/ably.config");
 const db_config_1 = require("../config/db.config");
+const points_config_1 = require("../config/points.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const cache_service_1 = require("./cache.service");
+const metrics_service_1 = require("./metrics.service");
 const push_notification_service_1 = require("./push-notification.service");
 class NotificationService {
     constructor() {
@@ -170,6 +173,15 @@ class NotificationService {
      */
     async scheduleGoalReminders() {
         try {
+            // Ensure we only run the heavy scheduling logic once per UTC day.
+            const now = new Date();
+            const todayKey = now.toISOString().split("T")[0]; // YYYY-MM-DD (UTC)
+            const cacheKey = "scheduler:goalReminders:lastRunDate";
+            const lastRun = await cache_service_1.cacheService.get(cacheKey);
+            if (lastRun === todayKey) {
+                // Already scheduled for today; skip DB work.
+                return;
+            }
             const goals = await db_config_1.prisma.goal.findMany({
                 where: {
                     reminderTime: { not: null },
@@ -178,19 +190,20 @@ class NotificationService {
                     user: true,
                 },
             });
-            const now = new Date();
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            // Use UTC date to avoid timezone issues
+            const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            let scheduledCount = 0;
             for (const goal of goals) {
                 if (!goal.reminderTime)
                     continue;
                 // Parse reminder time (format: "HH:MM")
                 const [hours, minutes] = goal.reminderTime.split(":").map(Number);
-                // Calculate scheduled time for today
+                // Calculate scheduled time for today using UTC
                 const scheduledTime = new Date(today);
-                scheduledTime.setHours(hours || 0, minutes, 0, 0);
+                scheduledTime.setUTCHours(hours || 0, minutes, 0, 0);
                 // If the time has already passed today, schedule for tomorrow
                 if (scheduledTime <= now) {
-                    scheduledTime.setDate(scheduledTime.getDate() + 1);
+                    scheduledTime.setUTCDate(scheduledTime.getUTCDate() + 1);
                 }
                 // Check if there's already a scheduled reminder for this goal at this time
                 const existingReminder = await db_config_1.prisma.notification.findFirst({
@@ -216,9 +229,18 @@ class NotificationService {
                         },
                         scheduledFor: scheduledTime,
                     });
+                    scheduledCount++;
                     logger_util_1.default.info(`Scheduled reminder for goal ${goal.id} at ${scheduledTime.toISOString()}`);
                 }
             }
+            // Mark this day's scheduling as completed; TTL slightly over 24h for safety.
+            await cache_service_1.cacheService.set(cacheKey, todayKey, 26 * 60 * 60);
+            // Record metrics (fire-and-forget)
+            metrics_service_1.metricsService
+                .record("scheduler_goal_reminders_scheduled", scheduledCount, {
+                day: todayKey,
+            })
+                .catch(() => { });
         }
         catch (error) {
             logger_util_1.default.error("Error scheduling goal reminders:", error);
@@ -236,12 +258,73 @@ class NotificationService {
                     scheduledFor: { lte: now },
                     sentAt: null,
                 },
+                select: {
+                    id: true,
+                    type: true,
+                    goalId: true,
+                },
             });
-            for (const notification of pendingNotifications) {
-                await this.sendNotification(notification.id);
+            if (pendingNotifications.length === 0) {
+                return;
             }
-            if (pendingNotifications.length > 0) {
-                logger_util_1.default.info(`Processed ${pendingNotifications.length} pending notifications`);
+            // Preload goals for goal_reminder notifications so we can avoid
+            // sending reminders after a goal has already been completed today.
+            const goalReminderNotifications = pendingNotifications.filter((n) => n.type === "goal_reminder" && n.goalId);
+            const goalIds = Array.from(new Set(goalReminderNotifications
+                .map((n) => n.goalId)
+                .filter((id) => !!id)));
+            const goalsById = {};
+            if (goalIds.length > 0) {
+                const goals = await db_config_1.prisma.goal.findMany({
+                    where: { id: { in: goalIds } },
+                    select: { id: true, lastCheckInDate: true },
+                });
+                for (const goal of goals) {
+                    goalsById[goal.id] = {
+                        lastCheckInDate: goal.lastCheckInDate,
+                    };
+                }
+            }
+            const isSameUtcDate = (a, b) => {
+                return (a.getUTCFullYear() === b.getUTCFullYear() &&
+                    a.getUTCMonth() === b.getUTCMonth() &&
+                    a.getUTCDate() === b.getUTCDate());
+            };
+            let processedCount = 0;
+            let skippedBecauseCheckedIn = 0;
+            for (const notification of pendingNotifications) {
+                // For goal reminders, skip sending if the goal has already been
+                // checked in for "today" (UTC date comparison).
+                if (notification.type === "goal_reminder" && notification.goalId) {
+                    const goal = goalsById[notification.goalId];
+                    if (goal?.lastCheckInDate && isSameUtcDate(goal.lastCheckInDate, now)) {
+                        // Mark as sent without sending a push/real-time notification,
+                        // so it won't be retried again for this cycle.
+                        await db_config_1.prisma.notification.update({
+                            where: { id: notification.id },
+                            data: { sentAt: now },
+                        });
+                        processedCount++;
+                        skippedBecauseCheckedIn++;
+                        continue;
+                    }
+                }
+                await this.sendNotification(notification.id);
+                processedCount++;
+            }
+            if (processedCount > 0) {
+                logger_util_1.default.info(`Processed ${processedCount} pending notifications`);
+            }
+            // Record metrics (fire-and-forget)
+            if (processedCount > 0) {
+                metrics_service_1.metricsService
+                    .record("scheduler_notifications_processed", processedCount)
+                    .catch(() => { });
+            }
+            if (skippedBecauseCheckedIn > 0) {
+                metrics_service_1.metricsService
+                    .record("scheduler_notifications_skipped_already_checked_in", skippedBecauseCheckedIn)
+                    .catch(() => { });
             }
         }
         catch (error) {
@@ -251,40 +334,231 @@ class NotificationService {
     /**
      * Send goal completed notification
      */
-    async sendGoalCompletedNotification(userId, goalId, goalText) {
+    async sendGoalCompletedNotification(userId, goalId, goalText, communityName) {
+        const title = communityName
+            ? "Community Goal Completed! 🎉"
+            : "Goal Completed!";
+        const message = communityName
+            ? `Congratulations! You've completed your goal in ${communityName}: ${goalText}`
+            : `Congratulations! You've completed your goal: ${goalText}`;
         return this.createNotification({
             userId,
             goalId,
             type: "goal_completed",
-            title: "Goal Completed!",
-            message: `Congratulations! You've completed your goal: ${goalText}`,
-            data: { goalId, goalText },
+            title,
+            message,
+            data: { goalId, goalText, communityName },
         });
     }
     /**
      * Send streak milestone notification
      */
-    async sendStreakMilestoneNotification(userId, goalId, days, goalText) {
+    async sendStreakMilestoneNotification(userId, goalId, days, goalText, communityName) {
+        const points = (0, points_config_1.getStreakMilestonePoints)(days);
+        const pointsText = points > 0 ? ` (+${points} Play Points)` : "";
+        const message = communityName
+            ? `Amazing! You're on a ${days}-day streak in ${communityName} for: ${goalText}${pointsText}`
+            : `Amazing! You're on a ${days}-day streak for: ${goalText}${pointsText}`;
         return this.createNotification({
             userId,
             goalId,
             type: "streak_milestone",
-            title: `${days}-Day Streak!`,
-            message: `Amazing! You're on a ${days}-day streak for: ${goalText}`,
-            data: { goalId, goalText, days },
+            title: `${days}-Day Streak!${pointsText}`,
+            message,
+            data: { goalId, goalText, days, communityName, points },
         });
     }
     /**
      * Send streak reset notification
      */
-    async sendStreakResetNotification(userId, goalId, previousDays, goalText) {
+    async sendStreakResetNotification(userId, goalId, previousDays, goalText, communityName) {
+        const message = communityName
+            ? `Your ${previousDays}-day streak in ${communityName} for "${goalText}" was reset due to a missed check-in.`
+            : `Your ${previousDays}-day streak for "${goalText}" was reset due to a missed check-in.`;
         return this.createNotification({
             userId,
             goalId,
             type: "system",
             title: "Streak Reset",
-            message: `Your ${previousDays}-day streak for "${goalText}" was reset due to a missed check-in.`,
-            data: { goalId, goalText, previousDays, resetReason: "missed_checkin" },
+            message,
+            data: { goalId, goalText, previousDays, resetReason: "missed_checkin", communityName },
+        });
+    }
+    /**
+     * Send notification when someone joins a community (notify owner and mods)
+     */
+    async sendMemberJoinedNotification(communityId, newMemberId, newMemberName, communityName) {
+        // Get all owners and mods to notify
+        const ownersAndMods = await db_config_1.prisma.communityMember.findMany({
+            where: {
+                communityId,
+                role: { in: ["OWNER", "MOD"] },
+                userId: { not: newMemberId }, // Don't notify the person who joined
+            },
+            select: { userId: true },
+        });
+        const notifications = ownersAndMods.map((member) => this.createNotification({
+            userId: member.userId,
+            type: "system",
+            title: "New Member Joined",
+            message: `${newMemberName} joined ${communityName}`,
+            data: { communityId, newMemberId, communityName },
+        }));
+        await Promise.all(notifications);
+    }
+    /**
+     * Send notification when someone leaves a community (notify owner and mods)
+     */
+    async sendMemberLeftNotification(communityId, leftMemberId, leftMemberName, communityName) {
+        // Get all owners and mods to notify
+        const ownersAndMods = await db_config_1.prisma.communityMember.findMany({
+            where: {
+                communityId,
+                role: { in: ["OWNER", "MOD"] },
+                userId: { not: leftMemberId }, // Don't notify the person who left
+            },
+            select: { userId: true },
+        });
+        const notifications = ownersAndMods.map((member) => this.createNotification({
+            userId: member.userId,
+            type: "system",
+            title: "Member Left",
+            message: `${leftMemberName} left ${communityName}`,
+            data: { communityId, leftMemberId, communityName },
+        }));
+        await Promise.all(notifications);
+    }
+    /**
+     * Send notification when a new template is created (notify all members except creator)
+     */
+    async sendTemplateCreatedNotification(communityId, templateId, templateGoalText, creatorName, communityName, creatorId) {
+        // Get all members except the creator
+        const members = await db_config_1.prisma.communityMember.findMany({
+            where: {
+                communityId,
+                userId: { not: creatorId }, // Exclude creator
+            },
+            select: { userId: true },
+        });
+        const notifications = members
+            .filter((member) => member.userId) // Safety check
+            .map((member) => this.createNotification({
+            userId: member.userId,
+            type: "system",
+            title: "New Goal Template",
+            message: `${creatorName} created a new goal template in ${communityName}: ${templateGoalText}`,
+            data: { communityId, templateId, templateGoalText, communityName },
+        }));
+        await Promise.all(notifications);
+    }
+    /**
+     * Send notification when someone starts a goal from your template
+     */
+    async sendGoalStartedFromTemplateNotification(templateCreatorId, starterName, templateGoalText, communityName, goalId) {
+        return this.createNotification({
+            userId: templateCreatorId,
+            goalId,
+            type: "system",
+            title: "Someone Started Your Template",
+            message: `${starterName} started a goal from your template "${templateGoalText}" in ${communityName}`,
+            data: { goalId, templateGoalText, communityName, starterName },
+        });
+    }
+    /**
+     * Send notification when someone reacts to your activity
+     */
+    async sendActivityReactionNotification(activityOwnerId, reactorName, activityType, communityName, activityId) {
+        // Don't notify if user reacted to their own activity
+        if (!activityOwnerId)
+            return;
+        return this.createNotification({
+            userId: activityOwnerId,
+            type: "system",
+            title: "New Reaction",
+            message: `${reactorName} reacted to your activity in ${communityName}`,
+            data: { activityId, activityType, communityName, reactorName },
+        });
+    }
+    /**
+     * Send notification when someone comments on your activity
+     */
+    async sendActivityCommentNotification(activityOwnerId, commenterName, commentText, communityName, activityId) {
+        // Don't notify if user commented on their own activity
+        if (!activityOwnerId)
+            return;
+        const truncatedComment = commentText.length > 50 ? commentText.substring(0, 50) + "..." : commentText;
+        return this.createNotification({
+            userId: activityOwnerId,
+            type: "system",
+            title: "New Comment",
+            message: `${commenterName} commented on your activity in ${communityName}: "${truncatedComment}"`,
+            data: { activityId, commentText, communityName, commenterName },
+        });
+    }
+    /**
+     * Send notification when user's role is changed
+     */
+    async sendRoleChangedNotification(userId, newRole, communityName, changedBy) {
+        const roleLabel = newRole === "MOD" ? "moderator" : "member";
+        return this.createNotification({
+            userId,
+            type: "system",
+            title: "Role Updated",
+            message: `${changedBy} changed your role to ${roleLabel} in ${communityName}`,
+            data: { communityId: "", newRole, communityName, changedBy },
+        });
+    }
+    /**
+     * Send notification when a community is deleted (notify all members)
+     */
+    async sendCommunityDeletedNotification(communityId, communityName) {
+        const members = await db_config_1.prisma.communityMember.findMany({
+            where: { communityId },
+            select: { userId: true },
+        });
+        const notifications = members.map((member) => this.createNotification({
+            userId: member.userId,
+            type: "system",
+            title: "Community Deleted",
+            message: `The community "${communityName}" has been deleted`,
+            data: { communityId, communityName },
+        }));
+        await Promise.all(notifications);
+    }
+    /**
+     * Send notification when a template is deleted (notify users who started goals from it)
+     */
+    async sendTemplateDeletedNotification(templateId, templateGoalText, communityName) {
+        // Find all goals started from this template
+        const goals = await db_config_1.prisma.goal.findMany({
+            where: { templateId },
+            select: { userId: true, id: true },
+            distinct: ["userId"], // Get unique users
+        });
+        const notifications = goals.map((goal) => this.createNotification({
+            userId: goal.userId,
+            goalId: goal.id,
+            type: "system",
+            title: "Template Deleted",
+            message: `The goal template "${templateGoalText}" in ${communityName} has been deleted`,
+            data: { templateId, templateGoalText, communityName, goalId: goal.id },
+        }));
+        await Promise.all(notifications);
+    }
+    /**
+     * Send notification when a milestone is reached
+     */
+    async sendMilestoneReachedNotification(userId, goalId, milestoneName, points, goalText, communityName) {
+        const message = communityName
+            ? `You reached the milestone "${milestoneName}" (+${points} pts) in ${communityName} for: ${goalText}`
+            : `You reached the milestone "${milestoneName}" (+${points} pts) for: ${goalText}`;
+        return this.createNotification({
+            userId,
+            goalId,
+            type: "system",
+            title: "Milestone Reached! 🎯",
+            message,
+            data: { goalId, milestoneName, points, goalText, communityName },
         });
     }
 }

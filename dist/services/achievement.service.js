@@ -7,6 +7,7 @@ exports.achievementService = void 0;
 const db_config_1 = require("../config/db.config");
 const badges_config_1 = require("../config/badges.config");
 const notification_service_1 = require("./notification.service");
+const community_activity_service_1 = require("./community-activity.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 class AchievementService {
     /**
@@ -66,6 +67,10 @@ class AchievementService {
                     milestone,
                 },
             });
+            // Create community activity for achievement
+            if (goalId) {
+                await community_activity_service_1.communityActivityService.createAchievementActivity(achievement.id, userId, goalId);
+            }
             logger_util_1.default.info(`Badge awarded: ${badgeDef.title} to user ${userId}`);
             return {
                 id: achievement.id,

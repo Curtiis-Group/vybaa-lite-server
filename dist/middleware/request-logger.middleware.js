@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requestLogger = requestLogger;
 const chalk_1 = __importDefault(require("chalk"));
+const metrics_service_1 = require("../services/metrics.service");
 function requestLogger(req, res, next) {
     const start = Date.now();
     const methodColor = (method) => {
@@ -42,7 +43,17 @@ function requestLogger(req, res, next) {
     const originalSend = res.send;
     res.send = function (data) {
         const duration = Date.now() - start;
-        console.log(`${chalk_1.default.dim("←")} ${methodColor(req.method)} ${chalk_1.default.white(req.originalUrl)} ${statusColor(res.statusCode)} ${chalk_1.default.gray(`${duration}ms`)} ${chalk_1.default.dim(req.ip)}`);
+        console.log(
+        //put the datestamp i this format 2026-02-24 13:28:31
+        `[${chalk_1.default.yellow(new Date().toISOString())}]${chalk_1.default.dim("←")} ${methodColor(req.method)} ${chalk_1.default.white(req.originalUrl)} ${statusColor(res.statusCode)} ${chalk_1.default.gray(`${duration}ms`)} ${chalk_1.default.dim(req.ip)}`);
+        // Fire-and-forget metrics record; do not await to avoid impacting latency.
+        metrics_service_1.metricsService
+            .record("http_request_duration_ms", duration, {
+            route: req.originalUrl,
+            method: req.method,
+            status: res.statusCode,
+        })
+            .catch(() => { });
         return originalSend.call(this, data);
     };
     next();
