@@ -33,4 +33,18 @@ router.get("/rewards", authMiddleware, rewardsController.getRewards);
 // GET /api/v1/users/wallet
 router.get("/wallet", authMiddleware, walletController.getWallet);
 
+// POST /api/v1/users/wallet/paystack/initialize
+router.post(
+  "/wallet/paystack/initialize",
+  authMiddleware,
+  walletController.initPaystackFunding,
+);
+
+// POST /api/v1/users/wallet/polar/initialize
+router.post(
+  "/wallet/polar/initialize",
+  authMiddleware,
+  walletController.initPolarFunding,
+);
+
 export default router;

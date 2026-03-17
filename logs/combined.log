@@ -51751,3 +51751,43 @@
 {"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 20:52:37"}
 {"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 20:52:37"}
 {"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 20:52:37"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:34"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:36"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:36"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:36"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:36"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:50"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:51"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:51"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:51"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 20:56:51"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 20:58:12"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 20:58:13"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 20:58:13"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 20:58:13"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 20:58:13"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 20:58:59"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:00"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:00"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:00"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:00"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:14"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:18"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:18"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:18"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 20:59:18"}
+{"level":"info","message":"SIGTERM signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 21:03:11"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 21:03:12"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 21:03:12"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 21:03:12"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 21:03:12"}
+{"level":"info","message":"SIGINT signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 21:10:00"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 21:10:05"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 21:10:05"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 21:10:05"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 21:10:05"}
+{"level":"info","message":"SIGINT signal received: closing HTTP server","service":"vybaa-lite-server","timestamp":"2026-03-17 21:25:38"}
+{"level":"info","message":"[Cache] Using in-memory cache backend","service":"vybaa-lite-server","timestamp":"2026-03-17 21:25:42"}
+{"level":"info","message":"🚀 Server running on port 4000","service":"vybaa-lite-server","timestamp":"2026-03-17 21:25:42"}
+{"level":"info","message":"Starting notification scheduler...","service":"vybaa-lite-server","timestamp":"2026-03-17 21:25:42"}
+{"level":"info","message":"Notification scheduler started successfully","service":"vybaa-lite-server","timestamp":"2026-03-17 21:25:42"}
