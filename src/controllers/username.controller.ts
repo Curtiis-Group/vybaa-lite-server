@@ -56,8 +56,65 @@ export async function checkUsernameExists(req: Request, res: Response) {
  */
 export async function checkUsernameChangeAvailability(req: AuthRequest, res: Response) {
   try {
-    const userId = req.userId!;
+    const userId = req.userId;
     const { username } = req.query;
+
+    // If checking availability of a specific username, allow unauthenticated usage
+    if (username && typeof username === 'string') {
+      // Sanitize and force lowercase
+      const sanitized = sanitizeUsername(username);
+
+      // If authed, prevent selecting current username
+      if (userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { username: true },
+        });
+
+        if (user && sanitized === user.username) {
+          return res.json({
+            msg: "This is your current username",
+            data: {
+              available: false,
+              reason: "This is already your username",
+              isCurrentUsername: true,
+            },
+          });
+        }
+      }
+
+      // Validate format
+      const validation = validateUsername(sanitized);
+      if (!validation.valid) {
+        return res.json({
+          msg: "Username validation",
+          data: {
+            available: false,
+            reason: validation.error,
+          },
+        });
+      }
+
+      // Check if taken
+      const existingUser = await prisma.user.findUnique({
+        where: { username: sanitized },
+        select: { id: true },
+      });
+
+      return res.json({
+        msg: "Username availability checked",
+        data: {
+          available: !existingUser,
+          exists: !!existingUser,
+          username: sanitized,
+        },
+      });
+    }
+
+    // Cooldown status requires authentication
+    if (!userId) {
+      return res.status(401).json({ msg: "Authentication required" });
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },

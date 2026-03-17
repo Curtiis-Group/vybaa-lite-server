@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
-import logger from "../utils/logger.util";
+import { emailService } from "../services/email.service";
 import {
   comparePassword,
   generateAccessToken,
@@ -12,8 +12,9 @@ import {
   verifyGoogleToken,
   verifyRefreshToken,
 } from "../utils/auth.util";
-import { generateUniqueUsername } from "../utils/username.util";
 import { uploadImageFromUrl } from "../utils/cloudinary.util";
+import logger from "../utils/logger.util";
+import { generateUniqueUsername } from "../utils/username.util";
 
 // Helper function to format user response
 export function formatUserResponse(user: any) {
@@ -376,7 +377,12 @@ export async function requestPasswordReset(req: Request, res: Response) {
       },
     });
 
-    // TODO: Send OTP via email/SMS
+    // Send OTP via email
+    await emailService.sendPasswordResetEmail({
+      to: user.email,
+      name: user.firstName || user.email,
+      code: otpCode,
+    });
 
     res.json({
       msg: "OTP sent to email",
@@ -425,11 +431,11 @@ export async function recoverAccount(req: Request, res: Response) {
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user || !user.otpCode || user.otpCode !== otp.toString()) {
-      return res.status(401).json({ msg: "Invalid OTP" });
+      return res.status(400).json({ msg: "Invalid OTP" });
     }
 
     if (isOTPExpired(user.otpExpiresAt)) {
-      return res.status(401).json({ msg: "OTP has expired" });
+      return res.status(400).json({ msg: "OTP has expired" });
     }
 
     const hashedPassword = await hashPassword(newPassword);
@@ -479,7 +485,12 @@ export async function requestConfirmation(req: Request, res: Response) {
       },
     });
 
-    // TODO: Send confirmation OTP via email
+    // Send confirmation OTP via email
+    await emailService.sendConfirmationEmail({
+      to: user.email,
+      name: user.firstName || user.email,
+      code: otpCode,
+    });
 
     res.json({
       msg: "Confirmation OTP sent",

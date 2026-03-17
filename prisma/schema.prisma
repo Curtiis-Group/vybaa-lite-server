@@ -37,9 +37,10 @@ model User {
 
   points Float? @default(0)
 
-  // Token management
   refreshToken String?  @map("refresh_token")
   fcmTokens    String[] @default([]) @map("fcm_tokens") // Array of FCM device tokens
+
+  role String @default("USER") // USER, ADMIN
 
   // OTP fields (for password reset and account confirmation)
   otpCode      String?   @map("otp_code")
@@ -70,6 +71,9 @@ model User {
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
+
+  sentTransactions     Transaction[] @relation("TransactionSender")
+  receivedTransactions Transaction[] @relation("TransactionRecipient")
 }
 
 model Goal {
@@ -428,4 +432,49 @@ model GoalPendingPoints {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("goal_pending_points")
+}
+
+enum TransactionType {
+  BUY_POINTS
+  WITHDRAW_POINTS
+  FEE_TRANSFER
+  REWARD_POINTS
+  MANUAL_ADJUSTMENT
+}
+
+model Transaction {
+  id String @id @default(cuid())
+
+  type   TransactionType
+  amount Float // Amount in points
+  fiatAmount Float? // Optional: Amount in USD/Fiat
+
+  senderId String? @map("sender_id")
+  sender   User?   @relation("TransactionSender", fields: [senderId], references: [id])
+
+  recipientId String @map("recipient_id")
+  recipient   User   @relation("TransactionRecipient", fields: [recipientId], references: [id])
+
+  referenceId String? @map("reference_id") // MoonPay transaction ID or Goal ID
+  metadata    String? @db.Text // JSON string for additional details
+
+  status String @default("PENDING") // PENDING, COMPLETED, FAILED
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([senderId])
+  @@index([recipientId])
+  @@index([type])
+  @@map("transactions")
+}
+
+model SystemConfig {
+  id String @id @default(cuid())
+
+  key   String @unique
+  value String
+
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("system_configs")
 }

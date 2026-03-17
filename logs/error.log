@@ -18970,3 +18970,6 @@
 {"error":{},"level":"error","message":"Get invites error:","service":"vybaa-lite-server","timestamp":"2026-03-10 03:01:29","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{},"level":"error","message":"Get invites error:","service":"vybaa-lite-server","timestamp":"2026-03-10 03:01:30","userId":"cml5a0int0000153e9sxl0dei"}
 {"error":{},"level":"error","message":"Create invite error:","service":"vybaa-lite-server","timestamp":"2026-03-10 03:01:33","userId":"cml5a0int0000153e9sxl0dei"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Check username change availability error:","service":"vybaa-lite-server","timestamp":"2026-03-17 13:31:05"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Check username change availability error:","service":"vybaa-lite-server","timestamp":"2026-03-17 13:31:07"}
+{"error":{"clientVersion":"6.19.2","name":"PrismaClientValidationError"},"level":"error","message":"Check username change availability error:","service":"vybaa-lite-server","timestamp":"2026-03-17 13:31:08"}

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authMiddleware } from "../middleware/auth.middleware";
+import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validation.middleware";
 import { updateProfileSchema } from "../validators/auth.validators";
 import * as userController from "../controllers/user.controller";
@@ -15,10 +15,10 @@ router.put("/me", authMiddleware, validate(updateProfileSchema), userController.
 router.get("/me", authMiddleware, userController.getProfile);
 
 // GET /api/v1/users/username/availability - Check username change cooldown
-router.get("/username/availability", authMiddleware, userController.checkUsernameAvailability);
+router.get("/username/availability", optionalAuthMiddleware, userController.checkUsernameAvailability);
 
 // GET /api/v1/users/username/check - Check if username is available (real-time)
-router.get("/username/check", authMiddleware, usernameController.checkUsernameChangeAvailability);
+router.get("/username/check", optionalAuthMiddleware, usernameController.checkUsernameChangeAvailability);
 
 // POST /api/v1/users/fcm-token
 router.post("/fcm-token", authMiddleware, userController.registerFCMToken);

@@ -25,3 +25,32 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
     return res.status(401).json({ msg: "Authentication failed" });
   }
 }
+
+/**
+ * Optional auth middleware:
+ * - If a valid Bearer token is provided, sets req.userId
+ * - If no token (or invalid token), continues without blocking
+ *
+ * Useful for endpoints that should behave differently for authenticated vs anonymous users.
+ */
+export function optionalAuthMiddleware(
+  req: AuthRequest,
+  _res: Response,
+  next: NextFunction
+) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return next();
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = verifyAccessToken(token);
+    if (decoded) {
+      req.userId = decoded.userId;
+    }
+    return next();
+  } catch (_error) {
+    return next();
+  }
+}

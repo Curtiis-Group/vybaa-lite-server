@@ -196,7 +196,19 @@ export async function removeFCMToken(req: AuthRequest, res: Response) {
  */
 export async function checkUsernameAvailability(req: AuthRequest, res: Response) {
   try {
-    const userId = req.userId!;
+    const userId = req.userId;
+
+    // Allow unauthenticated usage (e.g. signup flow) by returning defaults
+    if (!userId) {
+      return res.json({
+        msg: "Username change availability checked",
+        data: {
+          canChange: true,
+          daysRemaining: 0,
+          nextAvailableDate: new Date().toISOString(),
+        },
+      });
+    }
     
     const user = await prisma.user.findUnique({
       where: { id: userId },
