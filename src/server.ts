@@ -6,12 +6,21 @@ import config from "./utils/config.util";
 import logger from "./utils/logger.util";
 import { requestLogger } from "./middleware/request-logger.middleware";
 import { schedulerService } from "./services/scheduler.service";
+import { handlePaystackWebhook } from "./controllers/webhook.controller";
 
 dotenv.config();
 
 const app = express();
 
 app.use(cors());
+
+// Paystack webhook needs raw body for signature verification
+app.post(
+  "/api/v1/webhooks/paystack",
+  express.raw({ type: "application/json" }),
+  handlePaystackWebhook,
+);
+
 // Increase payload size limit for profile image uploads (base64 encoded)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));

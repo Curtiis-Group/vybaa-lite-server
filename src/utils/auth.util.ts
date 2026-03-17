@@ -9,7 +9,7 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 
 // JWT Token Generation
 export function generateAccessToken(userId: string): string {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "15m" });
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
 }
 
 export function generateRefreshToken(userId: string): string {

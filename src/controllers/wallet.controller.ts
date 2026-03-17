@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import logger from "../utils/logger.util";
+import { $polar } from "../utils/polar.util";
 
 /**
  * Get wallet balances:
@@ -15,13 +16,13 @@ export async function getWallet(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
 
-    const flag = await prisma.featureFlag.findUnique({
+    const flag = await (prisma as any).featureFlag.findUnique({
       where: { key: "REAL_WALLET" },
       select: { enabled: true },
     });
     const realWalletEnabled = flag?.enabled ?? false;
 
-    const user = (await prisma.user.findUnique({
+    const user = (await (prisma as any).user.findUnique({
       where: { id: userId },
       select: {
         points: true,
@@ -146,15 +147,29 @@ export async function initPaystackFunding(req: AuthRequest, res: Response) {
  */
 export async function initPolarFunding(_req: AuthRequest, res: Response) {
   try {
-    const url = process.env.POLAR_CHECKOUT_URL;
-    if (!url) {
+    const accessToken = process.env.POLAR_ACCESS_TOKEN;
+    const successUrl = process.env.POLAR_SUCCESS_URL;
+    const productId = process.env.POLAR_PRODUCT_ID;
+
+    if (!accessToken || !successUrl || !productId) {
       return res.status(500).json({ msg: "Polar.sh not configured" });
     }
+
+    // Lazy-load Polar SDK to avoid hard dependency issues in some environments
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+
+    const polar = new $polar({ server: 'sandbox', accessToken });
+
+    const checkout = await polar.checkouts.create({
+      products: [productId],
+      successUrl,
+    });
 
     res.json({
       msg: "Polar funding initialized",
       data: {
-        checkoutUrl: url,
+        checkoutUrl: checkout.url,
+        id: checkout.id,
       },
     });
   } catch (error) {
