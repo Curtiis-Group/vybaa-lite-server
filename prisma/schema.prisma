@@ -35,7 +35,11 @@ model User {
   // OAuth fields
   googleId String? @unique @map("google_id")
 
+  // Play Wallet (existing)
   points Float? @default(0)
+
+  // Main Wallet (real points / currency-like balance)
+  realPointsBalance Int @default(0) @map("real_points_balance")
 
   refreshToken String?  @map("refresh_token")
   fcmTokens    String[] @default([]) @map("fcm_tokens") // Array of FCM device tokens
@@ -74,6 +78,18 @@ model User {
 
   sentTransactions     Transaction[] @relation("TransactionSender")
   receivedTransactions Transaction[] @relation("TransactionRecipient")
+}
+
+model FeatureFlag {
+  id String @id @default(cuid())
+
+  key     String  @unique
+  enabled Boolean @default(false)
+
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("feature_flags")
 }
 
 model Goal {

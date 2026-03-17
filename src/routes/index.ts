@@ -9,6 +9,7 @@ import achievementRoutes from "./achievement.routes";
 import chillRoutes from "./chill.routes";
 import journalRoutes from "./journal.routes";
 import communityRoutes from "./community.routes";
+import adminRoutes from "./admin.routes";
 import logger from "../utils/logger.util";
 
 const router: Router = Router();
@@ -60,6 +61,9 @@ router.use("/v1/journals", journalRoutes);
 
 // Mount community routes at /api/v1/communities
 router.use("/v1/communities", communityRoutes);
+
+// Mount admin routes at /api/v1/admin
+router.use("/v1/admin", adminRoutes);
 
 // ==================== Dev-only client log bridge ====================
 if (process.env.NODE_ENV !== "production") {
