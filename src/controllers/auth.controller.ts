@@ -202,13 +202,13 @@ export async function googleAuth(req: Request, res: Response) {
               user.id,
               'google-avatars'
             );
-            cloudinaryAvatarUrl = uploadedUrl || googleUser.picture || undefined;
+            cloudinaryAvatarUrl = (uploadedUrl || googleUser.picture || undefined)!;
           } catch (error) {
             logger.warn('Failed to upload Google avatar to Cloudinary', {
               userId: user.id,
               error,
             });
-            cloudinaryAvatarUrl = googleUser.picture || user.avatarUrl || undefined;
+            cloudinaryAvatarUrl = (googleUser.picture || user.avatarUrl || undefined)!;
           }
         }
 
@@ -391,7 +391,11 @@ export async function requestPasswordReset(req: Request, res: Response) {
       data: {
         user: {
           requestedConfirmation: true,
+          
         },
+        mail: {
+          messageId: mail?.messageId
+        }
       },
     });
   } catch (error) {
