@@ -34,7 +34,7 @@ class EmailService {
 
     const html = await render(options.react);
 
-    await transport.sendMail({
+   return await transport.sendMail({
       from: `"${options?.from || process.env.APP_NAME}" <${process.env.SMTP_USER}>`,
       to: options.to,
       subject: options.subject,
@@ -47,7 +47,7 @@ class EmailService {
     name: string;
     code: string;
   }) {
-    await this.send({
+    return await this.send({
       to: params.to,
       subject: "Reset your Vybaa password",
       react: PasswordResetEmail({ name: params.name, code: params.code }),

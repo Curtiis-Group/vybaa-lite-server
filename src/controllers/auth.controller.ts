@@ -378,11 +378,13 @@ export async function requestPasswordReset(req: Request, res: Response) {
     });
 
     // Send OTP via email
-    await emailService.sendPasswordResetEmail({
+    const mail= await emailService.sendPasswordResetEmail({
       to: user.email,
       name: user.firstName || user.email,
       code: otpCode,
     });
+
+    console.log("MAIL SNET TO", user.email, mail?.messageId)
 
     res.json({
       msg: "OTP sent to email",
