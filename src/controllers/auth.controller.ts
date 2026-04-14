@@ -27,6 +27,7 @@ export function formatUserResponse(user: any) {
     avatarUrl: user.avatarUrl || undefined,
     currentMood: user.currentMood || undefined,
     lifeGoal: user.lifeGoal || undefined,
+    rewindPersona: user.rewindPersona || undefined,
     isConfirmed: user.isConfirmed,
     isFirstTime: user.isFirstTime,
     lastUsernameChangeAt: user.lastUsernameChangeAt?.toISOString() || undefined,

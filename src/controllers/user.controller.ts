@@ -8,7 +8,7 @@ import { formatUserResponse } from "./auth.controller";
 export async function updateProfile(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { firstName, lastName, username, profileImageId, currentMood, lifeGoal } = req.body;
+    const { firstName, lastName, username, profileImageId, currentMood, lifeGoal, rewindPersona } = req.body;
 
     const updateData: any = {};
 
@@ -63,6 +63,7 @@ export async function updateProfile(req: AuthRequest, res: Response) {
     }
     if (currentMood !== undefined) updateData.currentMood = currentMood;
     if (lifeGoal !== undefined) updateData.lifeGoal = lifeGoal;
+    if (rewindPersona !== undefined) updateData.rewindPersona = rewindPersona;
 
     const user = await prisma.user.update({
       where: { id: userId },
