@@ -22,10 +22,10 @@ const logFormat = winston.format.combine(
 const consoleFormat = winston.format.combine(
   winston.format.colorize(),
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-  winston.format.printf(({ timestamp, level, message, service,  ...meta }) => {
+  winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
 
 
-    let msg = `${chalk.bold(chalk.blue(`[${service}]`))}[${level}][${chalk.yellow(timestamp)}]=> ${message}`;
+    let msg = `[${chalk.yellow(timestamp)}][${level}]: ${message}`;
     if (Object.keys(meta).length > 0) {
       msg += ` ${JSON.stringify(meta)}`;
     }

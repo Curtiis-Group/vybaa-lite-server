@@ -24,12 +24,15 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/genai": "^1.46.0",
     "@google/generative-ai": "^0.24.1",
     "@polar-sh/sdk": "^0.46.4",
     "@prisma/client": "^6.2.1",
     "@react-email/components": "^0.0.22",
     "@react-email/render": "^0.0.16",
     "@shopify/shopify-api": "^13.0.0",
+    "@types/express-ws": "^3.0.6",
+    "@types/ws": "^8.18.1",
     "ably": "^2.17.1",
     "bcryptjs": "^2.4.3",
     "chalk": "^5.6.2",
@@ -37,6 +40,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-ws": "^5.0.2",
     "firebase-admin": "^13.6.1",
     "google-auth-library": "^9.4.1",
     "jsonwebtoken": "^9.0.2",
@@ -46,6 +50,7 @@
     "redis": "^4.7.0",
     "tsx": "^4.21.0",
     "winston": "^3.15.0",
+    "ws": "^8.20.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

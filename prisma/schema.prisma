@@ -67,6 +67,7 @@ model User {
   activityComments     ActivityComment[]
   createdInvites       CommunityInvite[]   @relation("InviteCreator")
   receivedInvites      CommunityInvite[]   @relation("InviteRecipient")
+  rewindSessions       RewindSession[]
 
   // Summary caching
   lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
@@ -79,6 +80,25 @@ model User {
 
   sentTransactions     Transaction[] @relation("TransactionSender")
   receivedTransactions Transaction[] @relation("TransactionRecipient")
+}
+
+model RewindSession {
+  id String @id
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  personaId            String  @map("persona_id")
+  openingAnswered      Boolean @default(false) @map("opening_answered")
+  currentQuestionIndex Int     @default(0) @map("current_question_index")
+  completed            Boolean @default(false)
+  responses            Json
+
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, personaId, updatedAt])
+  @@map("rewind_sessions")
 }
 
 model FeatureFlag {

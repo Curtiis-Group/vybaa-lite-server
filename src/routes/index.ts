@@ -11,6 +11,7 @@ import journalRoutes from "./journal.routes";
 import communityRoutes from "./community.routes";
 import adminRoutes from "./admin.routes";
 import webhookRoutes from "./webhook.routes";
+import rewindRoutes from "./rewind.routes";
 import logger from "../utils/logger.util";
 
 const router: Router = Router();
@@ -65,6 +66,9 @@ router.use("/v1/communities", communityRoutes);
 
 // Mount admin routes at /api/v1/admin
 router.use("/v1/admin", adminRoutes);
+
+// Mount rewind routes at /api/v1/rewind
+router.use("/v1/rewind", rewindRoutes);
 
 // Payment webhooks
 router.use("/v1/webhooks", webhookRoutes);
