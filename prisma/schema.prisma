@@ -25,7 +25,6 @@ model User {
   username             String?    @unique // Required - auto-generated on signup
   avatarUrl            String?   @map("avatar_url")
   currentMood          String?   @map("current_mood")
-  lifeGoal             String?   @map("life_goal")
   rewindPersona        String?   @map("rewind_persona")
   lastUsernameChangeAt DateTime? @map("last_username_change_at") // Track username changes for cooldown
 

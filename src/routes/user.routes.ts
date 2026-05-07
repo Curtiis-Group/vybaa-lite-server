@@ -15,6 +15,9 @@ router.put("/me", authMiddleware, validate(updateProfileSchema), userController.
 // GET /api/v1/users/me
 router.get("/me", authMiddleware, userController.getProfile);
 
+// GET /api/v1/users/public/:username
+router.get("/public/:username", optionalAuthMiddleware, userController.getPublicProfile);
+
 // GET /api/v1/users/username/availability - Check username change cooldown
 router.get("/username/availability", optionalAuthMiddleware, userController.checkUsernameAvailability);
 

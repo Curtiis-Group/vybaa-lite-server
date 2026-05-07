@@ -14,6 +14,9 @@ const achievement_routes_1 = __importDefault(require("./achievement.routes"));
 const chill_routes_1 = __importDefault(require("./chill.routes"));
 const journal_routes_1 = __importDefault(require("./journal.routes"));
 const community_routes_1 = __importDefault(require("./community.routes"));
+const admin_routes_1 = __importDefault(require("./admin.routes"));
+const webhook_routes_1 = __importDefault(require("./webhook.routes"));
+const rewind_routes_1 = __importDefault(require("./rewind.routes"));
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const router = (0, express_1.Router)();
 // Health check endpoint
@@ -52,6 +55,12 @@ router.use("/v1/chill", chill_routes_1.default);
 router.use("/v1/journals", journal_routes_1.default);
 // Mount community routes at /api/v1/communities
 router.use("/v1/communities", community_routes_1.default);
+// Mount admin routes at /api/v1/admin
+router.use("/v1/admin", admin_routes_1.default);
+// Mount rewind routes at /api/v1/rewind
+router.use("/v1/rewind", rewind_routes_1.default);
+// Payment webhooks
+router.use("/v1/webhooks", webhook_routes_1.default);
 // ==================== Dev-only client log bridge ====================
 if (process.env.NODE_ENV !== "production") {
     router.post("/v1/debug/client-log", (req, res) => {

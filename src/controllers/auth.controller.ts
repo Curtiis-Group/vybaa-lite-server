@@ -15,6 +15,7 @@ import {
 import { uploadImageFromUrl } from "../utils/cloudinary.util";
 import logger from "../utils/logger.util";
 import { generateUniqueUsername } from "../utils/username.util";
+import { userMoodService } from "../services/user-mood.service";
 
 // Helper function to format user response
 export function formatUserResponse(user: any) {
@@ -26,7 +27,6 @@ export function formatUserResponse(user: any) {
     username: user.username || undefined,
     avatarUrl: user.avatarUrl || undefined,
     currentMood: user.currentMood || undefined,
-    lifeGoal: user.lifeGoal || undefined,
     rewindPersona: user.rewindPersona || undefined,
     isConfirmed: user.isConfirmed,
     isFirstTime: user.isFirstTime,
@@ -51,12 +51,19 @@ export async function login(req: Request, res: Response) {
       return res.status(401).json({ msg: "Invalid credentials" });
     }
 
-    const token = generateAccessToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
+    await userMoodService.refreshCurrentMoodIfNeeded(user.id);
+
+    const refreshedUser = await prisma.user.findUnique({ where: { id: user.id } });
+    if (!refreshedUser) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const token = generateAccessToken(refreshedUser.id);
+    const refreshToken = generateRefreshToken(refreshedUser.id);
 
     // Update refresh token
     await prisma.user.update({
-      where: { id: user.id },
+      where: { id: refreshedUser.id },
       data: {
         refreshToken,
       },
@@ -67,7 +74,7 @@ export async function login(req: Request, res: Response) {
       data: {
         token,
         refreshToken,
-        user: formatUserResponse(user),
+        user: formatUserResponse(refreshedUser),
       },
     });
   } catch (error) {
@@ -257,11 +264,18 @@ export async function googleAuth(req: Request, res: Response) {
     }
 
     // Generate tokens
-    const accessToken = generateAccessToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
+    await userMoodService.refreshCurrentMoodIfNeeded(user.id);
+
+    const refreshedUser = await prisma.user.findUnique({ where: { id: user.id } });
+    if (!refreshedUser) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const accessToken = generateAccessToken(refreshedUser.id);
+    const refreshToken = generateRefreshToken(refreshedUser.id);
 
     await prisma.user.update({
-      where: { id: user.id },
+      where: { id: refreshedUser.id },
       data: { refreshToken },
     });
 
@@ -270,7 +284,7 @@ export async function googleAuth(req: Request, res: Response) {
       data: {
         token: accessToken,
         refreshToken,
-        user: formatUserResponse(user),
+        user: formatUserResponse(refreshedUser),
       },
     });
   } catch (error) {
@@ -282,6 +296,8 @@ export async function googleAuth(req: Request, res: Response) {
 export async function getSession(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
+
+    await userMoodService.refreshCurrentMoodIfNeeded(userId);
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
@@ -609,15 +625,13 @@ export async function getSuggestions(req: AuthRequest, res: Response) {
 export async function completeOnboarding(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { username, currentMood, lifeGoal } = req.body;
+    const { username } = req.body;
 
     const updateData: any = {
       isFirstTime: false,
     };
 
     if (username !== undefined) updateData.username = username;
-    if (currentMood !== undefined) updateData.currentMood = currentMood;
-    if (lifeGoal !== undefined) updateData.lifeGoal = lifeGoal;
 
     const user = await prisma.user.update({
       where: { id: userId },

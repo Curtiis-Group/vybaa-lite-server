@@ -16,7 +16,7 @@ if (!(0, fs_1.existsSync)(logDir)) {
 const logFormat = winston_1.default.format.combine(winston_1.default.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston_1.default.format.errors({ stack: true }), winston_1.default.format.splat(), winston_1.default.format.json());
 // Console format for development
 const consoleFormat = winston_1.default.format.combine(winston_1.default.format.colorize(), winston_1.default.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston_1.default.format.printf(({ timestamp, level, message, service, ...meta }) => {
-    let msg = `${chalk_1.default.bold(chalk_1.default.blue(`[${service}]`))}[${level}][${chalk_1.default.yellow(timestamp)}]=> ${message}`;
+    let msg = `[${chalk_1.default.yellow(timestamp)}][${level}]: ${message}`;
     if (Object.keys(meta).length > 0) {
         msg += ` ${JSON.stringify(meta)}`;
     }

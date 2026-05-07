@@ -40,19 +40,28 @@ const auth_validators_1 = require("../validators/auth.validators");
 const userController = __importStar(require("../controllers/user.controller"));
 const usernameController = __importStar(require("../controllers/username.controller"));
 const rewardsController = __importStar(require("../controllers/rewards.controller"));
+const walletController = __importStar(require("../controllers/wallet.controller"));
 const router = (0, express_1.Router)();
 // PUT /api/v1/users/me
 router.put("/me", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(auth_validators_1.updateProfileSchema), userController.updateProfile);
 // GET /api/v1/users/me
 router.get("/me", auth_middleware_1.authMiddleware, userController.getProfile);
+// GET /api/v1/users/public/:username
+router.get("/public/:username", auth_middleware_1.optionalAuthMiddleware, userController.getPublicProfile);
 // GET /api/v1/users/username/availability - Check username change cooldown
-router.get("/username/availability", auth_middleware_1.authMiddleware, userController.checkUsernameAvailability);
+router.get("/username/availability", auth_middleware_1.optionalAuthMiddleware, userController.checkUsernameAvailability);
 // GET /api/v1/users/username/check - Check if username is available (real-time)
-router.get("/username/check", auth_middleware_1.authMiddleware, usernameController.checkUsernameChangeAvailability);
+router.get("/username/check", auth_middleware_1.optionalAuthMiddleware, usernameController.checkUsernameChangeAvailability);
 // POST /api/v1/users/fcm-token
 router.post("/fcm-token", auth_middleware_1.authMiddleware, userController.registerFCMToken);
 // DELETE /api/v1/users/fcm-token
 router.delete("/fcm-token", auth_middleware_1.authMiddleware, userController.removeFCMToken);
 // GET /api/v1/users/rewards
 router.get("/rewards", auth_middleware_1.authMiddleware, rewardsController.getRewards);
+// GET /api/v1/users/wallet
+router.get("/wallet", auth_middleware_1.authMiddleware, walletController.getWallet);
+// POST /api/v1/users/wallet/paystack/initialize
+router.post("/wallet/paystack/initialize", auth_middleware_1.authMiddleware, walletController.initPaystackFunding);
+// POST /api/v1/users/wallet/polar/initialize
+router.post("/wallet/polar/initialize", auth_middleware_1.authMiddleware, walletController.initPolarFunding);
 exports.default = router;

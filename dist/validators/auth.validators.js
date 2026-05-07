@@ -76,13 +76,9 @@ exports.onboardingAnswerSchema = zod_1.z.object({
 exports.onboardingSchema = zod_1.z.object({
     answers: zod_1.z.array(exports.onboardingAnswerSchema).optional(),
     username: exports.usernameSchema.optional(),
-    currentMood: zod_1.z.string().optional(),
-    lifeGoal: zod_1.z.string().optional(),
 });
 exports.suggestionsSchema = zod_1.z.object({
     answers: zod_1.z.array(exports.onboardingAnswerSchema).optional(),
-    currentMood: zod_1.z.string().optional(),
-    lifeGoal: zod_1.z.string().optional(),
 });
 // User validators
 exports.updateProfileSchema = zod_1.z.object({
@@ -90,8 +86,7 @@ exports.updateProfileSchema = zod_1.z.object({
     lastName: exports.nameSchema.optional(),
     username: exports.usernameSchema.optional(),
     profileImageId: zod_1.z.string().optional(),
-    currentMood: zod_1.z.string().max(200, "Current mood must be less than 200 characters").optional(),
-    lifeGoal: zod_1.z.string().max(500, "Life goal must be less than 500 characters").optional(),
+    rewindPersona: zod_1.z.enum(["ella", "lyra", "jake", "ariel"]).nullable().optional(),
 });
 // Params validators
 exports.emailParamSchema = zod_1.z.object({

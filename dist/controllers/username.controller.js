@@ -57,6 +57,56 @@ async function checkUsernameChangeAvailability(req, res) {
     try {
         const userId = req.userId;
         const { username } = req.query;
+        // If checking availability of a specific username, allow unauthenticated usage
+        if (username && typeof username === 'string') {
+            // Sanitize and force lowercase
+            const sanitized = (0, username_util_1.sanitizeUsername)(username);
+            // If authed, prevent selecting current username
+            if (userId) {
+                const user = await db_config_1.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { username: true },
+                });
+                if (user && sanitized === user.username) {
+                    return res.json({
+                        msg: "This is your current username",
+                        data: {
+                            available: false,
+                            reason: "This is already your username",
+                            isCurrentUsername: true,
+                        },
+                    });
+                }
+            }
+            // Validate format
+            const validation = (0, username_util_1.validateUsername)(sanitized);
+            if (!validation.valid) {
+                return res.json({
+                    msg: "Username validation",
+                    data: {
+                        available: false,
+                        reason: validation.error,
+                    },
+                });
+            }
+            // Check if taken
+            const existingUser = await db_config_1.prisma.user.findUnique({
+                where: { username: sanitized },
+                select: { id: true },
+            });
+            return res.json({
+                msg: "Username availability checked",
+                data: {
+                    available: !existingUser,
+                    exists: !!existingUser,
+                    username: sanitized,
+                },
+            });
+        }
+        // Cooldown status requires authentication
+        if (!userId) {
+            return res.status(401).json({ msg: "Authentication required" });
+        }
         const user = await db_config_1.prisma.user.findUnique({
             where: { id: userId },
             select: { username: true, lastUsernameChangeAt: true },

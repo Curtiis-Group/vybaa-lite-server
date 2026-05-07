@@ -87,14 +87,10 @@ export const onboardingAnswerSchema = z.object({
 export const onboardingSchema = z.object({
   answers: z.array(onboardingAnswerSchema).optional(),
   username: usernameSchema.optional(),
-  currentMood: z.string().optional(),
-  lifeGoal: z.string().optional(),
 });
 
 export const suggestionsSchema = z.object({
   answers: z.array(onboardingAnswerSchema).optional(),
-  currentMood: z.string().optional(),
-  lifeGoal: z.string().optional(),
 });
 
 // User validators
@@ -103,8 +99,6 @@ export const updateProfileSchema = z.object({
   lastName: nameSchema.optional(),
   username: usernameSchema.optional(),
   profileImageId: z.string().optional(),
-  currentMood: z.string().max(200, "Current mood must be less than 200 characters").optional(),
-  lifeGoal: z.string().max(500, "Life goal must be less than 500 characters").optional(),
   rewindPersona: z.enum(["ella", "lyra", "jake", "ariel"]).nullable().optional(),
 });
 

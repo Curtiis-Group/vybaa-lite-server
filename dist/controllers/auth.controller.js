@@ -20,10 +20,12 @@ exports.changePassword = changePassword;
 exports.getSuggestions = getSuggestions;
 exports.completeOnboarding = completeOnboarding;
 const db_config_1 = require("../config/db.config");
-const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const email_service_1 = require("../services/email.service");
 const auth_util_1 = require("../utils/auth.util");
-const username_util_1 = require("../utils/username.util");
 const cloudinary_util_1 = require("../utils/cloudinary.util");
+const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const username_util_1 = require("../utils/username.util");
+const user_mood_service_1 = require("../services/user-mood.service");
 // Helper function to format user response
 function formatUserResponse(user) {
     return {
@@ -34,7 +36,7 @@ function formatUserResponse(user) {
         username: user.username || undefined,
         avatarUrl: user.avatarUrl || undefined,
         currentMood: user.currentMood || undefined,
-        lifeGoal: user.lifeGoal || undefined,
+        rewindPersona: user.rewindPersona || undefined,
         isConfirmed: user.isConfirmed,
         isFirstTime: user.isFirstTime,
         lastUsernameChangeAt: user.lastUsernameChangeAt?.toISOString() || undefined,
@@ -53,11 +55,16 @@ async function login(req, res) {
         if (!isPasswordValid) {
             return res.status(401).json({ msg: "Invalid credentials" });
         }
-        const token = (0, auth_util_1.generateAccessToken)(user.id);
-        const refreshToken = (0, auth_util_1.generateRefreshToken)(user.id);
+        await user_mood_service_1.userMoodService.refreshCurrentMoodIfNeeded(user.id);
+        const refreshedUser = await db_config_1.prisma.user.findUnique({ where: { id: user.id } });
+        if (!refreshedUser) {
+            return res.status(404).json({ msg: "User not found" });
+        }
+        const token = (0, auth_util_1.generateAccessToken)(refreshedUser.id);
+        const refreshToken = (0, auth_util_1.generateRefreshToken)(refreshedUser.id);
         // Update refresh token
         await db_config_1.prisma.user.update({
-            where: { id: user.id },
+            where: { id: refreshedUser.id },
             data: {
                 refreshToken,
             },
@@ -67,7 +74,7 @@ async function login(req, res) {
             data: {
                 token,
                 refreshToken,
-                user: formatUserResponse(user),
+                user: formatUserResponse(refreshedUser),
             },
         });
     }
@@ -234,10 +241,15 @@ async function googleAuth(req, res) {
             }
         }
         // Generate tokens
-        const accessToken = (0, auth_util_1.generateAccessToken)(user.id);
-        const refreshToken = (0, auth_util_1.generateRefreshToken)(user.id);
+        await user_mood_service_1.userMoodService.refreshCurrentMoodIfNeeded(user.id);
+        const refreshedUser = await db_config_1.prisma.user.findUnique({ where: { id: user.id } });
+        if (!refreshedUser) {
+            return res.status(404).json({ msg: "User not found" });
+        }
+        const accessToken = (0, auth_util_1.generateAccessToken)(refreshedUser.id);
+        const refreshToken = (0, auth_util_1.generateRefreshToken)(refreshedUser.id);
         await db_config_1.prisma.user.update({
-            where: { id: user.id },
+            where: { id: refreshedUser.id },
             data: { refreshToken },
         });
         res.json({
@@ -245,7 +257,7 @@ async function googleAuth(req, res) {
             data: {
                 token: accessToken,
                 refreshToken,
-                user: formatUserResponse(user),
+                user: formatUserResponse(refreshedUser),
             },
         });
     }
@@ -257,6 +269,7 @@ async function googleAuth(req, res) {
 async function getSession(req, res) {
     try {
         const userId = req.userId;
+        await user_mood_service_1.userMoodService.refreshCurrentMoodIfNeeded(userId);
         const user = await db_config_1.prisma.user.findUnique({ where: { id: userId } });
         if (!user) {
             return res.status(404).json({ msg: "User not found" });
@@ -337,7 +350,12 @@ async function requestPasswordReset(req, res) {
                 otpExpiresAt,
             },
         });
-        // TODO: Send OTP via email/SMS
+        // Send OTP via email
+        await email_service_1.emailService.sendPasswordResetEmail({
+            to: user.email,
+            name: user.firstName || user.email,
+            code: otpCode,
+        });
         res.json({
             msg: "OTP sent to email",
             data: {
@@ -379,10 +397,10 @@ async function recoverAccount(req, res) {
         const { email, otp, newPassword } = req.body;
         const user = await db_config_1.prisma.user.findUnique({ where: { email } });
         if (!user || !user.otpCode || user.otpCode !== otp.toString()) {
-            return res.status(401).json({ msg: "Invalid OTP" });
+            return res.status(400).json({ msg: "Invalid OTP" });
         }
         if ((0, auth_util_1.isOTPExpired)(user.otpExpiresAt)) {
-            return res.status(401).json({ msg: "OTP has expired" });
+            return res.status(400).json({ msg: "OTP has expired" });
         }
         const hashedPassword = await (0, auth_util_1.hashPassword)(newPassword);
         await db_config_1.prisma.user.update({
@@ -424,7 +442,12 @@ async function requestConfirmation(req, res) {
                 otpExpiresAt,
             },
         });
-        // TODO: Send confirmation OTP via email
+        // Send confirmation OTP via email
+        await email_service_1.emailService.sendConfirmationEmail({
+            to: user.email,
+            name: user.firstName || user.email,
+            code: otpCode,
+        });
         res.json({
             msg: "Confirmation OTP sent",
             data: {
@@ -528,16 +551,12 @@ async function getSuggestions(req, res) {
 async function completeOnboarding(req, res) {
     try {
         const userId = req.userId;
-        const { username, currentMood, lifeGoal } = req.body;
+        const { username } = req.body;
         const updateData = {
             isFirstTime: false,
         };
         if (username !== undefined)
             updateData.username = username;
-        if (currentMood !== undefined)
-            updateData.currentMood = currentMood;
-        if (lifeGoal !== undefined)
-            updateData.lifeGoal = lifeGoal;
         const user = await db_config_1.prisma.user.update({
             where: { id: userId },
             data: updateData,

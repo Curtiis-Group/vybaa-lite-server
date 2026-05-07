@@ -21,7 +21,7 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "your-refresh-secre
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 // JWT Token Generation
 function generateAccessToken(userId) {
-    return jsonwebtoken_1.default.sign({ userId }, JWT_SECRET, { expiresIn: "15m" });
+    return jsonwebtoken_1.default.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
 }
 function generateRefreshToken(userId) {
     return jsonwebtoken_1.default.sign({ userId }, JWT_REFRESH_SECRET, { expiresIn: "7d" });

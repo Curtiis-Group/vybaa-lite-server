@@ -52,10 +52,10 @@ class ChillService {
   }
 
   /**
-   * Mark session as completed and update user mood
+   * Mark session as completed
    */
   async completeSession(sessionId: string, userId: string, postSessionMood?: string) {
-    const updateResult = await prisma.chillSession.updateMany({
+    return prisma.chillSession.updateMany({
       where: {
         id: sessionId,
         userId, // Ensure user owns this session
@@ -67,49 +67,6 @@ class ChillService {
         postSessionMood: postSessionMood || null,
       },
     });
-
-    // Update user's current mood based on completed sessions
-    if (updateResult.count > 0 && postSessionMood) {
-      await this.updateUserMood(userId);
-    }
-
-    return updateResult;
-  }
-
-  /**
-   * Update user's current mood based on recent completed sessions
-   * Uses weighted average: more recent sessions have more weight
-   */
-  private async updateUserMood(userId: string) {
-    try {
-      const recentSessions = await prisma.chillSession.findMany({
-        where: {
-          userId,
-          completed: true,
-          postSessionMood: { not: null },
-        },
-        orderBy: { completedAt: "desc" },
-        take: 10, // Last 10 completed sessions
-      });
-
-      if (recentSessions.length === 0) return;
-
-      // Get the most recent post-session mood (simple approach)
-      // Could be enhanced with weighted average or sentiment analysis
-      const latestMood = recentSessions[0].postSessionMood;
-      
-      if (latestMood) {
-        await prisma.user.update({
-          where: { id: userId },
-          data: { currentMood: latestMood },
-        });
-        
-        logger.info("User mood updated from chill session", { userId, mood: latestMood });
-      }
-    } catch (error) {
-      logger.error("Error updating user mood:", error);
-      // Don't throw - mood update is not critical
-    }
   }
 
   /**

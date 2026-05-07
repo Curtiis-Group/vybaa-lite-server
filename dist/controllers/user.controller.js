@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateProfile = updateProfile;
 exports.getProfile = getProfile;
+exports.getPublicProfile = getPublicProfile;
 exports.registerFCMToken = registerFCMToken;
 exports.removeFCMToken = removeFCMToken;
 exports.checkUsernameAvailability = checkUsernameAvailability;
@@ -15,7 +16,7 @@ const auth_controller_1 = require("./auth.controller");
 async function updateProfile(req, res) {
     try {
         const userId = req.userId;
-        const { firstName, lastName, username, profileImageId, currentMood, lifeGoal } = req.body;
+        const { firstName, lastName, username, profileImageId, rewindPersona } = req.body;
         const updateData = {};
         // Handle username change with 7-day cooldown
         if (username !== undefined) {
@@ -62,10 +63,8 @@ async function updateProfile(req, res) {
             // For now, we'll just store it as avatarUrl
             updateData.avatarUrl = profileImageId;
         }
-        if (currentMood !== undefined)
-            updateData.currentMood = currentMood;
-        if (lifeGoal !== undefined)
-            updateData.lifeGoal = lifeGoal;
+        if (rewindPersona !== undefined)
+            updateData.rewindPersona = rewindPersona;
         const user = await db_config_1.prisma.user.update({
             where: { id: userId },
             data: updateData,
@@ -97,6 +96,68 @@ async function getProfile(req, res) {
     }
     catch (error) {
         logger_util_1.default.error("Get user error:", { error, userId: req.userId });
+        res.status(500).json({ msg: "Internal server error" });
+    }
+}
+async function getPublicProfile(req, res) {
+    try {
+        const rawUsername = Array.isArray(req.params.username)
+            ? req.params.username[0]
+            : req.params.username;
+        const username = (0, username_util_1.sanitizeUsername)(rawUsername);
+        if (!username) {
+            return res.status(400).json({ msg: "Valid username is required" });
+        }
+        const user = await db_config_1.prisma.user.findUnique({
+            where: { username },
+            select: {
+                id: true,
+                username: true,
+                firstName: true,
+                lastName: true,
+                avatarUrl: true,
+                currentMood: true,
+                createdAt: true,
+                points: true,
+                _count: {
+                    select: {
+                        achievements: true,
+                        communityMemberships: true,
+                        goals: true,
+                        journals: true,
+                    },
+                },
+            },
+        });
+        if (!user) {
+            return res.status(404).json({ msg: "User not found" });
+        }
+        res.json({
+            msg: "Public profile retrieved",
+            data: {
+                id: user.id,
+                username: user.username,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                avatarUrl: user.avatarUrl,
+                currentMood: user.currentMood,
+                joinedAt: user.createdAt.toISOString(),
+                playPoints: Math.round(user.points ?? 0),
+                stats: {
+                    achievementCount: user._count.achievements,
+                    communityCount: user._count.communityMemberships,
+                    goalCount: user._count.goals,
+                    journalCount: user._count.journals,
+                },
+            },
+        });
+    }
+    catch (error) {
+        logger_util_1.default.error("Get public profile error:", {
+            error,
+            username: req.params.username,
+            viewerId: req.userId,
+        });
         res.status(500).json({ msg: "Internal server error" });
     }
 }
@@ -184,6 +245,17 @@ async function removeFCMToken(req, res) {
 async function checkUsernameAvailability(req, res) {
     try {
         const userId = req.userId;
+        // Allow unauthenticated usage (e.g. signup flow) by returning defaults
+        if (!userId) {
+            return res.json({
+                msg: "Username change availability checked",
+                data: {
+                    canChange: true,
+                    daysRemaining: 0,
+                    nextAvailableDate: new Date().toISOString(),
+                },
+            });
+        }
         const user = await db_config_1.prisma.user.findUnique({
             where: { id: userId },
             select: { lastUsernameChangeAt: true, username: true },

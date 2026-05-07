@@ -8,7 +8,7 @@ import { formatUserResponse } from "./auth.controller";
 export async function updateProfile(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { firstName, lastName, username, profileImageId, currentMood, lifeGoal, rewindPersona } = req.body;
+    const { firstName, lastName, username, profileImageId, rewindPersona } = req.body;
 
     const updateData: any = {};
 
@@ -61,8 +61,6 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       // For now, we'll just store it as avatarUrl
       updateData.avatarUrl = profileImageId;
     }
-    if (currentMood !== undefined) updateData.currentMood = currentMood;
-    if (lifeGoal !== undefined) updateData.lifeGoal = lifeGoal;
     if (rewindPersona !== undefined) updateData.rewindPersona = rewindPersona;
 
     const user = await prisma.user.update({
@@ -100,6 +98,72 @@ export async function getProfile(req: AuthRequest, res: Response) {
   } catch (error) {
     logger.error("Get user error:", { error, userId: req.userId });
     res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+export async function getPublicProfile(req: AuthRequest, res: Response) {
+  try {
+    const rawUsername = Array.isArray(req.params.username)
+      ? req.params.username[0]
+      : req.params.username
+    const username = sanitizeUsername(rawUsername)
+
+    if (!username) {
+      return res.status(400).json({ msg: "Valid username is required" })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { username },
+      select: {
+        id: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        currentMood: true,
+        createdAt: true,
+        points: true,
+        _count: {
+          select: {
+            achievements: true,
+            communityMemberships: true,
+            goals: true,
+            journals: true,
+          },
+        },
+      },
+    })
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" })
+    }
+
+    res.json({
+      msg: "Public profile retrieved",
+      data: {
+        id: user.id,
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatarUrl: user.avatarUrl,
+        currentMood: user.currentMood,
+        joinedAt: user.createdAt.toISOString(),
+        playPoints: Math.round(user.points ?? 0),
+        stats: {
+          achievementCount: user._count.achievements,
+          communityCount: user._count.communityMemberships,
+          goalCount: user._count.goals,
+          journalCount: user._count.journals,
+        },
+      },
+    })
+  } catch (error) {
+    logger.error("Get public profile error:", {
+      error,
+      username: req.params.username,
+      viewerId: req.userId,
+    })
+    res.status(500).json({ msg: "Internal server error" })
   }
 }
 
