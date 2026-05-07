@@ -57,6 +57,14 @@ type RewindStoredSession = {
   sessionId: string;
   userId: string;
   personaId: RewindPersonaId;
+  sessionDateKey: string;
+  guidedFlow: RewindGuidedFlowState;
+  updatedAt: number;
+};
+
+type RewindSessionSnapshot = {
+  sessionId: string;
+  sessionDateKey: string;
   guidedFlow: RewindGuidedFlowState;
   updatedAt: number;
 };
@@ -83,6 +91,20 @@ function createEmptyGuidedFlow(): RewindGuidedFlowState {
     completed: false,
     responses: {},
   };
+}
+
+function getDateString(date: Date, timezone?: string): string {
+  if (timezone) {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    return formatter.format(date);
+  }
+
+  return date.toISOString().split("T")[0] as string;
 }
 
 function normalizeGuidedResponses(
@@ -183,6 +205,7 @@ async function loadRewindSession(params: {
     sessionId: session.id,
     userId: session.userId,
     personaId: session.personaId as RewindPersonaId,
+    sessionDateKey: session.sessionDateKey,
     guidedFlow: normalizeGuidedFlow({
       openingAnswered: session.openingAnswered,
       currentQuestionIndex: session.currentQuestionIndex,
@@ -193,11 +216,74 @@ async function loadRewindSession(params: {
   } satisfies RewindStoredSession;
 }
 
+async function loadRewindSessionForDate(params: {
+  userId: string;
+  personaId: RewindPersonaId;
+  sessionDateKey: string;
+}) {
+  const session = await prisma.rewindSession.findFirst({
+    where: {
+      userId: params.userId,
+      personaId: params.personaId,
+      sessionDateKey: params.sessionDateKey,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (!session) return null;
+
+  return {
+    sessionId: session.id,
+    userId: session.userId,
+    personaId: session.personaId as RewindPersonaId,
+    sessionDateKey: session.sessionDateKey,
+    guidedFlow: normalizeGuidedFlow({
+      openingAnswered: session.openingAnswered,
+      currentQuestionIndex: session.currentQuestionIndex,
+      completed: session.completed,
+      responses: session.responses,
+    }),
+    updatedAt: session.updatedAt.getTime(),
+  } satisfies RewindStoredSession;
+}
+
+async function loadPreviousRewindSession(params: {
+  userId: string;
+  personaId: RewindPersonaId;
+  currentSessionDateKey: string;
+}) {
+  const session = await prisma.rewindSession.findFirst({
+    where: {
+      userId: params.userId,
+      personaId: params.personaId,
+      NOT: {
+        sessionDateKey: params.currentSessionDateKey,
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!session) return null;
+
+  return {
+    sessionId: session.id,
+    sessionDateKey: session.sessionDateKey,
+    guidedFlow: normalizeGuidedFlow({
+      openingAnswered: session.openingAnswered,
+      currentQuestionIndex: session.currentQuestionIndex,
+      completed: session.completed,
+      responses: session.responses,
+    }),
+    updatedAt: session.updatedAt.getTime(),
+  } satisfies RewindSessionSnapshot;
+}
+
 async function persistRewindSession(sessionState: RewindStoredSession) {
   await prisma.rewindSession.upsert({
     where: { id: sessionState.sessionId },
     update: {
       personaId: sessionState.personaId,
+      sessionDateKey: sessionState.sessionDateKey,
       openingAnswered: sessionState.guidedFlow.openingAnswered,
       currentQuestionIndex: sessionState.guidedFlow.currentQuestionIndex,
       completed: sessionState.guidedFlow.completed,
@@ -207,6 +293,7 @@ async function persistRewindSession(sessionState: RewindStoredSession) {
       id: sessionState.sessionId,
       userId: sessionState.userId,
       personaId: sessionState.personaId,
+      sessionDateKey: sessionState.sessionDateKey,
       openingAnswered: sessionState.guidedFlow.openingAnswered,
       currentQuestionIndex: sessionState.guidedFlow.currentQuestionIndex,
       completed: sessionState.guidedFlow.completed,
@@ -219,36 +306,53 @@ async function getOrCreateRewindSession(params: {
   userId: string;
   personaId: RewindPersonaId;
   requestedSessionId?: string | null;
+  timezone?: string;
 }) {
-  const existing = await loadRewindSession({
+  const sessionDateKey = getDateString(new Date(), params.timezone);
+  const previousSession = await loadPreviousRewindSession({
     userId: params.userId,
     personaId: params.personaId,
-    sessionId: params.requestedSessionId,
+    currentSessionDateKey: sessionDateKey,
   });
-  if (existing) {
-    return { sessionState: existing, restored: existing.guidedFlow.openingAnswered };
-  }
 
-  if (!params.requestedSessionId) {
-    const latest = await loadRewindSession({
+  if (params.requestedSessionId) {
+    const existing = await loadRewindSession({
       userId: params.userId,
       personaId: params.personaId,
-      sessionId: null,
+      sessionId: params.requestedSessionId,
     });
-    if (latest) {
-      return { sessionState: latest, restored: latest.guidedFlow.openingAnswered };
+    if (existing) {
+      return {
+        sessionState: existing,
+        restored: existing.guidedFlow.openingAnswered,
+        previousSession,
+      };
     }
+  }
+
+  const todaySession = await loadRewindSessionForDate({
+    userId: params.userId,
+    personaId: params.personaId,
+    sessionDateKey,
+  });
+  if (todaySession) {
+    return {
+      sessionState: todaySession,
+      restored: todaySession.guidedFlow.openingAnswered,
+      previousSession,
+    };
   }
 
   const sessionState: RewindStoredSession = {
     sessionId: params.requestedSessionId || createConnectionId(),
     userId: params.userId,
     personaId: params.personaId,
+    sessionDateKey,
     guidedFlow: createEmptyGuidedFlow(),
     updatedAt: Date.now(),
   };
   await persistRewindSession(sessionState);
-  return { sessionState, restored: false };
+  return { sessionState, restored: false, previousSession };
 }
 
 export function summarizeShortResponse(text: string) {
@@ -437,6 +541,7 @@ export function buildResumePromptWithGuidedState(sessionState: RewindStoredSessi
 export async function createLiveToken(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
+    const timezone = req.headers["x-user-tz"] as string | undefined;
     const requestedPersonaId = req.body?.personaId;
     const personaId = isValidPersonaId(requestedPersonaId) ? requestedPersonaId : "ella";
     const requestedSessionId =
@@ -448,6 +553,7 @@ export async function createLiveToken(req: AuthRequest, res: Response) {
       userId,
       personaId,
       requestedSessionId,
+      timezone,
     });
 
     const token = createRewindWsToken(userId, personaId, sessionState.sessionId);
@@ -481,7 +587,11 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
   }
   const personaId = isValidPersonaId(auth.personaId) ? auth.personaId : "ella";
   const requestedSessionId = auth.sessionId?.trim() || undefined;
-  const { sessionState, restored: shouldRestore } = await getOrCreateRewindSession({
+  const {
+    sessionState,
+    restored: shouldRestore,
+    previousSession,
+  } = await getOrCreateRewindSession({
     userId: auth.userId,
     personaId,
     requestedSessionId,
@@ -638,9 +748,11 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               JSON.stringify({
                 type: "ready",
                 sessionId: sessionState.sessionId,
+                sessionDateKey: sessionState.sessionDateKey,
                 restored: shouldRestore,
                 historyCount: Object.keys(sessionState.guidedFlow.responses).length,
                 guidedFlow: sessionState.guidedFlow,
+                previousSession,
               }),
             );
 

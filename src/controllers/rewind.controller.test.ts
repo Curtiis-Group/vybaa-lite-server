@@ -54,6 +54,7 @@ test("recordGuidedFlowResponse stores concise summaries in sequence", () => {
     sessionId: "session_1",
     userId: "user_1",
     personaId: "ella" as const,
+    sessionDateKey: "2026-04-28",
     guidedFlow: {
       openingAnswered: false,
       currentQuestionIndex: 0,
@@ -84,6 +85,7 @@ test("buildResumePromptWithGuidedState carries the next pending question", () =>
     sessionId: "session_2",
     userId: "user_1",
     personaId: "jake" as const,
+    sessionDateKey: "2026-04-28",
     guidedFlow: {
       openingAnswered: true,
       currentQuestionIndex: 2,
