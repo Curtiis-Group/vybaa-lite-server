@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const adminStatsController = __importStar(require("../controllers/admin-stats.controller"));
 const admin_middleware_1 = require("../middleware/admin.middleware");
 const featureFlagsController = __importStar(require("../controllers/feature-flags.controller"));
 const router = (0, express_1.Router)();
@@ -41,6 +42,8 @@ const router = (0, express_1.Router)();
 router.use(admin_middleware_1.adminAuthMiddleware);
 // GET /api/v1/admin/feature-flags
 router.get("/feature-flags", featureFlagsController.listFeatureFlags);
+// GET /api/v1/admin/stats
+router.get("/stats", adminStatsController.getAdminStats);
 // POST /api/v1/admin/feature-flags
 router.post("/feature-flags", featureFlagsController.upsertFeatureFlag);
 exports.default = router;
