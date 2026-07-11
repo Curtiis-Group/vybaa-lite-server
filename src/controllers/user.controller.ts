@@ -2,13 +2,18 @@ import { Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import logger from "../utils/logger.util";
-import { canChangeUsername, sanitizeUsername, validateUsername } from "../utils/username.util";
+import {
+  canChangeUsername,
+  sanitizeUsername,
+  validateUsername,
+} from "../utils/username.util";
 import { formatUserResponse } from "./auth.controller";
 
 export async function updateProfile(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { firstName, lastName, username, profileImageId, rewindPersona } = req.body;
+    const { firstName, lastName, username, profileImageId, rewindPersona } =
+      req.body;
 
     const updateData: any = {};
 
@@ -28,7 +33,7 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       if (username !== currentUser.username) {
         // Sanitize and force lowercase
         const sanitizedUsername = sanitizeUsername(username);
-        
+
         // Validate username format
         const validation = validateUsername(sanitizedUsername);
         if (!validation.valid) {
@@ -36,15 +41,17 @@ export async function updateProfile(req: AuthRequest, res: Response) {
         }
 
         // Check 7-day cooldown
-        const cooldownCheck = canChangeUsername(currentUser.lastUsernameChangeAt);
+        const cooldownCheck = canChangeUsername(
+          currentUser.lastUsernameChangeAt,
+        );
         if (!cooldownCheck.canChange) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             msg: `You can change your username again in ${cooldownCheck.daysRemaining} day(s)`,
             data: {
               canChange: false,
               daysRemaining: cooldownCheck.daysRemaining,
               nextAvailableDate: cooldownCheck.nextAvailableDate.toISOString(),
-            }
+            },
           });
         }
 
@@ -101,15 +108,63 @@ export async function getProfile(req: AuthRequest, res: Response) {
   }
 }
 
+export async function deleteAccount(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.transaction.deleteMany({
+        where: {
+          OR: [{ senderId: userId }, { recipientId: userId }],
+        },
+      });
+
+      await tx.goal.updateMany({
+        where: {
+          template: { createdBy: userId },
+        },
+        data: { templateId: null },
+      });
+
+      await tx.goalTemplate.deleteMany({
+        where: { createdBy: userId },
+      });
+
+      await tx.goal.deleteMany({
+        where: { userId },
+      });
+
+      await tx.user.delete({
+        where: { id: userId },
+      });
+    });
+
+    logger.info("Account deleted", { userId });
+    res.json({ msg: "Account deleted successfully" });
+  } catch (error) {
+    logger.error("Delete account error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
 export async function getPublicProfile(req: AuthRequest, res: Response) {
   try {
     const rawUsername = Array.isArray(req.params.username)
       ? req.params.username[0]
-      : req.params.username
-    const username = sanitizeUsername(rawUsername)
+      : req.params.username;
+    const username = sanitizeUsername(rawUsername);
 
     if (!username) {
-      return res.status(400).json({ msg: "Valid username is required" })
+      return res.status(400).json({ msg: "Valid username is required" });
     }
 
     const user = await prisma.user.findUnique({
@@ -132,10 +187,10 @@ export async function getPublicProfile(req: AuthRequest, res: Response) {
           },
         },
       },
-    })
+    });
 
     if (!user) {
-      return res.status(404).json({ msg: "User not found" })
+      return res.status(404).json({ msg: "User not found" });
     }
 
     res.json({
@@ -156,14 +211,14 @@ export async function getPublicProfile(req: AuthRequest, res: Response) {
           journalCount: user._count.journals,
         },
       },
-    })
+    });
   } catch (error) {
     logger.error("Get public profile error:", {
       error,
       username: req.params.username,
       viewerId: req.userId,
-    })
-    res.status(500).json({ msg: "Internal server error" })
+    });
+    res.status(500).json({ msg: "Internal server error" });
   }
 }
 
@@ -198,7 +253,10 @@ export async function registerFCMToken(req: AuthRequest, res: Response) {
           fcmTokens: [...tokens, fcmToken],
         },
       });
-      logger.info("FCM token registered", { userId, token: fcmToken.substring(0, 20) + "..." });
+      logger.info("FCM token registered", {
+        userId,
+        token: fcmToken.substring(0, 20) + "...",
+      });
     } else {
       logger.debug("FCM token already registered", { userId });
     }
@@ -245,7 +303,10 @@ export async function removeFCMToken(req: AuthRequest, res: Response) {
       },
     });
 
-    logger.info("FCM token removed", { userId, token: fcmToken.substring(0, 20) + "..." });
+    logger.info("FCM token removed", {
+      userId,
+      token: fcmToken.substring(0, 20) + "...",
+    });
 
     res.json({
       msg: "FCM token removed successfully",
@@ -259,7 +320,10 @@ export async function removeFCMToken(req: AuthRequest, res: Response) {
 /**
  * Check if user can change username (7-day cooldown check)
  */
-export async function checkUsernameAvailability(req: AuthRequest, res: Response) {
+export async function checkUsernameAvailability(
+  req: AuthRequest,
+  res: Response,
+) {
   try {
     const userId = req.userId;
 
@@ -274,7 +338,7 @@ export async function checkUsernameAvailability(req: AuthRequest, res: Response)
         },
       });
     }
-    
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { lastUsernameChangeAt: true, username: true },
@@ -296,7 +360,10 @@ export async function checkUsernameAvailability(req: AuthRequest, res: Response)
       },
     });
   } catch (error) {
-    logger.error("Check username availability error:", { error, userId: req.userId });
+    logger.error("Check username availability error:", {
+      error,
+      userId: req.userId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
