@@ -614,9 +614,9 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
   const releaseConnection = (): void => {
     if (connectionReleased) return;
     connectionReleased = true;
-    const remaining = (activeConnections.get(auth.userId) ?? 1) - 1;
-    if (remaining > 0) activeConnections.set(auth.userId, remaining);
-    else activeConnections.delete(auth.userId);
+    const remaining = (activeConnections.get(auth.userId!) ?? 1) - 1;
+    if (remaining > 0) activeConnections.set(auth.userId!, remaining);
+    else activeConnections.delete(auth.userId!);
   };
   const personaId = isValidPersonaId(auth.personaId) ? auth.personaId : "ella";
   const requestedSessionId = auth.sessionId?.trim() || undefined;
