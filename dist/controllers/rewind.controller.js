@@ -7,6 +7,7 @@ exports.summarizeShortResponse = summarizeShortResponse;
 exports.recordGuidedFlowResponse = recordGuidedFlowResponse;
 exports.buildGuidedFlowInstruction = buildGuidedFlowInstruction;
 exports.buildGuidedFlowSnapshot = buildGuidedFlowSnapshot;
+exports.getPaginatedRewindSessions = getPaginatedRewindSessions;
 exports.buildOpeningPrompt = buildOpeningPrompt;
 exports.buildResumePrompt = buildResumePrompt;
 exports.buildResumePromptWithGuidedState = buildResumePromptWithGuidedState;
@@ -115,7 +116,7 @@ async function loadRewindSession(params) {
         sessionId: session.id,
         userId: session.userId,
         personaId: session.personaId,
-        sessionDateKey: session.sessionDateKey,
+        sessionDateKey: session?.sessionDateKey,
         guidedFlow: normalizeGuidedFlow({
             openingAnswered: session.openingAnswered,
             currentQuestionIndex: session.currentQuestionIndex,
@@ -140,7 +141,7 @@ async function loadRewindSessionForDate(params) {
         sessionId: session.id,
         userId: session.userId,
         personaId: session.personaId,
-        sessionDateKey: session.sessionDateKey,
+        sessionDateKey: session?.sessionDateKey || params?.sessionDateKey,
         guidedFlow: normalizeGuidedFlow({
             openingAnswered: session.openingAnswered,
             currentQuestionIndex: session.currentQuestionIndex,
@@ -165,7 +166,7 @@ async function loadPreviousRewindSession(params) {
         return null;
     return {
         sessionId: session.id,
-        sessionDateKey: session.sessionDateKey,
+        sessionDateKey: session?.sessionDateKey,
         guidedFlow: normalizeGuidedFlow({
             openingAnswered: session.openingAnswered,
             currentQuestionIndex: session.currentQuestionIndex,
@@ -323,6 +324,46 @@ function getRewindVoiceName(personaId) {
             return "Kore";
         default:
             return "Kore";
+    }
+}
+async function getPaginatedRewindSessions(req, res) {
+    try {
+        const userId = req.userId;
+        const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
+        const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+        const parsedPage = Number(pageParam ?? "1");
+        const parsedLimit = Number(limitParam ?? "10");
+        const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+        const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
+        const skip = (page - 1) * limit;
+        const [sessions, total] = await Promise.all([
+            db_config_1.prisma.rewindSession.findMany({
+                where: { userId },
+                orderBy: { updatedAt: "desc" },
+                skip,
+                take: limit,
+            }),
+            db_config_1.prisma.rewindSession.count({
+                where: { userId },
+            }),
+        ]);
+        res.json({
+            msg: "Rewind sessions retrieved successfully",
+            data: {
+                sessions,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.ceil(total / limit),
+                    hasMore: skip + sessions.length < total,
+                },
+            },
+        });
+    }
+    catch (error) {
+        logger_util_1.default.error("Get paginated rewind sessions error:", { error, userId: req.userId });
+        res.status(500).json({ msg: "Internal server error" });
     }
 }
 function summarizeLiveMessage(message) {
@@ -604,6 +645,7 @@ async function handleLiveConnection(ws, req) {
                     }
                 },
                 onclose: (event) => {
+                    console.log("Gemini Live session close", event);
                     logger_util_1.default.info("Gemini Live session closed", {
                         connectionId,
                         personaId,
@@ -615,6 +657,7 @@ async function handleLiveConnection(ws, req) {
                     }
                 },
                 onerror: (err) => {
+                    console.log("Gemini Live session error", err);
                     logger_util_1.default.error("Gemini Live session error", {
                         connectionId,
                         personaId,

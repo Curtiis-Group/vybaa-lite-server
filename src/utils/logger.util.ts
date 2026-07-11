@@ -25,10 +25,10 @@ const consoleFormat = winston.format.combine(
   winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
 
 
-    let msg = `[${chalk.yellow(timestamp)}][${level}]: ${message}`;
-    if (Object.keys(meta).length > 0) {
-      msg += ` ${JSON.stringify(meta)}`;
-    }
+    let msg = `[${chalk.yellow(timestamp)}][${level}]: ${message} \n`;
+    // if (Object.keys(meta).length > 0) {
+    //   msg += ` ${JSON.stringify(meta)}`;
+    // }
     return msg;
   })
 );

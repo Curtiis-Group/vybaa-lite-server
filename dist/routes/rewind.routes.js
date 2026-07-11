@@ -37,5 +37,6 @@ const express_1 = require("express");
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const rewindController = __importStar(require("../controllers/rewind.controller"));
 const router = (0, express_1.Router)();
+router.get("/sessions", auth_middleware_1.authMiddleware, rewindController.getPaginatedRewindSessions);
 router.post("/live-token", auth_middleware_1.authMiddleware, rewindController.createLiveToken);
 exports.default = router;

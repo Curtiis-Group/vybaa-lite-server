@@ -56,8 +56,10 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
         req.originalUrl
       )} ${statusColor(res.statusCode)} ${chalk.gray(`${duration}ms`)} ${chalk.dim(
         req.ip
-      )}`
+      )} `
     );
+
+    console.log(`\n`)
 
     // Fire-and-forget metrics record; do not await to avoid impacting latency.
     metricsService

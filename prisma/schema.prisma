@@ -89,10 +89,11 @@ model RewindSession {
 
   personaId            String  @map("persona_id")
   sessionDateKey       String?  @map("session_date_key")
-  openingAnswered      Boolean @default(false) @map("opening_answered")
-  currentQuestionIndex Int     @default(0) @map("current_question_index")
+  openingAnswered      Boolean? @default(false) @map("opening_answered")
+  currentQuestionIndex Int?     @default(0) @map("current_question_index")
   completed            Boolean @default(false)
-  responses            Json
+  responses            Json?
+  summary              String?
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")

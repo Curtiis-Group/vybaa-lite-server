@@ -5,17 +5,23 @@ import {
   MediaResolution,
   Modality,
   StartSensitivity,
+  Type,
 } from "@google/genai";
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import type { WebSocket } from "ws";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
-import type { WebSocket } from "ws";
 import logger from "../utils/logger.util";
 
 type RewindPersonaId = "ella" | "lyra" | "jake" | "ariel";
+type RewindSessionsFilterParams = {
+  day?: string;
+  personaId?: RewindPersonaId;
+};
 
-const GEMINI_LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-09-2025";
+const GEMINI_LIVE_MODEL =
+  "models/gemini-2.5-flash-native-audio-preview-09-2025";
 const REWIND_WS_TOKEN_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 const REWIND_WS_TOKEN_TTL = "10m";
@@ -27,138 +33,86 @@ type RewindClientMessage = {
   mimeType?: string;
 };
 
-type RewindGuidedQuestionId =
-  | "meaningful"
-  | "draining"
-  | "progress"
-  | "different"
-  | "tomorrow_need";
-
-type RewindGuidedQuestion = {
-  id: RewindGuidedQuestionId;
-  question: string;
-};
-
-type RewindGuidedResponse = {
-  questionId: RewindGuidedQuestionId;
-  shortSummary: string;
-  score: number | null;
-  updatedAt: number;
-};
-
-type RewindGuidedFlowState = {
-  openingAnswered: boolean;
-  currentQuestionIndex: number;
-  completed: boolean;
-  responses: Partial<Record<RewindGuidedQuestionId, RewindGuidedResponse>>;
-};
-
 type RewindStoredSession = {
   sessionId: string;
   userId: string;
   personaId: RewindPersonaId;
   sessionDateKey: string;
-  guidedFlow: RewindGuidedFlowState;
+  completed: boolean;
+  summary: string | null;
   updatedAt: number;
 };
 
 type RewindSessionSnapshot = {
   sessionId: string;
   sessionDateKey: string;
-  guidedFlow: RewindGuidedFlowState;
+  completed: boolean;
+  summary: string | null;
   updatedAt: number;
 };
-
-const REWIND_GUIDED_QUESTIONS: RewindGuidedQuestion[] = [
-  { id: "meaningful", question: "What felt most meaningful about your day today?" },
-  { id: "draining", question: "What drained your energy the most?" },
-  { id: "progress", question: "Did you move closer to what you want, even a little?" },
-  { id: "different", question: "What’s one thing you wish you handled differently?" },
-  {
-    id: "tomorrow_need",
-    question: "What do you need more of tomorrow — focus, rest, or courage?",
-  },
-];
 
 function createConnectionId() {
   return `rewind_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function createEmptyGuidedFlow(): RewindGuidedFlowState {
+function createEmptySession(params: {
+  sessionId: string;
+  userId: string;
+  personaId: RewindPersonaId;
+  sessionDateKey: string;
+}): RewindStoredSession {
   return {
-    openingAnswered: false,
-    currentQuestionIndex: 0,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    personaId: params.personaId,
+    sessionDateKey: params.sessionDateKey,
     completed: false,
-    responses: {},
-  };
-}
-
-function getDateString(date: Date, timezone?: string): string {
-  if (timezone) {
-    const formatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    return formatter.format(date);
-  }
-
-  return date.toISOString().split("T")[0] as string;
-}
-
-function normalizeGuidedResponses(
-  input: unknown,
-): Partial<Record<RewindGuidedQuestionId, RewindGuidedResponse>> {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return {};
-  }
-
-  const normalized: Partial<Record<RewindGuidedQuestionId, RewindGuidedResponse>> = {};
-
-  for (const question of REWIND_GUIDED_QUESTIONS) {
-    const rawEntry = (input as Record<string, unknown>)[question.id];
-    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
-      continue;
-    }
-
-    const entry = rawEntry as Partial<RewindGuidedResponse>;
-    normalized[question.id] = {
-      questionId: question.id,
-      shortSummary:
-        typeof entry.shortSummary === "string" ? entry.shortSummary.trim() : "",
-      score: typeof entry.score === "number" ? entry.score : null,
-      updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : Date.now(),
-    };
-  }
-
-  return normalized;
-}
-
-function normalizeGuidedFlow(input: {
-  openingAnswered?: unknown;
-  currentQuestionIndex?: unknown;
-  completed?: unknown;
-  responses?: unknown;
-}): RewindGuidedFlowState {
-  const maxQuestionIndex = REWIND_GUIDED_QUESTIONS.length;
-  const rawIndex =
-    typeof input.currentQuestionIndex === "number" ? input.currentQuestionIndex : 0;
-  const currentQuestionIndex = Math.max(0, Math.min(maxQuestionIndex, rawIndex));
-
-  return {
-    openingAnswered: Boolean(input.openingAnswered),
-    currentQuestionIndex,
-    completed: Boolean(input.completed) || currentQuestionIndex >= maxQuestionIndex,
-    responses: normalizeGuidedResponses(input.responses),
+    summary: null,
+    updatedAt: Date.now(),
   };
 }
 
 function isValidPersonaId(value: unknown): value is RewindPersonaId {
-  return value === "ella" || value === "lyra" || value === "jake" || value === "ariel";
+  return (
+    value === "ella" ||
+    value === "lyra" ||
+    value === "jake" ||
+    value === "ariel"
+  );
 }
 
-function createRewindWsToken(userId: string, personaId: RewindPersonaId, sessionId?: string) {
+function getSingleQueryParam(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    const firstValue = value[0];
+    return typeof firstValue === "string" && firstValue.trim()
+      ? firstValue.trim()
+      : undefined;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  return undefined;
+}
+
+function getRewindSessionFilters(
+  query: Request["query"],
+): RewindSessionsFilterParams {
+  const personaIdParam = getSingleQueryParam(query.personaId);
+  const dayParam = getSingleQueryParam(query.day);
+
+  return {
+    day: dayParam,
+    personaId: isValidPersonaId(personaIdParam) ? personaIdParam : undefined,
+  };
+}
+
+function createRewindWsToken(
+  userId: string,
+  personaId: RewindPersonaId,
+  sessionId?: string,
+) {
   return jwt.sign(
     { userId, personaId, sessionId, type: "rewind_ws" },
     REWIND_WS_TOKEN_SECRET,
@@ -191,7 +145,11 @@ async function loadRewindSession(params: {
   sessionId?: string | null;
 }) {
   const where = params.sessionId
-    ? { id: params.sessionId, userId: params.userId, personaId: params.personaId }
+    ? {
+        id: params.sessionId,
+        userId: params.userId,
+        personaId: params.personaId,
+      }
     : { userId: params.userId, personaId: params.personaId };
 
   const session = await prisma.rewindSession.findFirst({
@@ -205,13 +163,9 @@ async function loadRewindSession(params: {
     sessionId: session.id,
     userId: session.userId,
     personaId: session.personaId as RewindPersonaId,
-    sessionDateKey: session.sessionDateKey,
-    guidedFlow: normalizeGuidedFlow({
-      openingAnswered: session.openingAnswered,
-      currentQuestionIndex: session.currentQuestionIndex,
-      completed: session.completed,
-      responses: session.responses,
-    }),
+    sessionDateKey: session?.sessionDateKey as any,
+    completed: session.completed,
+    summary: session.summary,
     updatedAt: session.updatedAt.getTime(),
   } satisfies RewindStoredSession;
 }
@@ -236,23 +190,19 @@ async function loadRewindSessionForDate(params: {
     sessionId: session.id,
     userId: session.userId,
     personaId: session.personaId as RewindPersonaId,
-    sessionDateKey: session.sessionDateKey,
-    guidedFlow: normalizeGuidedFlow({
-      openingAnswered: session.openingAnswered,
-      currentQuestionIndex: session.currentQuestionIndex,
-      completed: session.completed,
-      responses: session.responses,
-    }),
+    sessionDateKey: session?.sessionDateKey || params?.sessionDateKey,
+    completed: session.completed,
+    summary: session.summary,
     updatedAt: session.updatedAt.getTime(),
   } satisfies RewindStoredSession;
 }
 
-async function loadPreviousRewindSession(params: {
+async function loadPreviousRewindSessions(params: {
   userId: string;
   personaId: RewindPersonaId;
   currentSessionDateKey: string;
 }) {
-  const session = await prisma.rewindSession.findFirst({
+  const sessions = await prisma.rewindSession.findMany({
     where: {
       userId: params.userId,
       personaId: params.personaId,
@@ -261,21 +211,16 @@ async function loadPreviousRewindSession(params: {
       },
     },
     orderBy: { createdAt: "desc" },
+    take: 5,
   });
 
-  if (!session) return null;
-
-  return {
-    sessionId: session.id,
-    sessionDateKey: session.sessionDateKey,
-    guidedFlow: normalizeGuidedFlow({
-      openingAnswered: session.openingAnswered,
-      currentQuestionIndex: session.currentQuestionIndex,
-      completed: session.completed,
-      responses: session.responses,
-    }),
-    updatedAt: session.updatedAt.getTime(),
-  } satisfies RewindSessionSnapshot;
+  return sessions.map((s) => ({
+    sessionId: s.id,
+    sessionDateKey: s.sessionDateKey as string,
+    completed: s.completed,
+    summary: s.summary,
+    updatedAt: s.updatedAt.getTime(),
+  })) satisfies RewindSessionSnapshot[];
 }
 
 async function persistRewindSession(sessionState: RewindStoredSession) {
@@ -284,22 +229,29 @@ async function persistRewindSession(sessionState: RewindStoredSession) {
     update: {
       personaId: sessionState.personaId,
       sessionDateKey: sessionState.sessionDateKey,
-      openingAnswered: sessionState.guidedFlow.openingAnswered,
-      currentQuestionIndex: sessionState.guidedFlow.currentQuestionIndex,
-      completed: sessionState.guidedFlow.completed,
-      responses: sessionState.guidedFlow.responses as any,
+      completed: sessionState.completed,
+      summary: sessionState.summary,
     },
     create: {
       id: sessionState.sessionId,
       userId: sessionState.userId,
       personaId: sessionState.personaId,
       sessionDateKey: sessionState.sessionDateKey,
-      openingAnswered: sessionState.guidedFlow.openingAnswered,
-      currentQuestionIndex: sessionState.guidedFlow.currentQuestionIndex,
-      completed: sessionState.guidedFlow.completed,
-      responses: sessionState.guidedFlow.responses as any,
+      completed: sessionState.completed,
+      summary: sessionState.summary,
     },
   });
+}
+
+const getDateString = (date: Date, timezone?: string) => {
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: timezone || "UTC",
+  };
+  const formatter = new Intl.DateTimeFormat("en-CA", options);
+  return formatter.format(date);
 }
 
 async function getOrCreateRewindSession(params: {
@@ -309,7 +261,7 @@ async function getOrCreateRewindSession(params: {
   timezone?: string;
 }) {
   const sessionDateKey = getDateString(new Date(), params.timezone);
-  const previousSession = await loadPreviousRewindSession({
+  const previousSessions = await loadPreviousRewindSessions({
     userId: params.userId,
     personaId: params.personaId,
     currentSessionDateKey: sessionDateKey,
@@ -324,8 +276,8 @@ async function getOrCreateRewindSession(params: {
     if (existing) {
       return {
         sessionState: existing,
-        restored: existing.guidedFlow.openingAnswered,
-        previousSession,
+        restored: existing.completed === false,
+        previousSessions,
       };
     }
   }
@@ -338,111 +290,19 @@ async function getOrCreateRewindSession(params: {
   if (todaySession) {
     return {
       sessionState: todaySession,
-      restored: todaySession.guidedFlow.openingAnswered,
-      previousSession,
+      restored: todaySession.completed === false,
+      previousSessions,
     };
   }
 
-  const sessionState: RewindStoredSession = {
+  const sessionState: RewindStoredSession = createEmptySession({
     sessionId: params.requestedSessionId || createConnectionId(),
     userId: params.userId,
     personaId: params.personaId,
     sessionDateKey,
-    guidedFlow: createEmptyGuidedFlow(),
-    updatedAt: Date.now(),
-  };
+  });
   await persistRewindSession(sessionState);
-  return { sessionState, restored: false, previousSession };
-}
-
-export function summarizeShortResponse(text: string) {
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (!compact) return "";
-
-  const firstSentence = compact.split(/[.!?]/)[0]?.trim() || compact;
-  const words = firstSentence.split(" ").filter(Boolean);
-  const short = words.slice(0, 12).join(" ");
-
-  if (short.length >= firstSentence.length) {
-    return firstSentence;
-  }
-
-  return `${short}...`;
-}
-
-export function recordGuidedFlowResponse(
-  sessionState: RewindStoredSession,
-  userResponse: string,
-) {
-  const nextResponse = userResponse.trim();
-  if (!nextResponse || sessionState.guidedFlow.completed) return;
-
-  if (!sessionState.guidedFlow.openingAnswered) {
-    sessionState.guidedFlow.openingAnswered = true;
-    sessionState.updatedAt = Date.now();
-    return;
-  }
-
-  const question = REWIND_GUIDED_QUESTIONS[sessionState.guidedFlow.currentQuestionIndex];
-  if (!question) {
-    sessionState.guidedFlow.completed = true;
-    sessionState.updatedAt = Date.now();
-    return;
-  }
-
-  sessionState.guidedFlow.responses[question.id] = {
-    questionId: question.id,
-    shortSummary: summarizeShortResponse(nextResponse),
-    score: null,
-    updatedAt: Date.now(),
-  };
-
-  sessionState.guidedFlow.currentQuestionIndex += 1;
-  sessionState.guidedFlow.completed =
-    sessionState.guidedFlow.currentQuestionIndex >= REWIND_GUIDED_QUESTIONS.length;
-  sessionState.updatedAt = Date.now();
-}
-
-export function buildGuidedFlowInstruction() {
-  return (
-    `After your opening "Hey, how are you?" exchange, guide the user through this rewind sequence. ` +
-    `Ask one question at a time and do not skip, merge, or reorder the sequence. ` +
-    `Do not sound like you are reading from a checklist or script. ` +
-    `Keep the intent of each question, but vary the wording naturally and make it conversational when it helps. ` +
-    `You may soften or rephrase the next question, but it must still clearly ask for the same reflection target as the sequence below. ` +
-    `After each user answer, give at most one short acknowledgement sentence, then move to the next question naturally. ` +
-    `After the fifth answer, give one short acknowledgement and stop asking new questions. ` +
-    `The reflection sequence to preserve is:\n` +
-    REWIND_GUIDED_QUESTIONS.map((entry, index) => `${index + 1}. ${entry.question}`).join("\n")
-  );
-}
-
-export function buildGuidedFlowSnapshot(sessionState: RewindStoredSession) {
-  const nextQuestion = REWIND_GUIDED_QUESTIONS[sessionState.guidedFlow.currentQuestionIndex];
-  const savedResponses = Object.values(sessionState.guidedFlow.responses)
-    .map((entry) => `${entry.questionId}: ${entry.shortSummary}`)
-    .join("\n");
-
-  return (
-    `Guided rewind state:\n` +
-    `- Opening answered: ${sessionState.guidedFlow.openingAnswered ? "yes" : "no"}\n` +
-    `- Current question index: ${sessionState.guidedFlow.currentQuestionIndex}\n` +
-    `- Completed: ${sessionState.guidedFlow.completed ? "yes" : "no"}\n` +
-    `- Next exact question: ${nextQuestion?.question ?? "none"}\n` +
-    `- Saved short responses:\n${savedResponses || "none"}`
-  );
-}
-
-function buildRestoreContextSummary(sessionState: RewindStoredSession) {
-  const responses = Object.values(sessionState.guidedFlow.responses);
-  if (responses.length === 0) {
-    return "We had only just started the rewind and had not yet captured any guided answers.";
-  }
-
-  return (
-    `We already captured these short rewind points:\n` +
-    responses.map((entry) => `- ${entry.questionId}: ${entry.shortSummary}`).join("\n")
-  );
+  return { sessionState, restored: false, previousSessions };
 }
 
 function getRewindVoiceName(personaId: RewindPersonaId) {
@@ -457,6 +317,117 @@ function getRewindVoiceName(personaId: RewindPersonaId) {
       return "Kore";
     default:
       return "Kore";
+  }
+}
+
+export async function getPaginatedRewindSessions(
+  req: AuthRequest,
+  res: Response,
+) {
+  try {
+    const userId = req.userId!;
+    const pageParam = getSingleQueryParam(req.query.page);
+    const limitParam = getSingleQueryParam(req.query.limit);
+    const filters = getRewindSessionFilters(req.query);
+
+    const parsedPage = Number(pageParam ?? "1");
+    const parsedLimit = Number(limitParam ?? "10");
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
+    const skip = (page - 1) * limit;
+    const where = {
+      userId,
+      ...(filters.personaId ? { personaId: filters.personaId } : {}),
+      ...(filters.day ? { sessionDateKey: filters.day } : {}),
+    };
+    const partnerFacetWhere = {
+      userId,
+      ...(filters.day ? { sessionDateKey: filters.day } : {}),
+    };
+    const dayFacetWhere = {
+      userId,
+      ...(filters.personaId ? { personaId: filters.personaId } : {}),
+    };
+
+    const [sessions, total, completedTotal, partnerFacets, dayFacets] =
+      await Promise.all([
+        prisma.rewindSession.findMany({
+          where,
+          orderBy: { updatedAt: "desc" },
+          skip,
+          take: limit,
+        }),
+        prisma.rewindSession.count({
+          where,
+        }),
+        prisma.rewindSession.count({
+          where: {
+            ...where,
+            completed: true,
+          },
+        }),
+        prisma.rewindSession.groupBy({
+          by: ["personaId"],
+          where: partnerFacetWhere,
+          _count: {
+            _all: true,
+          },
+        }),
+        prisma.rewindSession.groupBy({
+          by: ["sessionDateKey"],
+          where: dayFacetWhere,
+          _count: {
+            _all: true,
+          },
+        }),
+      ]);
+
+    res.json({
+      msg: "Rewind sessions retrieved successfully",
+      data: {
+        sessions,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasMore: skip + sessions.length < total,
+        },
+        summary: {
+          completed: completedTotal,
+          open: total - completedTotal,
+          total,
+        },
+        filters: {
+          days: dayFacets
+            .filter(
+              (entry) =>
+                typeof entry.sessionDateKey === "string" &&
+                entry.sessionDateKey,
+            )
+            .sort((left, right) =>
+              String(right.sessionDateKey).localeCompare(
+                String(left.sessionDateKey),
+              ),
+            )
+            .map((entry) => ({
+              key: entry.sessionDateKey as string,
+              count: entry._count._all,
+            })),
+          partners: partnerFacets.map((entry) => ({
+            id: entry.personaId as RewindPersonaId,
+            count: entry._count._all,
+          })),
+        },
+      },
+    });
+  } catch (error) {
+    logger.error("Get paginated rewind sessions error:", {
+      error,
+      userId: req.userId,
+    });
+    res.status(500).json({ msg: "Internal server error" });
   }
 }
 
@@ -479,19 +450,43 @@ function summarizeLiveMessage(message: any) {
   };
 }
 
-function getRewindSystemInstruction(personaId: RewindPersonaId) {
-  switch (personaId) {
-    case "ella":
-      return `You are Ella, the user's Rewind partner. You are warm, gentle, and reflective. Speak with soft clarity. Ask one thoughtful question at a time. Keep your spoken replies short. When the app opens a brand-new conversation or restores a previous one, follow the bootstrap instruction exactly. ${buildGuidedFlowInstruction()}`;
-    case "lyra":
-      return `You are Lyra, the user's Rewind partner. You are calm, poetic, and insight-oriented. Speak gently and keep your replies brief, grounded, and reflective. When the app opens a brand-new conversation or restores a previous one, follow the bootstrap instruction exactly. ${buildGuidedFlowInstruction()}`;
-    case "jake":
-      return `You are Jake, the user's Rewind partner. You are direct, energetic, and practical. Speak clearly, keep replies short, and help the user reflect with momentum. When the app opens a brand-new conversation or restores a previous one, follow the bootstrap instruction exactly. ${buildGuidedFlowInstruction()}`;
-    case "ariel":
-      return `You are Ariel, the user's Rewind partner. You are empathetic, optimistic, and grounded. Speak warmly, keep replies concise, and guide the user through a calm spoken rewind of their day. When the app opens a brand-new conversation or restores a previous one, follow the bootstrap instruction exactly. ${buildGuidedFlowInstruction()}`;
-    default:
-      return `You are the user's Rewind partner. Speak warmly, listen actively, and keep your spoken replies concise. When the app opens a brand-new conversation or restores a previous one, follow the bootstrap instruction exactly. ${buildGuidedFlowInstruction()}`;
+function getRewindSystemInstruction(
+  personaId: RewindPersonaId,
+  previousSessions?: RewindSessionSnapshot[],
+) {
+  const personaPrompts = {
+    ella: "You are Ella, the user's Rewind partner. You are warm, gentle, and reflective. Speak with soft clarity. Ask thoughtful questions. Keep your spoken replies short.",
+    lyra: "You are Lyra, the user's Rewind partner. You are calm, poetic, and insight-oriented. Speak gently and keep your replies brief, grounded, and reflective.",
+    jake: "You are Jake, the user's Rewind partner. You are direct, energetic, and practical. Speak clearly, keep replies short, and help the user reflect with momentum.",
+    ariel: "You are Ariel, the user's Rewind partner. You are empathetic, optimistic, and grounded. Speak warmly, keep replies concise, and guide the user through a calm spoken rewind of their day.",
+  };
+
+  const base = personaPrompts[personaId] || personaPrompts.ella;
+
+  let historyContext = "";
+  if (previousSessions && previousSessions.length > 0) {
+    const historyList = previousSessions
+      .filter((s) => s.summary)
+      .map((s) => `- [Date: ${s.sessionDateKey}]: ${s.summary}`)
+      .join("\n");
+
+    if (historyList) {
+      historyContext =
+        `Here is a summary of the user's previous reflections to help you provide deeper, longitudinal support. ` +
+        `Use this context naturally to reference recurring themes or progress if relevant:\n${historyList}\n\n`;
+    }
   }
+
+  return (
+    `${base}\n\n${historyContext}` +
+    `Your goal is to have a fluid, natural conversation with the user to help them reflect on their day. ` +
+    `DO NOT read from a script or follow a predefined set of questions. ` +
+    `Ask dynamic, relevant questions based on what the user shares. ` +
+    `Be curious, empathetic, and help them find insights or closure for their day. ` +
+    `You have tools available to manage the session:\n` +
+    `- end_session: Use this ONLY when the user explicitly signals they are done or the conversation has reached a natural, deep conclusion. DO NOT call this prematurely or just because the user answered one or two questions. When you call it, you MUST provide a 'summary' parameter (2-4 sentences) that highlights the core insights and reflections from today's session.\n` +
+    `- open_history: Call this if the user specifically asks to see their past rewinds or session history.`
+  );
 }
 
 export function buildOpeningPrompt(
@@ -517,24 +512,8 @@ export function buildOpeningPrompt(
 
 export function buildResumePrompt() {
   return (
-    `A previous Rewind session is being restored. ` +
-    `Reply in exactly two short sentences. ` +
-    `In the first sentence, briefly mention what we were just talking about or where we left off. ` +
-    `In the second sentence, ask one simple follow-up question that continues from that point. ` +
-    `Do not reintroduce yourself.`
-  );
-}
-
-export function buildResumePromptWithGuidedState(sessionState: RewindStoredSession) {
-  return (
-    `A previous Rewind session is being restored. ` +
-    `Reply in exactly two short sentences. ` +
-    `In the first sentence, briefly mention where we left off using the saved rewind state below. ` +
-    `In the second sentence, continue the guided flow by asking the correct next question from the saved state below. ` +
-    `Do not reintroduce yourself, do not restart from question one, and do not skip ahead. ` +
-    `Use this saved state as the source of truth:\n\n` +
-    `${buildRestoreContextSummary(sessionState)}\n\n` +
-    `${buildGuidedFlowSnapshot(sessionState)}`
+    `Welcome the user back to their current Rewind session. ` +
+    `Ask a natural follow-up question based on where we might have left off.`
   );
 }
 
@@ -543,7 +522,9 @@ export async function createLiveToken(req: AuthRequest, res: Response) {
     const userId = req.userId!;
     const timezone = req.headers["x-user-tz"] as string | undefined;
     const requestedPersonaId = req.body?.personaId;
-    const personaId = isValidPersonaId(requestedPersonaId) ? requestedPersonaId : "ella";
+    const personaId = isValidPersonaId(requestedPersonaId)
+      ? requestedPersonaId
+      : "ella";
     const requestedSessionId =
       typeof req.body?.sessionId === "string" && req.body.sessionId.trim()
         ? req.body.sessionId.trim()
@@ -556,7 +537,13 @@ export async function createLiveToken(req: AuthRequest, res: Response) {
       timezone,
     });
 
-    const token = createRewindWsToken(userId, personaId, sessionState.sessionId);
+   
+
+    const token = createRewindWsToken(
+      userId,
+      personaId,
+      sessionState.sessionId,
+    );
 
     res.json({
       msg: "Rewind live token created",
@@ -565,10 +552,15 @@ export async function createLiveToken(req: AuthRequest, res: Response) {
         wsUrl: `/api/v1/rewind/live?token=${encodeURIComponent(token)}`,
         personaId,
         sessionId: sessionState.sessionId,
+        sessionDateKey: sessionState.sessionDateKey,
       },
     });
   } catch (error) {
-    logger.error("Create rewind live token error", { error, userId: req.userId });
+    console.log("ERROR", JSON.stringify(error, null, 2));
+    logger.error("Create rewind live token error", {
+      error,
+      userId: req.userId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -581,7 +573,12 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       : "";
   const auth = verifyRewindWsToken(wsToken);
   if (!auth?.userId) {
-    ws.send(JSON.stringify({ type: "error", message: "Unauthorized Rewind websocket" }));
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message: "Unauthorized Rewind websocket",
+      }),
+    );
     ws.close();
     return;
   }
@@ -590,7 +587,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
   const {
     sessionState,
     restored: shouldRestore,
-    previousSession,
+    previousSessions,
   } = await getOrCreateRewindSession({
     userId: auth.userId,
     personaId,
@@ -606,7 +603,8 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       personaId,
       sessionId: sessionState.sessionId,
       path: req.originalUrl,
-      ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown",
+      ip:
+        req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown",
       userAgent: req.headers["user-agent"] || "unknown",
     });
 
@@ -615,7 +613,12 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         connectionId,
         personaId,
       });
-      ws.send(JSON.stringify({ type: "error", message: "GEMINI_API_KEY is not set on the server" }));
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          message: "GEMINI_API_KEY is not set on the server",
+        }),
+      );
       ws.close();
       return;
     }
@@ -658,26 +661,53 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         //   },
         // },
 
-          contextWindowCompression: {
-            triggerTokens: 104857 as any,
-            slidingWindow: { targetTokens: 52428 as any },
-          } as any,
-          realtimeInputConfig: {
-            automaticActivityDetection: {
-              disabled: false,
-              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-              prefixPaddingMs: 20,
-              silenceDurationMs: 100,
-            },
-
-            activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+        contextWindowCompression: {
+          triggerTokens: 104857 as any,
+          slidingWindow: { targetTokens: 52428 as any },
+        } as any,
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            disabled: false,
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+            prefixPaddingMs: 20,
+            silenceDurationMs: 100,
           },
-        systemInstruction: {
-          parts: [{ text: getRewindSystemInstruction(personaId) }],
+
+          activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
         },
-        temperature: 0.7,
-        maxOutputTokens: 256,
+        systemInstruction: {
+          parts: [
+            { text: getRewindSystemInstruction(personaId, previousSessions) },
+          ],
+        },
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: "end_session",
+                description:
+                  "Ends the current Rewind session. Must include a summary of the session.",
+                parameters: {
+                  type: Type.OBJECT,
+                  properties: {
+                    summary: {
+                      type: Type.STRING,
+                      description: "A concise summary of the session's key moments and reflections.",
+                    }
+                  },
+                  required: ["summary"]
+                }
+              },
+              {
+                name: "open_history",
+                description: "Navigates the user to their Rewind history.",
+              },
+            ],
+          },
+        ],
+        temperature: 0.8,
+        maxOutputTokens: 512,
       },
       callbacks: {
         onopen: () => {
@@ -697,6 +727,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
 
           if (message.serverContent?.modelTurn?.parts) {
             for (const part of message.serverContent.modelTurn.parts) {
+              // 1. Handle Audio/Text content
               if (part.inlineData?.data && ws.readyState === ws.OPEN) {
                 ws.send(
                   JSON.stringify({
@@ -710,15 +741,70 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               if (part.text && ws.readyState === ws.OPEN) {
                 ws.send(JSON.stringify({ type: "text", content: part.text }));
               }
+
+              // 2. Handle Tool Calls moved to root
             }
           }
 
+          if (message.toolCall?.functionCalls) {
+            for (const call of message.toolCall.functionCalls) {
+              logger.info("Gemini Live tool call received", {
+                connectionId,
+                personaId,
+                sessionId: sessionState.sessionId,
+                tool: call.name,
+              });
+
+              if (call.name === "end_session") {
+                const args = (call.args as any) || {};
+                sessionState.completed = true;
+                sessionState.summary =
+                  args.summary || "Conversation concluded.";
+
+                await persistRewindSession(sessionState);
+                ws.send(
+                  JSON.stringify({
+                    type: "session_ended",
+                    summary: sessionState.summary,
+                  }),
+                );
+
+                session.sendToolResponse({
+                  functionResponses: [
+                    {
+                      name: "end_session",
+                      id: call.id,
+                      response: { success: true, summary_received: true },
+                    },
+                  ],
+                });
+              } else if (call.name === "open_history") {
+                ws.send(JSON.stringify({ type: "open_history" }));
+                session.sendToolResponse({
+                  functionResponses: [
+                    {
+                      name: "open_history",
+                      id: call.id,
+                      response: { success: true },
+                    },
+                  ],
+                });
+              }
+            }
+          }
+
+          // 3. Handle Transcriptions
           const inputTranscript =
             message?.serverContent?.inputTranscription?.text ??
             message?.inputTranscription?.text;
           if (inputTranscript && ws.readyState === ws.OPEN) {
             pendingUserTranscript = inputTranscript;
-            ws.send(JSON.stringify({ type: "input_transcription", content: inputTranscript }));
+            ws.send(
+              JSON.stringify({
+                type: "input_transcription",
+                content: inputTranscript,
+              }),
+            );
           }
 
           const outputTranscript =
@@ -726,20 +812,22 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             message?.outputTranscription?.text;
           if (outputTranscript && ws.readyState === ws.OPEN) {
             pendingAssistantTranscript = outputTranscript;
-            ws.send(JSON.stringify({ type: "output_transcription", content: outputTranscript }));
+            ws.send(
+              JSON.stringify({
+                type: "output_transcription",
+                content: outputTranscript,
+              }),
+            );
           }
 
-          if (message?.serverContent?.turnComplete && ws.readyState === ws.OPEN) {
-            recordGuidedFlowResponse(sessionState, pendingUserTranscript);
+          // 4. Handle Turn Complete (Persistence)
+          if (
+            message?.serverContent?.turnComplete &&
+            ws.readyState === ws.OPEN
+          ) {
             await persistRewindSession(sessionState);
             pendingUserTranscript = "";
             pendingAssistantTranscript = "";
-            ws.send(
-              JSON.stringify({
-                type: "guided_flow_state",
-                guidedFlow: sessionState.guidedFlow,
-              }),
-            );
             ws.send(JSON.stringify({ type: "turn_complete" }));
           }
 
@@ -750,20 +838,18 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                 sessionId: sessionState.sessionId,
                 sessionDateKey: sessionState.sessionDateKey,
                 restored: shouldRestore,
-                historyCount: Object.keys(sessionState.guidedFlow.responses).length,
-                guidedFlow: sessionState.guidedFlow,
-                previousSession,
+                previousSessions,
               }),
             );
 
-            if (shouldRestore && sessionState.guidedFlow.openingAnswered) {
+            if (shouldRestore) {
               session.sendClientContent({
                 turns: [
                   {
                     role: "user",
                     parts: [
                       {
-                        text: buildResumePromptWithGuidedState(sessionState),
+                        text: buildResumePrompt(),
                       },
                     ],
                   },
@@ -771,7 +857,6 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                 turnComplete: true,
               });
             } else {
-              const isFirstOpening = !sessionState.guidedFlow.openingAnswered;
               session.sendClientContent({
                 turns: [
                   {
@@ -779,7 +864,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                     parts: [
                       {
                         text: buildOpeningPrompt(personaId, {
-                          shouldIntroduce: isFirstOpening,
+                          shouldIntroduce: true,
                         }),
                       },
                     ],
@@ -791,6 +876,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           }
         },
         onclose: (event: any) => {
+          console.log("Gemini Live session close", event);
           logger.info("Gemini Live session closed", {
             connectionId,
             personaId,
@@ -802,6 +888,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           }
         },
         onerror: (err: any) => {
+          console.log("Gemini Live session error", err);
           logger.error("Gemini Live session error", {
             connectionId,
             personaId,
@@ -809,7 +896,12 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             err,
           });
           if (ws.readyState === ws.OPEN) {
-            ws.send(JSON.stringify({ type: "error", message: "Gemini Live session error" }));
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: "Gemini Live session error",
+              }),
+            );
             ws.close();
           }
         },
@@ -820,7 +912,11 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       try {
         const parsed = JSON.parse(raw.toString()) as RewindClientMessage;
 
-        if (parsed.type === "realtime_audio" && parsed.mimeType && parsed.data) {
+        if (
+          parsed.type === "realtime_audio" &&
+          parsed.mimeType &&
+          parsed.data
+        ) {
           logger.debug("Forwarding rewind realtime audio to Gemini", {
             connectionId,
             personaId,
@@ -866,7 +962,12 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           err,
         });
         if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ type: "error", message: "Invalid live input payload" }));
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "Invalid live input payload",
+            }),
+          );
         }
       }
     });
@@ -905,11 +1006,16 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     logger.error("Create rewind live connection error", {
       connectionId,
       personaId,
-      sessionId: typeof req.query.sessionId === "string" ? req.query.sessionId : undefined,
+      sessionId:
+        typeof req.query.sessionId === "string"
+          ? req.query.sessionId
+          : undefined,
       error,
     });
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "error", message: "Internal server error" }));
+      ws.send(
+        JSON.stringify({ type: "error", message: "Internal server error" }),
+      );
       ws.close();
     }
   }

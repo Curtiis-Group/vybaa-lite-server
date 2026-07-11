@@ -45,7 +45,8 @@ function requestLogger(req, res, next) {
         const duration = Date.now() - start;
         console.log(
         //put the datestamp i this format 2026-02-24 13:28:31
-        `[${chalk_1.default.yellow(new Date().toISOString())}]${chalk_1.default.dim("←")} ${methodColor(req.method)} ${chalk_1.default.white(req.originalUrl)} ${statusColor(res.statusCode)} ${chalk_1.default.gray(`${duration}ms`)} ${chalk_1.default.dim(req.ip)}`);
+        `[${chalk_1.default.yellow(new Date().toISOString())}]${chalk_1.default.dim("←")} ${methodColor(req.method)} ${chalk_1.default.white(req.originalUrl)} ${statusColor(res.statusCode)} ${chalk_1.default.gray(`${duration}ms`)} ${chalk_1.default.dim(req.ip)} `);
+        console.log(`\n`);
         // Fire-and-forget metrics record; do not await to avoid impacting latency.
         metrics_service_1.metricsService
             .record("http_request_duration_ms", duration, {
