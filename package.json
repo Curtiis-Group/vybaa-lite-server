@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "JWT_SECRET=test-secret-that-is-not-a-production-default JWT_REFRESH_SECRET=test-refresh-secret-that-is-not-a-production-default tsx --test src/**/*.test.ts",
+    "test:stress": "JWT_SECRET=test-secret-that-is-not-a-production-default JWT_REFRESH_SECRET=test-refresh-secret-that-is-not-a-production-default tsx --test src/**/*.stress.test.ts",
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
@@ -50,7 +51,7 @@
     "redis": "^4.7.0",
     "tsx": "^4.21.0",
     "winston": "^3.15.0",
-    "ws": "^8.20.0",
+    "ws": "^8.21.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

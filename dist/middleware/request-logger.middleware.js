@@ -33,24 +33,21 @@ function requestLogger(req, res, next) {
             return chalk_1.default.cyan(code);
         return chalk_1.default.green(code);
     };
-    const prettyQuery = Object.keys(req.query).length > 0
-        ? chalk_1.default.gray(` query=${JSON.stringify(req.query)}`)
-        : "";
     const body = shouldLogBody(req.method, req.path) && req.body
         ? chalk_1.default.gray(` body=${JSON.stringify(sanitizeBody(req.body))}`)
         : "";
-    console.log(`${chalk_1.default.dim("→")} ${methodColor(req.method)} ${chalk_1.default.white(req.originalUrl)}${prettyQuery}${body}`);
+    console.log(`${chalk_1.default.dim("→")} ${methodColor(req.method)} ${chalk_1.default.white(req.path)}${body}`);
     const originalSend = res.send;
     res.send = function (data) {
         const duration = Date.now() - start;
         console.log(
         //put the datestamp i this format 2026-02-24 13:28:31
-        `[${chalk_1.default.yellow(new Date().toISOString())}]${chalk_1.default.dim("←")} ${methodColor(req.method)} ${chalk_1.default.white(req.originalUrl)} ${statusColor(res.statusCode)} ${chalk_1.default.gray(`${duration}ms`)} ${chalk_1.default.dim(req.ip)} `);
+        `[${chalk_1.default.yellow(new Date().toISOString())}]${chalk_1.default.dim("←")} ${methodColor(req.method)} ${chalk_1.default.white(req.path)} ${statusColor(res.statusCode)} ${chalk_1.default.gray(`${duration}ms`)} ${chalk_1.default.dim(req.ip)} `);
         console.log(`\n`);
         // Fire-and-forget metrics record; do not await to avoid impacting latency.
         metrics_service_1.metricsService
             .record("http_request_duration_ms", duration, {
-            route: req.originalUrl,
+            route: req.route?.path ?? req.path,
             method: req.method,
             status: res.statusCode,
         })

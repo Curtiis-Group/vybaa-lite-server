@@ -1,24 +1,31 @@
 import bcrypt from "bcryptjs";
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
+import { getJwtSecret } from "./security-config.util";
 import logger from "./logger.util";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "your-refresh-secret-key-change-in-production";
+function getRefreshSecret(): string {
+  const value = process.env.JWT_REFRESH_SECRET?.trim();
+  if (!value || value === "your-refresh-secret-key-change-in-production") {
+    throw new Error("JWT_REFRESH_SECRET must be configured with a secure value");
+  }
+  return value;
+}
+
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 
 // JWT Token Generation
 export function generateAccessToken(userId: string): string {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
+  return jwt.sign({ userId }, getJwtSecret(), { expiresIn: "24h" });
 }
 
 export function generateRefreshToken(userId: string): string {
-  return jwt.sign({ userId }, JWT_REFRESH_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ userId }, getRefreshSecret(), { expiresIn: "7d" });
 }
 
 export function verifyAccessToken(token: string): { userId: string } | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as { userId: string };
     return decoded;
   } catch (error) {
     return null;
@@ -27,7 +34,7 @@ export function verifyAccessToken(token: string): { userId: string } | null {
 
 export function verifyRefreshToken(token: string): { userId: string } | null {
   try {
-    const decoded = jwt.verify(token, JWT_REFRESH_SECRET) as { userId: string };
+    const decoded = jwt.verify(token, getRefreshSecret()) as { userId: string };
     return decoded;
   } catch (error) {
     return null;

@@ -46,6 +46,8 @@ const router = (0, express_1.Router)();
 router.put("/me", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(auth_validators_1.updateProfileSchema), userController.updateProfile);
 // GET /api/v1/users/me
 router.get("/me", auth_middleware_1.authMiddleware, userController.getProfile);
+// DELETE /api/v1/users/me
+router.delete("/me", auth_middleware_1.authMiddleware, userController.deleteAccount);
 // GET /api/v1/users/public/:username
 router.get("/public/:username", auth_middleware_1.optionalAuthMiddleware, userController.getPublicProfile);
 // GET /api/v1/users/username/availability - Check username change cooldown

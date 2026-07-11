@@ -9,10 +9,12 @@ import {
 } from "@google/genai";
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
 import logger from "../utils/logger.util";
+import { getJwtSecret, securityConfig } from "../utils/security-config.util";
 
 type RewindPersonaId = "ella" | "lyra" | "jake" | "ariel";
 type RewindSessionsFilterParams = {
@@ -21,13 +23,16 @@ type RewindSessionsFilterParams = {
 };
 
 const GEMINI_LIVE_MODEL =
-  "models/gemini-2.5-flash-native-audio-preview-09-2025";
-const REWIND_WS_TOKEN_SECRET =
-  process.env.JWT_SECRET || "your-secret-key-change-in-production";
+  process.env.GEMINI_LIVE_MODEL ??
+  "models/gemini-3.1-flash-live-preview";
 const REWIND_WS_TOKEN_TTL = "10m";
+const REWIND_TOKEN_ISSUER = "vybaa-api";
+const REWIND_TOKEN_AUDIENCE = "vybaa-rewind-live";
+const activeConnections = new Map<string, number>();
+const consumedTokenIds = new Map<string, number>();
 
 type RewindClientMessage = {
-  type?: "text" | "context" | "realtime_audio";
+  type?: "text" | "context" | "realtime_audio" | "audio_stream_end";
   content?: string;
   data?: string;
   mimeType?: string;
@@ -108,30 +113,47 @@ function getRewindSessionFilters(
   };
 }
 
-function createRewindWsToken(
+export function createRewindWsToken(
   userId: string,
   personaId: RewindPersonaId,
   sessionId?: string,
 ) {
   return jwt.sign(
     { userId, personaId, sessionId, type: "rewind_ws" },
-    REWIND_WS_TOKEN_SECRET,
-    { expiresIn: REWIND_WS_TOKEN_TTL },
+    getJwtSecret(),
+    {
+      audience: REWIND_TOKEN_AUDIENCE,
+      expiresIn: REWIND_WS_TOKEN_TTL,
+      issuer: REWIND_TOKEN_ISSUER,
+      jwtid: randomUUID(),
+    },
   );
 }
 
-function verifyRewindWsToken(token: string) {
+export function verifyRewindWsToken(token: string) {
   try {
-    const decoded = jwt.verify(token, REWIND_WS_TOKEN_SECRET) as {
+    const decoded = jwt.verify(token, getJwtSecret(), {
+      audience: REWIND_TOKEN_AUDIENCE,
+      issuer: REWIND_TOKEN_ISSUER,
+    }) as {
+      exp?: number;
+      jti?: string;
       userId?: string;
       personaId?: RewindPersonaId;
       sessionId?: string;
       type?: string;
     };
 
-    if (!decoded?.userId || decoded.type !== "rewind_ws") {
+    if (!decoded.userId || !decoded.jti || !decoded.exp || decoded.type !== "rewind_ws") {
       return null;
     }
+
+    const now = Date.now();
+    for (const [tokenId, expiresAt] of consumedTokenIds) {
+      if (expiresAt <= now) consumedTokenIds.delete(tokenId);
+    }
+    if (consumedTokenIds.has(decoded.jti)) return null;
+    consumedTokenIds.set(decoded.jti, decoded.exp * 1000);
 
     return decoded;
   } catch {
@@ -296,7 +318,7 @@ async function getOrCreateRewindSession(params: {
   }
 
   const sessionState: RewindStoredSession = createEmptySession({
-    sessionId: params.requestedSessionId || createConnectionId(),
+    sessionId: createConnectionId(),
     userId: params.userId,
     personaId: params.personaId,
     sessionDateKey,
@@ -479,10 +501,10 @@ function getRewindSystemInstruction(
 
   return (
     `${base}\n\n${historyContext}` +
-    `Your goal is to have a fluid, natural conversation with the user to help them reflect on their day. ` +
-    `DO NOT read from a script or follow a predefined set of questions. ` +
-    `Ask dynamic, relevant questions based on what the user shares. ` +
-    `Be curious, empathetic, and help them find insights or closure for their day. ` +
+    `Be a natural reflection companion, not an interviewer. Acknowledge and briefly reflect what the user said before probing. ` +
+    `Never follow a checklist, force topics, or ask questions in every reply. Allow pauses, short answers, topic changes, and ordinary conversation. ` +
+    `When a question would genuinely help, ask at most one short, contextual question and do not repeat one already answered. ` +
+    `Use previous-session context only when it is clearly relevant; never announce or force it. Help the user notice meaning or closure without diagnosing them. ` +
     `You have tools available to manage the session:\n` +
     `- end_session: Use this ONLY when the user explicitly signals they are done or the conversation has reached a natural, deep conclusion. DO NOT call this prematurely or just because the user answered one or two questions. When you call it, you MUST provide a 'summary' parameter (2-4 sentences) that highlights the core insights and reflections from today's session.\n` +
     `- open_history: Call this if the user specifically asks to see their past rewinds or session history.`
@@ -498,22 +520,21 @@ export function buildOpeningPrompt(
   if (options?.shouldIntroduce) {
     return (
       `This is the first time I am opening Rewind with you. ` +
-      `Reply in exactly two short sentences. ` +
+      `Reply in one or two relaxed, short sentences. ` +
       `In the first sentence, introduce yourself as ${personaName}, my Rewind partner. ` +
-      `In the second sentence, ask exactly: "Hey, how are you?"`
+      `Then welcome me with a natural, low-pressure opening such as "Hey, how are you?"`
     );
   }
 
   return (
-    `Open the conversation naturally in one short sentence and ask exactly: "Hey, how are you?" ` +
+    `Open the conversation naturally in one short, low-pressure sentence. ` +
     `Do not introduce yourself again.`
   );
 }
 
 export function buildResumePrompt() {
   return (
-    `Welcome the user back to their current Rewind session. ` +
-    `Ask a natural follow-up question based on where we might have left off.`
+    `Welcome the user back briefly. Continue from available context without inventing details; reflect first and ask at most one natural follow-up only if useful.`
   );
 }
 
@@ -582,6 +603,21 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     ws.close();
     return;
   }
+  const currentConnections = activeConnections.get(auth.userId) ?? 0;
+  if (currentConnections >= securityConfig.rewindMaxConnectionsPerUser) {
+    ws.send(JSON.stringify({ type: "error", message: "Too many active Rewind sessions" }));
+    ws.close(1008, "Connection limit reached");
+    return;
+  }
+  activeConnections.set(auth.userId, currentConnections + 1);
+  let connectionReleased = false;
+  const releaseConnection = (): void => {
+    if (connectionReleased) return;
+    connectionReleased = true;
+    const remaining = (activeConnections.get(auth.userId) ?? 1) - 1;
+    if (remaining > 0) activeConnections.set(auth.userId, remaining);
+    else activeConnections.delete(auth.userId);
+  };
   const personaId = isValidPersonaId(auth.personaId) ? auth.personaId : "ella";
   const requestedSessionId = auth.sessionId?.trim() || undefined;
   const {
@@ -602,7 +638,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       connectionId,
       personaId,
       sessionId: sessionState.sessionId,
-      path: req.originalUrl,
+      path: req.path,
       ip:
         req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown",
       userAgent: req.headers["user-agent"] || "unknown",
@@ -671,7 +707,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
             endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
             prefixPaddingMs: 20,
-            silenceDurationMs: 100,
+            silenceDurationMs: 700,
           },
 
           activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
@@ -744,6 +780,10 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
 
               // 2. Handle Tool Calls moved to root
             }
+          }
+
+          if (message.serverContent?.interrupted && ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "interrupted" }));
           }
 
           if (message.toolCall?.functionCalls) {
@@ -908,13 +948,30 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       },
     });
 
+    let messageWindowStartedAt = Date.now();
+    let messageCount = 0;
+    let malformedCount = 0;
     ws.on("message", (raw) => {
       try {
+        const now = Date.now();
+        if (now - messageWindowStartedAt >= securityConfig.rewindMessageRateWindowMs) {
+          messageWindowStartedAt = now;
+          messageCount = 0;
+        }
+        messageCount += 1;
+        if (raw.toString().length > securityConfig.rewindMaxMessageBytes) {
+          ws.close(1009, "Message too large");
+          return;
+        }
+        if (messageCount > securityConfig.rewindMessageRateLimit) {
+          ws.close(1008, "Message rate exceeded");
+          return;
+        }
         const parsed = JSON.parse(raw.toString()) as RewindClientMessage;
 
         if (
           parsed.type === "realtime_audio" &&
-          parsed.mimeType &&
+          parsed.mimeType === "audio/pcm;rate=16000" &&
           parsed.data
         ) {
           logger.debug("Forwarding rewind realtime audio to Gemini", {
@@ -939,12 +996,13 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             personaId,
             sessionId: sessionState.sessionId,
             textLength: parsed.content.length,
-            preview: parsed.content.slice(0, 120),
           });
-          session.sendClientContent({
-            turns: [{ role: "user", parts: [{ text: parsed.content }] }],
-            turnComplete: true,
-          });
+          session.sendRealtimeInput({ text: parsed.content.trim() });
+          return;
+        }
+
+        if (parsed.type === "audio_stream_end") {
+          session.sendRealtimeInput({ audioStreamEnd: true });
           return;
         }
 
@@ -955,6 +1013,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           type: parsed.type || "unknown",
         });
       } catch (err) {
+        malformedCount += 1;
         logger.error("Error processing message from rewind client", {
           connectionId,
           personaId,
@@ -968,11 +1027,13 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               message: "Invalid live input payload",
             }),
           );
+          if (malformedCount >= 3) ws.close(1008, "Malformed input limit reached");
         }
       }
     });
 
     ws.on("close", (code, reason) => {
+      releaseConnection();
       logger.info("Rewind client WebSocket closed", {
         connectionId,
         personaId,
@@ -1003,6 +1064,10 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       });
     });
   } catch (error) {
+    const userId = auth.userId;
+    const remaining = (activeConnections.get(userId) ?? 1) - 1;
+    if (remaining > 0) activeConnections.set(userId, remaining);
+    else activeConnections.delete(userId);
     logger.error("Create rewind live connection error", {
       connectionId,
       personaId,

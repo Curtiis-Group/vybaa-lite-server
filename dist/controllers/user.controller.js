@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateProfile = updateProfile;
 exports.getProfile = getProfile;
+exports.deleteAccount = deleteAccount;
 exports.getPublicProfile = getPublicProfile;
 exports.registerFCMToken = registerFCMToken;
 exports.removeFCMToken = removeFCMToken;
@@ -46,7 +47,7 @@ async function updateProfile(req, res) {
                             canChange: false,
                             daysRemaining: cooldownCheck.daysRemaining,
                             nextAvailableDate: cooldownCheck.nextAvailableDate.toISOString(),
-                        }
+                        },
                     });
                 }
                 // Username is valid and cooldown passed
@@ -96,6 +97,46 @@ async function getProfile(req, res) {
     }
     catch (error) {
         logger_util_1.default.error("Get user error:", { error, userId: req.userId });
+        res.status(500).json({ msg: "Internal server error" });
+    }
+}
+async function deleteAccount(req, res) {
+    try {
+        const userId = req.userId;
+        const user = await db_config_1.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true },
+        });
+        if (!user) {
+            return res.status(404).json({ msg: "User not found" });
+        }
+        await db_config_1.prisma.$transaction(async (tx) => {
+            await tx.transaction.deleteMany({
+                where: {
+                    OR: [{ senderId: userId }, { recipientId: userId }],
+                },
+            });
+            await tx.goal.updateMany({
+                where: {
+                    template: { createdBy: userId },
+                },
+                data: { templateId: null },
+            });
+            await tx.goalTemplate.deleteMany({
+                where: { createdBy: userId },
+            });
+            await tx.goal.deleteMany({
+                where: { userId },
+            });
+            await tx.user.delete({
+                where: { id: userId },
+            });
+        });
+        logger_util_1.default.info("Account deleted", { userId });
+        res.json({ msg: "Account deleted successfully" });
+    }
+    catch (error) {
+        logger_util_1.default.error("Delete account error:", { error, userId: req.userId });
         res.status(500).json({ msg: "Internal server error" });
     }
 }
@@ -188,7 +229,10 @@ async function registerFCMToken(req, res) {
                     fcmTokens: [...tokens, fcmToken],
                 },
             });
-            logger_util_1.default.info("FCM token registered", { userId, token: fcmToken.substring(0, 20) + "..." });
+            logger_util_1.default.info("FCM token registered", {
+                userId,
+                token: fcmToken.substring(0, 20) + "...",
+            });
         }
         else {
             logger_util_1.default.debug("FCM token already registered", { userId });
@@ -229,7 +273,10 @@ async function removeFCMToken(req, res) {
                 fcmTokens: updatedTokens,
             },
         });
-        logger_util_1.default.info("FCM token removed", { userId, token: fcmToken.substring(0, 20) + "..." });
+        logger_util_1.default.info("FCM token removed", {
+            userId,
+            token: fcmToken.substring(0, 20) + "...",
+        });
         res.json({
             msg: "FCM token removed successfully",
         });
@@ -275,7 +322,10 @@ async function checkUsernameAvailability(req, res) {
         });
     }
     catch (error) {
-        logger_util_1.default.error("Check username availability error:", { error, userId: req.userId });
+        logger_util_1.default.error("Check username availability error:", {
+            error,
+            userId: req.userId,
+        });
         res.status(500).json({ msg: "Internal server error" });
     }
 }

@@ -29,11 +29,6 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     return chalk.green(code);
   };
 
-  const prettyQuery =
-    Object.keys(req.query).length > 0
-      ? chalk.gray(` query=${JSON.stringify(req.query)}`)
-      : "";
-
   const body =
     shouldLogBody(req.method, req.path) && req.body
       ? chalk.gray(` body=${JSON.stringify(sanitizeBody(req.body))}`)
@@ -41,8 +36,8 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
 
   console.log(
     `${chalk.dim("→")} ${methodColor(req.method)} ${chalk.white(
-      req.originalUrl
-    )}${prettyQuery}${body}`
+      req.path
+    )}${body}`
   );
 
   const originalSend = res.send;
@@ -53,7 +48,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     console.log(
       //put the datestamp i this format 2026-02-24 13:28:31
       `[${chalk.yellow(new Date().toISOString())}]${chalk.dim("←")} ${methodColor(req.method)} ${chalk.white(
-        req.originalUrl
+        req.path
       )} ${statusColor(res.statusCode)} ${chalk.gray(`${duration}ms`)} ${chalk.dim(
         req.ip
       )} `
@@ -64,7 +59,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     // Fire-and-forget metrics record; do not await to avoid impacting latency.
     metricsService
       .record("http_request_duration_ms", duration, {
-        route: req.originalUrl,
+        route: req.route?.path ?? req.path,
         method: req.method,
         status: res.statusCode,
       })

@@ -15,20 +15,26 @@ exports.isOTPExpired = isOTPExpired;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const google_auth_library_1 = require("google-auth-library");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const security_config_util_1 = require("./security-config.util");
 const logger_util_1 = __importDefault(require("./logger.util"));
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "your-refresh-secret-key-change-in-production";
+function getRefreshSecret() {
+    const value = process.env.JWT_REFRESH_SECRET?.trim();
+    if (!value || value === "your-refresh-secret-key-change-in-production") {
+        throw new Error("JWT_REFRESH_SECRET must be configured with a secure value");
+    }
+    return value;
+}
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 // JWT Token Generation
 function generateAccessToken(userId) {
-    return jsonwebtoken_1.default.sign({ userId }, JWT_SECRET, { expiresIn: "24h" });
+    return jsonwebtoken_1.default.sign({ userId }, (0, security_config_util_1.getJwtSecret)(), { expiresIn: "24h" });
 }
 function generateRefreshToken(userId) {
-    return jsonwebtoken_1.default.sign({ userId }, JWT_REFRESH_SECRET, { expiresIn: "7d" });
+    return jsonwebtoken_1.default.sign({ userId }, getRefreshSecret(), { expiresIn: "7d" });
 }
 function verifyAccessToken(token) {
     try {
-        const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        const decoded = jsonwebtoken_1.default.verify(token, (0, security_config_util_1.getJwtSecret)());
         return decoded;
     }
     catch (error) {
@@ -37,7 +43,7 @@ function verifyAccessToken(token) {
 }
 function verifyRefreshToken(token) {
     try {
-        const decoded = jsonwebtoken_1.default.verify(token, JWT_REFRESH_SECRET);
+        const decoded = jsonwebtoken_1.default.verify(token, getRefreshSecret());
         return decoded;
     }
     catch (error) {

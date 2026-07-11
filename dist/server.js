@@ -36,6 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.server = exports.app = void 0;
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const express_1 = __importDefault(require("express"));
@@ -43,25 +44,52 @@ const express_ws_1 = __importDefault(require("express-ws"));
 const rewindController = __importStar(require("./controllers/rewind.controller"));
 const webhook_controller_1 = require("./controllers/webhook.controller");
 const request_logger_middleware_1 = require("./middleware/request-logger.middleware");
+const security_middleware_1 = require("./middleware/security.middleware");
 const routes_1 = __importDefault(require("./routes"));
 const scheduler_service_1 = require("./services/scheduler.service");
 const config_util_1 = __importDefault(require("./utils/config.util"));
 const logger_util_1 = __importDefault(require("./utils/logger.util"));
+const security_config_util_1 = require("./utils/security-config.util");
 dotenv_1.default.config();
-const app = (0, express_1.default)();
-(0, express_ws_1.default)(app);
-app.use((0, cors_1.default)());
+(0, security_config_util_1.validateSecurityEnvironment)();
+exports.app = (0, express_1.default)();
+(0, express_ws_1.default)(exports.app);
+exports.app.disable("x-powered-by");
+exports.app.set("trust proxy", 1);
+exports.app.use(security_middleware_1.securityHeaders);
+exports.app.use((0, cors_1.default)({
+    credentials: true,
+    origin(origin, callback) {
+        if (!origin || security_config_util_1.securityConfig.allowedOrigins.includes(origin)) {
+            callback(null, true);
+            return;
+        }
+        callback(new Error("Origin is not allowed"));
+    },
+}));
+exports.app.use(security_middleware_1.apiRateLimit);
 // Paystack webhook needs raw body for signature verification
-app.post("/api/v1/webhooks/paystack", express_1.default.raw({ type: "application/json" }), webhook_controller_1.handlePaystackWebhook);
-// Increase payload size limit for profile image uploads (base64 encoded)
-app.use(express_1.default.json({ limit: '10mb' }));
-app.use(express_1.default.urlencoded({ limit: '10mb', extended: true }));
+exports.app.post("/api/v1/webhooks/paystack", express_1.default.raw({ type: "application/json" }), webhook_controller_1.handlePaystackWebhook);
+exports.app.use("/api/v1/upload", express_1.default.json({ limit: security_config_util_1.securityConfig.uploadBodyLimit }));
+exports.app.use(express_1.default.json({ limit: security_config_util_1.securityConfig.apiBodyLimit }));
+exports.app.use(express_1.default.urlencoded({ limit: security_config_util_1.securityConfig.apiBodyLimit, extended: true }));
 // Request logging middleware (should be before routes)
-app.use(request_logger_middleware_1.requestLogger);
-app.use("/api", routes_1.default);
+exports.app.use(request_logger_middleware_1.requestLogger);
+exports.app.use("/api", routes_1.default);
+exports.app.use((error, _req, res, _next) => {
+    const status = typeof error === "object" && error && "status" in error
+        ? Number(error.status)
+        : 500;
+    const safeStatus = Number.isInteger(status) && status >= 400 && status < 600
+        ? status
+        : 500;
+    res.status(safeStatus).json({
+        msg: safeStatus === 413 ? "Request payload is too large" : "Request rejected",
+    });
+});
 // @ts-ignore
-app.ws("/api/v1/rewind/live", rewindController.handleLiveConnection);
-app.listen(config_util_1.default.PORT, () => {
+exports.app.ws("/api/v1/rewind/live", rewindController.handleLiveConnection);
+exports.server = exports.app.listen(config_util_1.default.PORT, () => {
     logger_util_1.default.info(`🚀 Server running on port ${config_util_1.default.PORT}`);
     // Start notification scheduler
     scheduler_service_1.schedulerService.start();
