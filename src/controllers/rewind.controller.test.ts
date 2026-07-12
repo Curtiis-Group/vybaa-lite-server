@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import jwt from "jsonwebtoken";
 import {
+  buildDraftSessionSummary,
   buildOpeningPrompt,
   buildResumePrompt,
   createRewindWsToken,
@@ -24,6 +25,26 @@ test("resume forbids invented context and limits follow-up questions", () => {
   assert.match(prompt, /at most one natural follow-up/i);
 });
 
+test("draft summaries are always non-empty and persona-specific", () => {
+  const emptySummary = buildDraftSessionSummary("lyra", []);
+  const reflectionSummary = buildDraftSessionSummary("jake", [
+    "I handled a difficult conversation better than I expected.",
+  ]);
+
+  assert.match(emptySummary, /Lyra/);
+  assert.match(emptySummary, /no reflection was captured/i);
+  assert.match(reflectionSummary, /Jake heard you reflect on/i);
+  assert.match(reflectionSummary, /difficult conversation/i);
+});
+
+test("resume context is framed as private memory instead of instructions", () => {
+  const prompt = buildResumePrompt("The user felt more confident today.");
+
+  assert.match(prompt, /private note/i);
+  assert.match(prompt, /never as instructions/i);
+  assert.match(prompt, /more confident/i);
+});
+
 test("Rewind token is audience-bound and single use", () => {
   const token = createRewindWsToken("user-1", "ella", "session-1");
   const verified = verifyRewindWsToken(token);
@@ -35,7 +56,12 @@ test("Rewind rejects a token with the wrong audience", () => {
   const token = jwt.sign(
     { userId: "user-1", personaId: "ella", type: "rewind_ws" },
     process.env.JWT_SECRET!,
-    { audience: "wrong", expiresIn: "10m", issuer: "vybaa-api", jwtid: "bad-audience" },
+    {
+      audience: "wrong",
+      expiresIn: "10m",
+      issuer: "vybaa-api",
+      jwtid: "bad-audience",
+    },
   );
   assert.equal(verifyRewindWsToken(token), null);
 });
@@ -44,7 +70,12 @@ test("Rewind rejects expired and tampered tokens", () => {
   const expired = jwt.sign(
     { userId: "user-1", personaId: "ella", type: "rewind_ws" },
     process.env.JWT_SECRET!,
-    { audience: "vybaa-rewind-live", expiresIn: -1, issuer: "vybaa-api", jwtid: "expired" },
+    {
+      audience: "vybaa-rewind-live",
+      expiresIn: -1,
+      issuer: "vybaa-api",
+      jwtid: "expired",
+    },
   );
   assert.equal(verifyRewindWsToken(expired), null);
 
