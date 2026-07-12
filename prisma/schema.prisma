@@ -92,8 +92,13 @@ model RewindSession {
   openingAnswered      Boolean? @default(false) @map("opening_answered")
   currentQuestionIndex Int?     @default(0) @map("current_question_index")
   completed            Boolean @default(false)
+  completedAt          DateTime? @map("completed_at")
+  checkInAt            DateTime? @map("check_in_at")
   responses            Json?
   summary              String?
+  emotionalInsight     String? @map("emotional_insight")
+  emotionalTags        String[] @default([]) @map("emotional_tags")
+  nextStepNote         String? @map("next_step_note")
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")

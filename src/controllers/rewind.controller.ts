@@ -34,7 +34,7 @@ type OpeningPromptUserData = {
   lastName: string | null;
   currentMood: string | null;
   emotionSummary: string | null;
-} | null
+} | null;
 
 const GEMINI_LIVE_MODEL =
   process.env.GEMINI_LIVE_MODEL ?? "models/gemini-3.1-flash-live-preview";
@@ -64,7 +64,12 @@ type RewindStoredSession = {
   personaId: RewindPersonaId;
   sessionDateKey: string;
   completed: boolean;
+  completedAt: Date | null;
+  checkInAt: Date | null;
   summary: string;
+  emotionalInsight: string | null;
+  emotionalTags: string[];
+  nextStepNote: string | null;
   updatedAt: number;
 };
 
@@ -73,7 +78,16 @@ type RewindSessionSnapshot = {
   sessionDateKey: string;
   completed: boolean;
   summary: string;
+  emotionalInsight: string | null;
   updatedAt: number;
+};
+
+type RewindCompletionPayload = {
+  summary: string;
+  emotionalInsight: string;
+  currentMood?: string;
+  emotionalTags: string[];
+  nextStepNote?: string;
 };
 
 function createConnectionId() {
@@ -92,7 +106,12 @@ function createEmptySession(params: {
     personaId: params.personaId,
     sessionDateKey: params.sessionDateKey,
     completed: false,
+    completedAt: null,
+    checkInAt: null,
     summary: getEmptySessionSummary(params.personaId),
+    emotionalInsight: null,
+    emotionalTags: [],
+    nextStepNote: null,
     updatedAt: Date.now(),
   };
 }
@@ -111,6 +130,30 @@ function normalizeSummary(
 ): string {
   const normalizedSummary = summary?.trim();
   return normalizedSummary || getEmptySessionSummary(personaId);
+}
+
+function normalizeNullableText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized ? normalized.slice(0, maxLength) : undefined;
+}
+
+function isUsefulCompletionSummary(
+  summary: string | undefined,
+  personaId: RewindPersonaId,
+): summary is string {
+  if (!summary) {
+    return false;
+  }
+
+  const normalized = summary.replace(/\s+/g, " ").trim();
+  return (
+    normalized.length >= 40 &&
+    normalized !== getEmptySessionSummary(personaId)
+  );
 }
 
 export function buildDraftSessionSummary(
@@ -136,10 +179,15 @@ function getToolSummary(args: unknown): string | undefined {
     return undefined;
   }
 
-  const summary = args.summary;
-  return typeof summary === "string" && summary.trim()
-    ? summary.trim()
-    : undefined;
+  return normalizeNullableText(args.summary, 1_200);
+}
+
+function getToolEmotionalInsight(args: unknown): string | undefined {
+  if (!args || typeof args !== "object" || !("emotionalInsight" in args)) {
+    return undefined;
+  }
+
+  return normalizeNullableText(args.emotionalInsight, 800);
 }
 
 function getToolUserCurrentMood(args: unknown): string | undefined {
@@ -147,10 +195,62 @@ function getToolUserCurrentMood(args: unknown): string | undefined {
     return undefined;
   }
 
-  const currentMood = args.currentMood;
-  return typeof currentMood === "string" && currentMood.trim()
-    ? currentMood.trim()
-    : undefined;
+  return normalizeNullableText(args.currentMood, 80);
+}
+
+function getToolNextStepNote(args: unknown): string | undefined {
+  if (!args || typeof args !== "object" || !("nextStepNote" in args)) {
+    return undefined;
+  }
+
+  return normalizeNullableText(args.nextStepNote, 280);
+}
+
+function getToolEmotionalTags(args: unknown): string[] {
+  if (!args || typeof args !== "object" || !("emotionalTags" in args)) {
+    return [];
+  }
+
+  if (!Array.isArray(args.emotionalTags)) {
+    return [];
+  }
+
+  const tags: string[] = [];
+  for (const tag of args.emotionalTags) {
+    const normalizedTag = normalizeNullableText(tag, 32)?.toLowerCase();
+    if (normalizedTag && !tags.includes(normalizedTag)) {
+      tags.push(normalizedTag);
+    }
+    if (tags.length >= 5) {
+      break;
+    }
+  }
+
+  return tags;
+}
+
+export function parseRewindCompletionArgs(
+  args: unknown,
+  personaId: RewindPersonaId,
+): RewindCompletionPayload | null {
+  const summary = getToolSummary(args);
+  const emotionalInsight = getToolEmotionalInsight(args);
+
+  if (
+    !isUsefulCompletionSummary(summary, personaId) ||
+    !emotionalInsight ||
+    emotionalInsight.length < 24
+  ) {
+    return null;
+  }
+
+  return {
+    summary,
+    emotionalInsight,
+    currentMood: getToolUserCurrentMood(args),
+    emotionalTags: getToolEmotionalTags(args),
+    nextStepNote: getToolNextStepNote(args),
+  };
 }
 
 function getConversationStateNote(args: unknown): string | undefined {
@@ -280,12 +380,17 @@ async function loadRewindSession(params: {
     sessionId: session.id,
     userId: session.userId,
     personaId: session.personaId as RewindPersonaId,
-    sessionDateKey: session?.sessionDateKey as any,
+    sessionDateKey: session.sessionDateKey ?? getDateString(session.createdAt),
     completed: session.completed,
+    completedAt: session.completedAt,
+    checkInAt: session.checkInAt,
     summary: normalizeSummary(
       session.summary,
       session.personaId as RewindPersonaId,
     ),
+    emotionalInsight: session.emotionalInsight,
+    emotionalTags: session.emotionalTags,
+    nextStepNote: session.nextStepNote,
     updatedAt: session.updatedAt.getTime(),
   } satisfies RewindStoredSession;
 }
@@ -310,12 +415,17 @@ async function loadRewindSessionForDate(params: {
     sessionId: session.id,
     userId: session.userId,
     personaId: session.personaId as RewindPersonaId,
-    sessionDateKey: session?.sessionDateKey || params?.sessionDateKey,
+    sessionDateKey: session.sessionDateKey ?? params.sessionDateKey,
     completed: session.completed,
+    completedAt: session.completedAt,
+    checkInAt: session.checkInAt,
     summary: normalizeSummary(
       session.summary,
       session.personaId as RewindPersonaId,
     ),
+    emotionalInsight: session.emotionalInsight,
+    emotionalTags: session.emotionalTags,
+    nextStepNote: session.nextStepNote,
     updatedAt: session.updatedAt.getTime(),
   } satisfies RewindStoredSession;
 }
@@ -337,24 +447,49 @@ async function loadPreviousRewindSessions(params: {
     take: 5,
   });
 
-  return sessions.map((s) => ({
-    sessionId: s.id,
-    sessionDateKey: s.sessionDateKey as string,
-    completed: s.completed,
-    summary: normalizeSummary(s.summary, s.personaId as RewindPersonaId),
-    updatedAt: s.updatedAt.getTime(),
+  return sessions.map((session) => ({
+    sessionId: session.id,
+    sessionDateKey: session.sessionDateKey ?? getDateString(session.createdAt),
+    completed: session.completed,
+    summary: normalizeSummary(
+      session.summary,
+      session.personaId as RewindPersonaId,
+    ),
+    emotionalInsight: session.emotionalInsight,
+    updatedAt: session.updatedAt.getTime(),
   })) satisfies RewindSessionSnapshot[];
 }
 
-async function persistRewindSession(sessionState: RewindStoredSession, userInfo: Partial<OpeningPromptUserData> = null) {
-  await Promise.all([
-    await prisma.rewindSession.upsert({
+async function persistRewindSession(
+  sessionState: RewindStoredSession,
+  userInfo: Partial<OpeningPromptUserData> | null = null,
+): Promise<void> {
+  const userUpdateData: {
+    currentMood?: string | null;
+    emotionSummary?: string | null;
+  } = {};
+
+  if (userInfo && "currentMood" in userInfo) {
+    userUpdateData.currentMood = userInfo.currentMood ?? null;
+  }
+
+  if (userInfo && "emotionSummary" in userInfo) {
+    userUpdateData.emotionSummary = userInfo.emotionSummary ?? null;
+  }
+
+  const writes: Promise<unknown>[] = [
+    prisma.rewindSession.upsert({
       where: { id: sessionState.sessionId },
       update: {
         personaId: sessionState.personaId,
         sessionDateKey: sessionState.sessionDateKey,
         completed: sessionState.completed,
+        completedAt: sessionState.completedAt,
+        checkInAt: sessionState.checkInAt,
         summary: sessionState.summary,
+        emotionalInsight: sessionState.emotionalInsight,
+        emotionalTags: sessionState.emotionalTags,
+        nextStepNote: sessionState.nextStepNote,
       },
       create: {
         id: sessionState.sessionId,
@@ -362,18 +497,26 @@ async function persistRewindSession(sessionState: RewindStoredSession, userInfo:
         personaId: sessionState.personaId,
         sessionDateKey: sessionState.sessionDateKey,
         completed: sessionState.completed,
+        completedAt: sessionState.completedAt,
+        checkInAt: sessionState.checkInAt,
         summary: sessionState.summary,
+        emotionalInsight: sessionState.emotionalInsight,
+        emotionalTags: sessionState.emotionalTags,
+        nextStepNote: sessionState.nextStepNote,
       },
     }),
+  ];
 
-    await prisma.user.update({
-      where: { id: sessionState.userId }, data: {
-        currentMood: userInfo?.currentMood ?? null, emotionSummary: userInfo?.emotionSummary ?? null
-      }
-    })
-  ])
+  if (Object.keys(userUpdateData).length) {
+    writes.push(
+      prisma.user.update({
+        where: { id: sessionState.userId },
+        data: userUpdateData,
+      }),
+    );
+  }
 
-
+  await Promise.all(writes);
 }
 
 const getDateString = (date: Date, timezone?: string) => {
@@ -621,7 +764,7 @@ function getRewindSystemInstruction(
     `Maintain your own perspective of the user. Do not claim to know conversations they had with another partner. ` +
     `Use your previous-session context only when it is clearly relevant; never announce or force it. Help the user notice meaning or closure without diagnosing them. ` +
     `You have tools available to manage the session:\n` +
-    `- end_session: Use this ONLY when the user explicitly signals they are done or the conversation has reached a natural, deep conclusion. DO NOT call this prematurely or just because the user answered one or two questions. When you call it, you MUST provide a 'summary' parameter (2-4 sentences) that highlights the core insights and reflections from today's session.\n` +
+    `- end_session: Use this ONLY when the user explicitly signals they are done or the conversation has reached a natural, deep conclusion. DO NOT call this prematurely or just because the user answered one or two questions. When you call it, you MUST provide a useful 'summary' parameter (2-4 sentences) and a separate 'emotionalInsight' parameter about what the user seemed to be feeling, needing, or processing. Also include optional emotionalTags/currentMood/nextStepNote when clear.\n` +
     `- open_history: Call this if the user specifically asks to see their past rewinds or session history.\n` +
     `- update_conversation_state: After setup and after meaningful user turns, call this with a short user-visible note about the current stage or situation. This note appears in the app under "This conversation", so do not include private hidden reasoning, exact transcripts, diagnoses, or sensitive details.`
   );
@@ -836,21 +979,31 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     let clientDisconnected = false;
     const queuedRealtimeInputs: LiveSendRealtimeInputParameters[] = [];
 
-    const finalizeSession = async (summary?: string, userCurrentMood?: string): Promise<void> => {
+    const finalizeSession = async (
+      payload: RewindCompletionPayload,
+    ): Promise<void> => {
       if (isSessionFinalized) return;
 
       isSessionFinalized = true;
       if (finishTimeout) clearTimeout(finishTimeout);
+      const completedAt = new Date();
       sessionState.completed = true;
-      sessionState.summary = normalizeSummary(summary, personaId);
+      sessionState.completedAt = completedAt;
+      sessionState.checkInAt = completedAt;
+      sessionState.summary = payload.summary;
+      sessionState.emotionalInsight = payload.emotionalInsight;
+      sessionState.emotionalTags = payload.emotionalTags;
+      sessionState.nextStepNote = payload.nextStepNote ?? null;
       await persistRewindSession(sessionState, {
-        currentMood: userCurrentMood ?? null,
+        currentMood: payload.currentMood ?? null,
+        emotionSummary: payload.emotionalInsight,
       });
 
       if (ws.readyState === ws.OPEN) {
         ws.send(
           JSON.stringify({
             type: "session_ended",
+            emotionalInsight: sessionState.emotionalInsight,
             summary: sessionState.summary,
           }),
         );
@@ -940,15 +1093,6 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             },
           },
           inputAudioTranscription: {},
-          // realtimeInputConfig: {
-          //   automaticActivityDetection: {
-          //     disabled: false,
-          //     startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
-          //     endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-          //     prefixPaddingMs: 20,
-          //     silenceDurationMs: 120,
-          //   },
-          // },
 
           contextWindowCompression: {
             triggerTokens: "104857",
@@ -979,8 +1123,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                 {
                   name: "end_session",
                   description:
-                  
-                    "Ends the current Rewind session. Must include a summary of the session. and optionally the user's current mood or emotional state at the end of the session.",
+                    "Ends the current Rewind session only after a real close. Must include a useful summary and emotionalInsight.",
                   parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -989,13 +1132,31 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                         description:
                           "A concise summary of the session's key moments and reflections.",
                       },
+                      emotionalInsight: {
+                        type: Type.STRING,
+                        description:
+                          "A separate emotional insight about what the user seemed to be feeling, needing, or processing. Do not diagnose.",
+                      },
                       currentMood: {
                         type: Type.STRING,
                         description:
-                          "Optional: The user's current mood or emotional state at the end of the session. keep it short and simple, like 'content', 'anxious', 'hopeful', etc.",
+                          "Optional: The user's current mood or emotional state at the end of the session. Keep it short, like 'content', 'anxious', or 'hopeful'.",
+                      },
+                      emotionalTags: {
+                        type: Type.ARRAY,
+                        description:
+                          "Optional: up to five short lowercase emotional tags.",
+                        items: {
+                          type: Type.STRING,
+                        },
+                      },
+                      nextStepNote: {
+                        type: Type.STRING,
+                        description:
+                          "Optional: one gentle next-step or check-in note for the user.",
                       },
                     },
-                    required: ["summary"],
+                    required: ["summary", "emotionalInsight"],
                   },
                 },
                 {
@@ -1099,17 +1260,40 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                 });
 
                 if (call.name === "end_session") {
-                  await finalizeSession(
-                    getToolSummary(call.args) ?? sessionState.summary,
-                    getToolUserCurrentMood(call.args)
+                  const completionPayload = parseRewindCompletionArgs(
+                    call.args,
+                    personaId,
                   );
+
+                  if (!completionPayload) {
+                    session?.sendToolResponse({
+                      functionResponses: [
+                        {
+                          name: "end_session",
+                          id: call.id,
+                          response: {
+                            success: false,
+                            error:
+                              "A useful summary and emotionalInsight are required before ending.",
+                          },
+                        },
+                      ],
+                    });
+                    continue;
+                  }
+
+                  await finalizeSession(completionPayload);
 
                   session?.sendToolResponse({
                     functionResponses: [
                       {
                         name: "end_session",
                         id: call.id,
-                        response: { success: true, summary_received: true },
+                        response: {
+                          success: true,
+                          emotional_insight_received: true,
+                          summary_received: true,
+                        },
                       },
                     ],
                   });
@@ -1363,10 +1547,21 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           if (isSessionFinalized || finishTimeout) return;
           sendRealtimeInput({ audioStreamEnd: true });
           sendRealtimeInput({
-            text: "The user tapped Finish rewind. Briefly acknowledge the close, then call end_session now with a warm 2-4 sentence summary grounded only in this conversation.",
+            text:
+              "The user tapped Finish rewind. Briefly acknowledge the close, then call end_session now with a warm 2-4 sentence summary and a separate emotionalInsight grounded only in this conversation.",
           });
           finishTimeout = setTimeout(() => {
-            void finalizeSession(sessionState.summary);
+            finishTimeout = undefined;
+            void persistRewindSession(sessionState);
+            if (ws.readyState === ws.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message:
+                    "I could not finish that Rewind yet. Try concluding again in a moment.",
+                }),
+              );
+            }
           }, 10_000);
           return;
         }

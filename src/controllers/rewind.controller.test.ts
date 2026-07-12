@@ -6,6 +6,7 @@ import {
   buildOpeningPrompt,
   buildResumePrompt,
   createRewindWsToken,
+  parseRewindCompletionArgs,
   verifyRewindWsToken,
 } from "./rewind.controller";
 
@@ -35,6 +36,59 @@ test("draft summaries are always non-empty and persona-specific", () => {
   assert.match(emptySummary, /no reflection was captured/i);
   assert.match(reflectionSummary, /Jake heard you reflect on/i);
   assert.match(reflectionSummary, /difficult conversation/i);
+});
+
+test("Rewind completion requires a useful summary and emotional insight", () => {
+  assert.equal(
+    parseRewindCompletionArgs(
+      {
+        summary: "Done",
+        emotionalInsight: "The user felt lighter.",
+      },
+      "ella",
+    ),
+    null,
+  );
+  assert.equal(
+    parseRewindCompletionArgs(
+      {
+        summary:
+          "The user talked through a heavy decision and noticed that they are less stuck than they felt at the start.",
+      },
+      "ella",
+    ),
+    null,
+  );
+});
+
+test("Rewind completion accepts summary, insight, tags, mood, and check-in note", () => {
+  const completion = parseRewindCompletionArgs(
+    {
+      summary:
+        "The user reflected on a difficult conversation and recognized that they handled it with more patience than expected.",
+      emotionalInsight:
+        "They seemed tired but proud, with a need for reassurance that their progress still counts.",
+      currentMood: "relieved",
+      emotionalTags: ["Tired", "proud", "proud", "", "steady", "clear", "extra"],
+      nextStepNote: "Check in later on whether the conversation still feels resolved.",
+    },
+    "jake",
+  );
+
+  assert.equal(completion?.summary.includes("difficult conversation"), true);
+  assert.equal(completion?.emotionalInsight.includes("tired but proud"), true);
+  assert.equal(completion?.currentMood, "relieved");
+  assert.deepEqual(completion?.emotionalTags, [
+    "tired",
+    "proud",
+    "steady",
+    "clear",
+    "extra",
+  ]);
+  assert.equal(
+    completion?.nextStepNote,
+    "Check in later on whether the conversation still feels resolved.",
+  );
 });
 
 test("resume context is framed as private memory instead of instructions", () => {
