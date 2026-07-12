@@ -1,13 +1,9 @@
 import { render } from "@react-email/render";
 import nodemailer from "nodemailer";
 import { ConfirmationEmail } from "../emails/ConfirmationEmail";
+import { CommunityInviteEmail } from "../emails/CommunityInviteEmail";
 import { PasswordResetEmail } from "../emails/PasswordResetEmail";
 import logger from "../utils/logger.util";
-
-const {
-  SMTP_USER,
-  SMTP_PASSWORD,
-} = process.env;
 
 const transport = nodemailer.createTransport({
   service: "gmail",
@@ -18,13 +14,17 @@ const transport = nodemailer.createTransport({
 });
 
 class EmailService {
+  isConfigured() {
+    return Boolean(process.env.SMTP_USER && process.env.SMTP_PASSWORD);
+  }
+
   private async send(options: {
     to: string;
     subject: string;
     react: any;
     from?: string;
   }) {
-    if (!transport) {
+    if (!this.isConfigured()) {
       logger.warn("Email transport not configured, skipping email send", {
         to: options.to,
         subject: options.subject,
@@ -65,7 +65,25 @@ class EmailService {
       react: ConfirmationEmail({ name: params.name, code: params.code }),
     });
   }
+
+  async sendCommunityInviteEmail(params: {
+    to: string;
+    communityName: string;
+    inviteCode: string;
+    inviteLink: string;
+    inviterName: string;
+  }) {
+    await this.send({
+      to: params.to,
+      subject: `Join ${params.communityName} on Vybaa`,
+      react: CommunityInviteEmail({
+        communityName: params.communityName,
+        inviteCode: params.inviteCode,
+        inviteLink: params.inviteLink,
+        inviterName: params.inviterName,
+      }),
+    });
+  }
 }
 
 export const emailService = new EmailService();
-

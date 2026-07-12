@@ -138,10 +138,12 @@ exports.commentIdParamSchema = zod_1.z.object({
 // ==================== Invite schemas ====================
 // Create invite schema
 exports.createInviteSchema = zod_1.z.object({
-    inviteeUsername: zod_1.z.string().min(1).max(20).optional(),
-    inviteeEmail: zod_1.z.string().email("Must be a valid email").optional(),
+    inviteeUsername: zod_1.z.string().trim().min(1).max(20).optional(),
+    inviteeEmail: zod_1.z.string().trim().email("Must be a valid email").optional(),
     maxUses: zod_1.z.number().int().min(-1).default(-1).optional(), // -1 = unlimited
     expiresInDays: zod_1.z.number().int().min(1).max(30).optional(), // optional expiry
+}).refine((data) => !(data.inviteeUsername && data.inviteeEmail), {
+    message: "Invite by username or email, not both",
 });
 // Invite code param schema
 exports.inviteCodeParamSchema = zod_1.z.object({

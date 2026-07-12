@@ -7,9 +7,9 @@ exports.emailService = void 0;
 const render_1 = require("@react-email/render");
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const ConfirmationEmail_1 = require("../emails/ConfirmationEmail");
+const CommunityInviteEmail_1 = require("../emails/CommunityInviteEmail");
 const PasswordResetEmail_1 = require("../emails/PasswordResetEmail");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
-const { SMTP_USER, SMTP_PASSWORD, } = process.env;
 const transport = nodemailer_1.default.createTransport({
     service: "gmail",
     auth: {
@@ -18,8 +18,11 @@ const transport = nodemailer_1.default.createTransport({
     },
 });
 class EmailService {
+    isConfigured() {
+        return Boolean(process.env.SMTP_USER && process.env.SMTP_PASSWORD);
+    }
     async send(options) {
-        if (!transport) {
+        if (!this.isConfigured()) {
             logger_util_1.default.warn("Email transport not configured, skipping email send", {
                 to: options.to,
                 subject: options.subject,
@@ -46,6 +49,18 @@ class EmailService {
             to: params.to,
             subject: "Confirm your Vybaa account",
             react: (0, ConfirmationEmail_1.ConfirmationEmail)({ name: params.name, code: params.code }),
+        });
+    }
+    async sendCommunityInviteEmail(params) {
+        await this.send({
+            to: params.to,
+            subject: `Join ${params.communityName} on Vybaa`,
+            react: (0, CommunityInviteEmail_1.CommunityInviteEmail)({
+                communityName: params.communityName,
+                inviteCode: params.inviteCode,
+                inviteLink: params.inviteLink,
+                inviterName: params.inviterName,
+            }),
         });
     }
 }

@@ -32,6 +32,70 @@ class NotificationService {
     this.ablyClient = getAblyClient();
   }
 
+  private getStartOfUtcDay(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  }
+
+  private getScheduledUtcTime(dayStart: Date, hour: number, now: Date) {
+    const scheduledFor = new Date(dayStart);
+    scheduledFor.setUTCHours(hour, 0, 0, 0);
+    return scheduledFor <= now ? now : scheduledFor;
+  }
+
+  private getRecipientTitle(user: { username: string | null; firstName: string | null }, fallback: string) {
+    const name = user.username || user.firstName;
+    return name ? `${name} notifications for ${name}` : fallback;
+  }
+
+  private async createDedupedSystemNotification(params: {
+    userId: string;
+    title: string;
+    message: string;
+    data: Record<string, unknown>;
+    dedupeKey: string;
+    windowStart: Date;
+    scheduledFor?: Date;
+  }) {
+    const recentNotifications = await prisma.notification.findMany({
+      where: {
+        userId: params.userId,
+        type: "system",
+        createdAt: { gte: params.windowStart },
+      },
+      select: { data: true },
+      take: 100,
+    });
+
+    const alreadyCreated = recentNotifications.some((notification) => {
+      if (!notification.data) {
+        return false;
+      }
+
+      try {
+        const data = JSON.parse(notification.data) as { dedupeKey?: string };
+        return data.dedupeKey === params.dedupeKey;
+      } catch {
+        return false;
+      }
+    });
+
+    if (alreadyCreated) {
+      return null;
+    }
+
+    return this.createNotification({
+      userId: params.userId,
+      type: "system",
+      title: params.title,
+      message: params.message,
+      data: {
+        ...params.data,
+        dedupeKey: params.dedupeKey,
+      },
+      scheduledFor: params.scheduledFor,
+    });
+  }
+
   /**
    * Create a notification in the database
    */
@@ -295,6 +359,159 @@ class NotificationService {
         .catch(() => {});
     } catch (error) {
       logger.error("Error scheduling goal reminders:", error);
+    }
+  }
+
+  /**
+   * Schedule lightweight engagement prompts with per-user dedupe windows.
+   */
+  async scheduleEngagementNotifications() {
+    try {
+      const now = new Date();
+      const dayStart = this.getStartOfUtcDay(now);
+      const dayKey = dayStart.toISOString().slice(0, 10);
+      const hourKey = now.toISOString().slice(0, 13);
+      const cacheKey = "scheduler:engagement:lastRunHour";
+
+      const lastRun = await cacheService.get<string>(cacheKey);
+      if (lastRun === hourKey) {
+        return;
+      }
+
+      const users = await prisma.user.findMany({
+        select: {
+          id: true,
+          username: true,
+          firstName: true,
+        },
+        take: 500,
+      });
+
+      let scheduledCount = 0;
+
+      for (const user of users) {
+        const title = this.getRecipientTitle(user, "Vybaa notifications");
+
+        const completedRewindToday = await prisma.rewindSession.findFirst({
+          where: {
+            userId: user.id,
+            completed: true,
+            OR: [
+              { completedAt: { gte: dayStart } },
+              { checkInAt: { gte: dayStart } },
+            ],
+          },
+          select: { id: true },
+        });
+
+        if (!completedRewindToday) {
+          const notification = await this.createDedupedSystemNotification({
+            userId: user.id,
+            title,
+            message: "Time to rewind and check in with yourself.",
+            data: { type: "time_to_rewind", route: "/app/rewind" },
+            dedupeKey: `time_to_rewind:${dayKey}`,
+            windowStart: dayStart,
+            scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
+          });
+          if (notification) scheduledCount++;
+        }
+
+        const recentGoals = await prisma.goal.findMany({
+          where: {
+            userId: user.id,
+          },
+          select: { id: true, goalText: true, currentDay: true, targetDays: true },
+          orderBy: { updatedAt: "desc" },
+          take: 10,
+        });
+        const activeGoal = recentGoals.find((goal) => goal.currentDay < goal.targetDays);
+
+        if (activeGoal) {
+          const notification = await this.createDedupedSystemNotification({
+            userId: user.id,
+            title,
+            message: `Flexx on your friends today: ${activeGoal.goalText}`,
+            data: { type: "flexx_prompt", route: "/app/goal", goalId: activeGoal.id },
+            dedupeKey: `flexx_prompt:${dayKey}`,
+            windowStart: dayStart,
+            scheduledFor: this.getScheduledUtcTime(dayStart, 12, now),
+          });
+          if (notification) scheduledCount++;
+        }
+
+        const recentCommunityActivity = await prisma.communityActivity.findFirst({
+          where: {
+            userId: { not: user.id },
+            createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+            community: {
+              members: {
+                some: { userId: user.id },
+              },
+            },
+          },
+          select: {
+            communityId: true,
+            community: { select: { name: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (recentCommunityActivity) {
+          const notification = await this.createDedupedSystemNotification({
+            userId: user.id,
+            title,
+            message: `See what is going on in ${recentCommunityActivity.community.name}.`,
+            data: {
+              type: "community_activity_prompt",
+              route: `/app/community/${recentCommunityActivity.communityId}#activity`,
+              communityId: recentCommunityActivity.communityId,
+            },
+            dedupeKey: `community_activity:${dayKey}:${recentCommunityActivity.communityId}`,
+            windowStart: dayStart,
+            scheduledFor: this.getScheduledUtcTime(dayStart, 17, now),
+          });
+          if (notification) scheduledCount++;
+        }
+
+        const endOfDayNotification = await this.createDedupedSystemNotification({
+          userId: user.id,
+          title,
+          message: "Your end-of-day summary is ready when you are.",
+          data: { type: "end_of_day_summary", route: "/app/home" },
+          dedupeKey: `end_of_day_summary:${dayKey}`,
+          windowStart: dayStart,
+          scheduledFor: this.getScheduledUtcTime(dayStart, 21, now),
+        });
+        if (endOfDayNotification) scheduledCount++;
+
+        if (now.getUTCDay() === 0) {
+          const weekStart = new Date(dayStart);
+          weekStart.setUTCDate(dayStart.getUTCDate() - 6);
+          const endOfWeekNotification = await this.createDedupedSystemNotification({
+            userId: user.id,
+            title,
+            message: "Your end-of-week summary is ready.",
+            data: { type: "end_of_week_summary", route: "/app/home" },
+            dedupeKey: `end_of_week_summary:${dayKey}`,
+            windowStart: weekStart,
+            scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
+          });
+          if (endOfWeekNotification) scheduledCount++;
+        }
+      }
+
+      await cacheService.set(cacheKey, hourKey, 90 * 60);
+
+      if (scheduledCount > 0) {
+        metricsService
+          .record("scheduler_engagement_notifications_scheduled", scheduledCount, {
+            hour: hourKey,
+          })
+          .catch(() => {});
+      }
+    } catch (error) {
+      logger.error("Error scheduling engagement notifications:", error);
     }
   }
 

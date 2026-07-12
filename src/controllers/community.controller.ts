@@ -3,6 +3,7 @@ import { Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { communityActivityService } from "../services/community-activity.service";
+import { emailService } from "../services/email.service";
 import { notificationService } from "../services/notification.service";
 import logger from "../utils/logger.util";
 
@@ -1676,12 +1677,46 @@ async function generateInviteCode(): Promise<string> {
   return code;
 }
 
+function buildCommunityInviteLink(code: string): string {
+  return `https://vybaa.app/invite/${code}`;
+}
+
+async function findActiveDuplicateInvite(params: {
+  communityId: string;
+  inviteeUsername?: string;
+  inviteeEmail?: string;
+}) {
+  const now = new Date();
+
+  if (!params.inviteeUsername && !params.inviteeEmail) {
+    return null;
+  }
+
+  const invites = await prisma.communityInvite.findMany({
+    where: {
+      communityId: params.communityId,
+      ...(params.inviteeUsername ? { inviteeUsername: params.inviteeUsername } : {}),
+      ...(params.inviteeEmail ? { inviteeEmail: params.inviteeEmail } : {}),
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return invites.find((invite) => invite.maxUses === -1 || invite.uses < invite.maxUses) || null;
+}
+
 /** POST /communities/:communityId/invites - Create invite link/code or invite by username/email */
 export async function createInvite(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-   const { communityId } = req.params  as { communityId: string};
+    const { communityId } = req.params  as { communityId: string};
     const { inviteeUsername, inviteeEmail, maxUses, expiresInDays } = req.body;
+    const normalizedUsername = inviteeUsername
+      ? String(inviteeUsername).trim().replace(/^@/, "")
+      : undefined;
+    const normalizedEmail = inviteeEmail
+      ? String(inviteeEmail).trim().toLowerCase()
+      : undefined;
 
     // Must be member (or owner/mod) to create invite
     if (!(await isMember(communityId, userId))) {
@@ -1694,43 +1729,104 @@ export async function createInvite(req: AuthRequest, res: Response) {
     });
     if (!community) return res.status(404).json({ msg: "Community not found" });
 
-    const code = await generateInviteCode();
+    const inviter = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, firstName: true, lastName: true },
+    });
 
     let inviteeUserId: string | undefined;
-    if (inviteeUsername) {
-      const target = await prisma.user.findUnique({ where: { username: inviteeUsername } });
-      if (!target) return res.status(404).json({ msg: `User @${inviteeUsername} not found` });
+    if (normalizedUsername) {
+      const target = await prisma.user.findFirst({
+        where: { username: { equals: normalizedUsername, mode: "insensitive" } },
+        select: { id: true, username: true },
+      });
+      if (!target) return res.status(404).json({ msg: `User @${normalizedUsername} not found` });
       if (await isMember(communityId, target.id)) {
-        return res.status(400).json({ msg: `@${inviteeUsername} is already a member` });
+        return res.status(400).json({ msg: `@${target.username || normalizedUsername} is already a member` });
       }
       inviteeUserId = target.id;
+    }
 
-      // Notify the invitee
-      notificationService.createNotification({
-        userId: target.id,
-        type: "system" as any,
-        title: "You've been invited!",
-        message: `You were invited to join "${community.name}". Use code ${code} or tap the link to join.`,
-        data: { communityId, communityName: community.name, code, type: "community_invite" },
-      }).catch((err) => logger.error("Error sending invite notification:", err));
+    if (normalizedEmail) {
+      const target = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true },
+      });
+
+      if (target && await isMember(communityId, target.id)) {
+        return res.status(400).json({ msg: `${normalizedEmail} is already a member` });
+      }
+
+      inviteeUserId = target?.id || inviteeUserId;
+    }
+
+    const duplicateInvite = await findActiveDuplicateInvite({
+      communityId,
+      inviteeUsername: normalizedUsername,
+      inviteeEmail: normalizedEmail,
+    });
+
+    if (duplicateInvite) {
+      return res.status(409).json({
+        msg: "There is already an active invite for this recipient",
+        data: {
+          id: duplicateInvite.id,
+          code: duplicateInvite.code,
+          communityId: duplicateInvite.communityId,
+          communityName: community.name,
+          inviteeUsername: duplicateInvite.inviteeUsername,
+          inviteeEmail: duplicateInvite.inviteeEmail,
+          maxUses: duplicateInvite.maxUses,
+          uses: duplicateInvite.uses,
+          expiresAt: duplicateInvite.expiresAt?.toISOString() || null,
+          createdAt: duplicateInvite.createdAt.toISOString(),
+          link: buildCommunityInviteLink(duplicateInvite.code),
+        },
+      });
     }
 
     const expiresAt = expiresInDays
       ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
       : undefined;
+    const code = await generateInviteCode();
 
     const invite = await prisma.communityInvite.create({
       data: {
         communityId,
         code,
         createdBy: userId,
-        inviteeEmail: inviteeEmail || undefined,
-        inviteeUsername: inviteeUsername || undefined,
+        inviteeEmail: normalizedEmail || undefined,
+        inviteeUsername: normalizedUsername || undefined,
         inviteeUserId: inviteeUserId || undefined,
         maxUses: maxUses ?? -1,
         expiresAt: expiresAt,
       },
     });
+    const link = buildCommunityInviteLink(invite.code);
+    const inviterName =
+      inviter?.username ||
+      [inviter?.firstName, inviter?.lastName].filter(Boolean).join(" ") ||
+      "Someone";
+
+    if (inviteeUserId) {
+      notificationService.createNotification({
+        userId: inviteeUserId,
+        type: "system" as any,
+        title: `${inviterName} invited you`,
+        message: `${inviterName} invited you to join ${community.name}.`,
+        data: { communityId, communityName: community.name, code, link, type: "community_invite" },
+      }).catch((err) => logger.error("Error sending invite notification:", err));
+    }
+
+    if (normalizedEmail) {
+      emailService.sendCommunityInviteEmail({
+        to: normalizedEmail,
+        communityName: community.name,
+        inviteCode: invite.code,
+        inviteLink: link,
+        inviterName,
+      }).catch((err) => logger.error("Error sending community invite email:", err));
+    }
 
     res.json({
       msg: "Invite created successfully",
@@ -1746,7 +1842,7 @@ export async function createInvite(req: AuthRequest, res: Response) {
         expiresAt: invite.expiresAt?.toISOString() || null,
         createdAt: invite.createdAt.toISOString(),
         // Deep link for sharing
-        link: `https://vybaa.app/invite/${invite.code}`,
+        link,
       },
     });
   } catch (error) {
@@ -1844,6 +1940,17 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
       return res.status(403).json({ msg: "This invite is for a different user" });
     }
 
+    if (invite.inviteeEmail) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      });
+
+      if (user?.email.toLowerCase() !== invite.inviteeEmail.toLowerCase()) {
+        return res.status(403).json({ msg: "This invite is for a different email address" });
+      }
+    }
+
     // Add member
     const [member] = await prisma.$transaction([
       prisma.communityMember.create({
@@ -1927,7 +2034,7 @@ export async function getCommunityInvites(req: AuthRequest, res: Response) {
       data: invites.map((inv) => ({
         id: inv.id,
         code: inv.code,
-        link: `https://vybaa.app/invite/${inv.code}`,
+        link: buildCommunityInviteLink(inv.code),
         invitedBy: inv.creator,
         invitee: inv.invitee || null,
         inviteeUsername: inv.inviteeUsername,

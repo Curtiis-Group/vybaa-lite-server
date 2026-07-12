@@ -23,8 +23,10 @@ class SchedulerService {
         this.isRunning = true;
         // Schedule goal reminders every hour
         this.scheduleGoalReminders();
+        this.scheduleEngagementNotifications();
         setInterval(() => {
             this.scheduleGoalReminders();
+            this.scheduleEngagementNotifications();
         }, 60 * 60 * 1000); // Every hour
         // Process pending notifications every minute
         this.processPendingNotifications();
@@ -58,6 +60,17 @@ class SchedulerService {
         }
         catch (error) {
             logger_util_1.default.error("Error in scheduleGoalReminders:", error);
+        }
+    }
+    /**
+     * Schedule engagement notifications
+     */
+    async scheduleEngagementNotifications() {
+        try {
+            await notification_service_1.notificationService.scheduleEngagementNotifications();
+        }
+        catch (error) {
+            logger_util_1.default.error("Error in scheduleEngagementNotifications:", error);
         }
     }
     /**

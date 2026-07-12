@@ -150,10 +150,12 @@ export const commentIdParamSchema = z.object({
 
 // Create invite schema
 export const createInviteSchema = z.object({
-  inviteeUsername: z.string().min(1).max(20).optional(),
-  inviteeEmail: z.string().email("Must be a valid email").optional(),
+  inviteeUsername: z.string().trim().min(1).max(20).optional(),
+  inviteeEmail: z.string().trim().email("Must be a valid email").optional(),
   maxUses: z.number().int().min(-1).default(-1).optional(), // -1 = unlimited
   expiresInDays: z.number().int().min(1).max(30).optional(), // optional expiry
+}).refine((data) => !(data.inviteeUsername && data.inviteeEmail), {
+  message: "Invite by username or email, not both",
 });
 
 // Invite code param schema
