@@ -15,10 +15,21 @@ function getRequiredSecret(name: string): string {
 }
 
 function getAllowedOrigins(): string[] {
-  return (process.env.CORS_ALLOWED_ORIGINS ?? "http://localhost:5173")
+  const allowedOriginsFromEnv = (process.env.CORS_ALLOWED_ORIGINS ?? "http://localhost:5173")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+
+  return [
+    ...allowedOriginsFromEnv,
+    "capacitor://localhost",
+    "http://127.0.0.1:3005",
+    "http://127.0.0.1:3001",
+    "http://localhost",
+    "http://localhost:3005",
+    "http://localhost:3001",
+    "ionic://localhost"
+  ];
 }
 
 export const securityConfig = {
