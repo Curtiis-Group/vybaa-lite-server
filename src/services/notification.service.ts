@@ -42,9 +42,35 @@ class NotificationService {
     return scheduledFor <= now ? now : scheduledFor;
   }
 
-  private getRecipientTitle(user: { username: string | null; firstName: string | null }, fallback: string) {
-    const name = user.username || user.firstName;
-    return name ? `${name} notifications for ${name}` : fallback;
+  private getSharedFcmTokenPrefix(user: { username: string | null; firstName: string | null }) {
+    return `[${user.username || user.firstName || "user"}]`;
+  }
+
+  private async getSharedFcmTokens(userId: string, userFcmTokens: string[]) {
+    if (!userFcmTokens.length) {
+      return new Set<string>();
+    }
+
+    const usersSharingTokens = await prisma.user.findMany({
+      where: {
+        id: { not: userId },
+        fcmTokens: { hasSome: userFcmTokens },
+      },
+      select: { fcmTokens: true },
+    });
+
+    const sharedTokens = new Set<string>();
+    const ownTokens = new Set(userFcmTokens);
+
+    for (const user of usersSharingTokens) {
+      for (const token of user.fcmTokens) {
+        if (ownTokens.has(token)) {
+          sharedTokens.add(token);
+        }
+      }
+    }
+
+    return sharedTokens;
   }
 
   private async createDedupedSystemNotification(params: {
@@ -135,7 +161,7 @@ class NotificationService {
         where: { id: notificationId },
         include: {
           user: {
-            select: { fcmTokens: true },
+            select: { fcmTokens: true, firstName: true, username: true },
           },
         },
       });
@@ -164,12 +190,22 @@ class NotificationService {
       // Send FCM push notification if user has tokens
       if (notification.user.fcmTokens && notification.user.fcmTokens.length > 0) {
         try {
-          await pushNotificationService.sendFCMMulticast(
+          const sharedTokens = await this.getSharedFcmTokens(
+            notification.userId,
             notification.user.fcmTokens,
-            notification.title,
-            notification.message,
-            payload,
-            false
+          );
+          const sharedPrefix = this.getSharedFcmTokenPrefix(notification.user);
+
+          await pushNotificationService.sendFCMBatchMessages(
+            notification.user.fcmTokens.map((token) => ({
+              token,
+              title: sharedTokens.has(token)
+                ? `${sharedPrefix} ${notification.title}`
+                : notification.title,
+              body: notification.message,
+              payload,
+              silent: false,
+            })),
           );
         } catch (fcmError) {
           logger.error("Error sending FCM push:", fcmError);
@@ -390,8 +426,6 @@ class NotificationService {
       let scheduledCount = 0;
 
       for (const user of users) {
-        const title = this.getRecipientTitle(user, "Vybaa notifications");
-
         const completedRewindToday = await prisma.rewindSession.findFirst({
           where: {
             userId: user.id,
@@ -407,7 +441,7 @@ class NotificationService {
         if (!completedRewindToday) {
           const notification = await this.createDedupedSystemNotification({
             userId: user.id,
-            title,
+            title: "Time to Rewind",
             message: "Time to rewind and check in with yourself.",
             data: { type: "time_to_rewind", route: "/app/rewind" },
             dedupeKey: `time_to_rewind:${dayKey}`,
@@ -430,7 +464,7 @@ class NotificationService {
         if (activeGoal) {
           const notification = await this.createDedupedSystemNotification({
             userId: user.id,
-            title,
+            title: "Flexx Check-in",
             message: `Flexx on your friends today: ${activeGoal.goalText}`,
             data: { type: "flexx_prompt", route: "/app/goal", goalId: activeGoal.id },
             dedupeKey: `flexx_prompt:${dayKey}`,
@@ -460,7 +494,7 @@ class NotificationService {
         if (recentCommunityActivity) {
           const notification = await this.createDedupedSystemNotification({
             userId: user.id,
-            title,
+            title: "Community Update",
             message: `See what is going on in ${recentCommunityActivity.community.name}.`,
             data: {
               type: "community_activity_prompt",
@@ -476,7 +510,7 @@ class NotificationService {
 
         const endOfDayNotification = await this.createDedupedSystemNotification({
           userId: user.id,
-          title,
+          title: "End-of-Day Summary",
           message: "Your end-of-day summary is ready when you are.",
           data: { type: "end_of_day_summary", route: "/app/home" },
           dedupeKey: `end_of_day_summary:${dayKey}`,
@@ -490,7 +524,7 @@ class NotificationService {
           weekStart.setUTCDate(dayStart.getUTCDate() - 6);
           const endOfWeekNotification = await this.createDedupedSystemNotification({
             userId: user.id,
-            title,
+            title: "Weekly Summary",
             message: "Your end-of-week summary is ready.",
             data: { type: "end_of_week_summary", route: "/app/home" },
             dedupeKey: `end_of_week_summary:${dayKey}`,

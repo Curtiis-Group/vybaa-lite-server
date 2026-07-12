@@ -8,6 +8,7 @@ exports.parseRewindCompletionArgs = parseRewindCompletionArgs;
 exports.createRewindWsToken = createRewindWsToken;
 exports.verifyRewindWsToken = verifyRewindWsToken;
 exports.getPaginatedRewindSessions = getPaginatedRewindSessions;
+exports.getRewindSession = getRewindSession;
 exports.buildOpeningPrompt = buildOpeningPrompt;
 exports.buildResumePrompt = buildResumePrompt;
 exports.createLiveToken = createLiveToken;
@@ -24,6 +25,7 @@ const REWIND_TOKEN_ISSUER = "vybaa-api";
 const REWIND_TOKEN_AUDIENCE = "vybaa-rewind-live";
 const GEMINI_RECONNECT_MAX_ATTEMPTS = 4;
 const GEMINI_RECONNECT_BASE_DELAY_MS = 300;
+const REWIND_COMPLETION_SUMMARY_POLICY = "When ending, write the summary as a structured note with substance. Include these plain-text sections: What we talked through, What felt emotionally important, What shifted or became clearer, and A useful next check-in. Use 4-8 specific bullets total, grounded only in this session. Do not invent events, diagnose, or write generic encouragement.";
 const activeConnections = new Map();
 const consumedTokenIds = new Map();
 function createConnectionId() {
@@ -62,12 +64,23 @@ function normalizeNullableText(value, maxLength) {
     const normalized = value.replace(/\s+/g, " ").trim();
     return normalized ? normalized.slice(0, maxLength) : undefined;
 }
+function normalizeMultilineText(value, maxLength) {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const normalized = value
+        .replace(/\r\n/g, "\n")
+        .replace(/[ \t]+/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    return normalized ? normalized.slice(0, maxLength) : undefined;
+}
 function isUsefulCompletionSummary(summary, personaId) {
     if (!summary) {
         return false;
     }
     const normalized = summary.replace(/\s+/g, " ").trim();
-    return (normalized.length >= 40 &&
+    return (normalized.length >= 140 &&
         normalized !== getEmptySessionSummary(personaId));
 }
 function buildDraftSessionSummary(personaId, userTranscripts) {
@@ -86,7 +99,7 @@ function getToolSummary(args) {
     if (!args || typeof args !== "object" || !("summary" in args)) {
         return undefined;
     }
-    return normalizeNullableText(args.summary, 1200);
+    return normalizeMultilineText(args.summary, 2400);
 }
 function getToolEmotionalInsight(args) {
     if (!args || typeof args !== "object" || !("emotionalInsight" in args)) {
@@ -498,6 +511,43 @@ async function getPaginatedRewindSessions(req, res) {
         res.status(500).json({ msg: "Internal server error" });
     }
 }
+async function getRewindSession(req, res) {
+    try {
+        const userId = req.userId;
+        const sessionIdParam = req.params.sessionId;
+        const sessionId = Array.isArray(sessionIdParam)
+            ? sessionIdParam[0]
+            : sessionIdParam;
+        if (!sessionId) {
+            res.status(400).json({ msg: "Rewind session id is required" });
+            return;
+        }
+        const session = await db_config_1.prisma.rewindSession.findFirst({
+            where: {
+                id: sessionId,
+                userId,
+            },
+        });
+        if (!session) {
+            res.status(404).json({ msg: "Rewind session not found" });
+            return;
+        }
+        res.json({
+            msg: "Rewind session retrieved successfully",
+            data: {
+                ...session,
+                summary: normalizeSummary(session.summary, session.personaId),
+            },
+        });
+    }
+    catch (error) {
+        logger_util_1.default.error("Get rewind session error:", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            userId: req.userId,
+        });
+        res.status(500).json({ msg: "Internal server error" });
+    }
+}
 function summarizeLiveMessage(message) {
     return {
         hasServerContent: Boolean(message?.serverContent),
@@ -536,8 +586,9 @@ function getRewindSystemInstruction(personaId, previousSessions) {
         `When a question would genuinely help, ask at most one short, contextual question and do not repeat one already answered. ` +
         `Maintain your own perspective of the user. Do not claim to know conversations they had with another partner. ` +
         `Use your previous-session context only when it is clearly relevant; never announce or force it. Help the user notice meaning or closure without diagnosing them. ` +
+        `${REWIND_COMPLETION_SUMMARY_POLICY} ` +
         `You have tools available to manage the session:\n` +
-        `- end_session: Use this ONLY when the user explicitly signals they are done or the conversation has reached a natural, deep conclusion. DO NOT call this prematurely or just because the user answered one or two questions. When you call it, you MUST provide a useful 'summary' parameter (2-4 sentences) and a separate 'emotionalInsight' parameter about what the user seemed to be feeling, needing, or processing. Also include optional emotionalTags/currentMood/nextStepNote when clear.\n` +
+        `- end_session: Use this ONLY when the user explicitly signals they are done or the conversation has reached a natural, deep conclusion. DO NOT call this prematurely or just because the user answered one or two questions. When you call it, you MUST provide the structured 'summary' described above and a separate 'emotionalInsight' parameter about what the user seemed to be feeling, needing, or processing. Also include optional emotionalTags/currentMood/nextStepNote when clear.\n` +
         `- open_history: Call this if the user specifically asks to see their past rewinds or session history.\n` +
         `- update_conversation_state: After setup and after meaningful user turns, call this with a short user-visible note about the current stage or situation. This note appears in the app under "This conversation", so do not include private hidden reasoning, exact transcripts, diagnoses, or sensitive details.`);
 }
@@ -837,7 +888,7 @@ async function handleLiveConnection(ws, req) {
                                         properties: {
                                             summary: {
                                                 type: genai_1.Type.STRING,
-                                                description: "A concise summary of the session's key moments and reflections.",
+                                                description: "A structured, detailed plain-text summary with sections for what was discussed, what mattered emotionally, what shifted, and a useful next check-in. Use 4-8 grounded bullets total.",
                                             },
                                             emotionalInsight: {
                                                 type: genai_1.Type.STRING,
@@ -1196,7 +1247,7 @@ async function handleLiveConnection(ws, req) {
                         return;
                     sendRealtimeInput({ audioStreamEnd: true });
                     sendRealtimeInput({
-                        text: "The user tapped Finish rewind. Briefly acknowledge the close, then call end_session now with a warm 2-4 sentence summary and a separate emotionalInsight grounded only in this conversation.",
+                        text: `The user tapped Finish rewind. Briefly acknowledge the close, then call end_session now. ${REWIND_COMPLETION_SUMMARY_POLICY} Include a separate emotionalInsight grounded only in this conversation.`,
                     });
                     finishTimeout = setTimeout(() => {
                         finishTimeout = undefined;

@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+const communityCoverImageSchema = z
+  .string()
+  .refine(
+    (value) =>
+      value.startsWith("illustration:") || z.string().url().safeParse(value).success,
+    "Cover image must be a valid URL or illustration token",
+  );
+
 // Community creation schema
 export const createCommunitySchema = z.object({
   name: z
@@ -10,7 +18,7 @@ export const createCommunitySchema = z.object({
     .string()
     .max(1000, "Description must be less than 1000 characters")
     .optional(),
-  coverImage: z.string().url("Cover image must be a valid URL").optional(),
+  coverImage: communityCoverImageSchema.optional(),
   isPublic: z.boolean().default(true),
   category: z.string().max(50, "Category must be less than 50 characters").optional(),
 });
@@ -26,7 +34,7 @@ export const updateCommunitySchema = z.object({
     .string()
     .max(1000, "Description must be less than 1000 characters")
     .optional(),
-  coverImage: z.string().url("Cover image must be a valid URL").nullable().optional(),
+  coverImage: communityCoverImageSchema.nullable().optional(),
   isPublic: z.boolean().optional(),
   category: z.string().max(50, "Category must be less than 50 characters").nullable().optional(),
 });

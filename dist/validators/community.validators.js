@@ -2,6 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.joinByCodeSchema = exports.inviteCodeParamSchema = exports.createInviteSchema = exports.commentIdParamSchema = exports.activityIdParamSchema = exports.createCommentSchema = exports.updateMemberRoleSchema = exports.joinCommunitySchema = exports.startGoalFromTemplateSchema = exports.templateIdParamSchema = exports.updateTemplateSchema = exports.createTemplateSchema = exports.communityIdParamSchema = exports.updateCommunitySchema = exports.createCommunitySchema = void 0;
 const zod_1 = require("zod");
+const communityCoverImageSchema = zod_1.z
+    .string()
+    .refine((value) => value.startsWith("illustration:") || zod_1.z.string().url().safeParse(value).success, "Cover image must be a valid URL or illustration token");
 // Community creation schema
 exports.createCommunitySchema = zod_1.z.object({
     name: zod_1.z
@@ -12,7 +15,7 @@ exports.createCommunitySchema = zod_1.z.object({
         .string()
         .max(1000, "Description must be less than 1000 characters")
         .optional(),
-    coverImage: zod_1.z.string().url("Cover image must be a valid URL").optional(),
+    coverImage: communityCoverImageSchema.optional(),
     isPublic: zod_1.z.boolean().default(true),
     category: zod_1.z.string().max(50, "Category must be less than 50 characters").optional(),
 });
@@ -27,7 +30,7 @@ exports.updateCommunitySchema = zod_1.z.object({
         .string()
         .max(1000, "Description must be less than 1000 characters")
         .optional(),
-    coverImage: zod_1.z.string().url("Cover image must be a valid URL").nullable().optional(),
+    coverImage: communityCoverImageSchema.nullable().optional(),
     isPublic: zod_1.z.boolean().optional(),
     category: zod_1.z.string().max(50, "Category must be less than 50 characters").nullable().optional(),
 });

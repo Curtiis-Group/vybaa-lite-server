@@ -14,29 +14,42 @@ const users = [
     { id: "seed-user-ivy", email: "ivy.seed@vybaa.local", username: "ivy_seed", firstName: "Ivy", lastName: "Reed" },
     { id: "seed-user-kai", email: "kai.seed@vybaa.local", username: "kai_seed", firstName: "Kai", lastName: "Grey" },
 ];
-const communities = [
-    {
-        id: "seed-community-morning-builders",
-        name: "Morning Builders",
-        description: "Daily momentum, quiet accountability, and practical wins.",
-        category: "productivity",
-        ownerId: "seed-user-ava",
-    },
-    {
-        id: "seed-community-fit-loop",
-        name: "Fit Loop",
-        description: "Movement goals, streak support, and friendly check-ins.",
-        category: "fitness",
-        ownerId: "seed-user-noah",
-    },
-    {
-        id: "seed-community-creative-reset",
-        name: "Creative Reset",
-        description: "A small room for creators getting unstuck together.",
-        category: "creativity",
-        ownerId: "seed-user-mia",
-    },
+const communityProfiles = [
+    ["seed-community-morning-builders", "Morning Builders", "Daily momentum, quiet accountability, and practical wins.", "productivity", "seed-user-ava"],
+    ["seed-community-fit-loop", "Fit Loop", "Movement goals, streak support, and friendly check-ins.", "fitness", "seed-user-noah"],
+    ["seed-community-creative-reset", "Creative Reset", "A small room for creators getting unstuck together.", "creativity", "seed-user-mia"],
+    ["seed-community-night-reset", "Night Reset", "End-of-day reflection, planning, and calmer shutdowns.", "wellness", "seed-user-ivy"],
+    ["seed-community-study-sprint", "Study Sprint", "Shared study blocks, exam prep, and focused accountability.", "education", "seed-user-kai"],
+    ["seed-community-money-habits", "Money Habits", "Budget goals, savings streaks, and practical money check-ins.", "finance", "seed-user-zion"],
+    ["seed-community-soft-life", "Soft Life Systems", "Gentle routines for people who want structure without burnout.", "lifestyle", "seed-user-mia"],
+    ["seed-community-founder-focus", "Founder Focus", "Shipping, sales habits, and founder execution logs.", "business", "seed-user-ava"],
+    ["seed-community-book-loop", "Book Loop", "Reading goals, chapter notes, and weekly book reflections.", "reading", "seed-user-noah"],
+    ["seed-community-clean-room", "Clean Room", "Home resets, decluttering goals, and tidy-space momentum.", "home", "seed-user-ivy"],
+    ["seed-community-language-lab", "Language Lab", "Daily practice, vocabulary streaks, and speaking confidence.", "learning", "seed-user-kai"],
+    ["seed-community-run-club", "Run Club", "Easy runs, distance goals, and recovery-friendly consistency.", "fitness", "seed-user-noah"],
+    ["seed-community-prayer-room", "Prayer Room", "Quiet spiritual rhythms, gratitude, and daily grounding.", "spirituality", "seed-user-mia"],
+    ["seed-community-content-camp", "Content Camp", "Creators posting consistently and learning in public.", "creativity", "seed-user-zion"],
+    ["seed-community-code-hour", "Code Hour", "Daily coding reps, project logs, and technical accountability.", "technology", "seed-user-kai"],
+    ["seed-community-meal-prep", "Meal Prep Circle", "Planning, cooking, and eating with less decision fatigue.", "health", "seed-user-ava"],
+    ["seed-community-art-table", "Art Table", "Sketches, practice prompts, and low-pressure creative output.", "art", "seed-user-mia"],
+    ["seed-community-sleep-better", "Sleep Better", "Wind-down goals, sleep logs, and calmer nighttime routines.", "wellness", "seed-user-ivy"],
+    ["seed-community-confidence-reps", "Confidence Reps", "Small social courage goals and steady self-trust practice.", "personal growth", "seed-user-zion"],
+    ["seed-community-desk-reset", "Desk Reset", "Workstation cleanup, admin blocks, and productivity hygiene.", "productivity", "seed-user-noah"],
+    ["seed-community-walk-and-talk", "Walk & Talk", "Walk goals with reflective prompts and casual check-ins.", "fitness", "seed-user-ava"],
+    ["seed-community-weekend-build", "Weekend Build", "Two-day project pushes, tiny launches, and weekend progress.", "makers", "seed-user-kai"],
+    ["seed-community-mindful-money", "Mindful Money", "Spending awareness, no-buy challenges, and saving support.", "finance", "seed-user-ivy"],
+    ["seed-community-social-flexx", "Social Flexx", "Friendly public wins, progress screenshots, and group energy.", "social", "seed-user-zion"],
+    ["seed-community-quiet-wins", "Quiet Wins", "Small private wins for people building without noise.", "accountability", "seed-user-noah"],
 ];
+const illustrationIds = ["orbit", "pulse", "bloom", "arc", "grid", "current"];
+const communities = communityProfiles.map(([id, name, description, category, ownerId], index) => ({
+    category,
+    coverImage: `illustration:${illustrationIds[index % illustrationIds.length]}`,
+    description,
+    id,
+    name,
+    ownerId,
+}));
 function daysAgo(days) {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
@@ -74,6 +87,7 @@ async function upsertCommunities() {
                 name: community.name,
                 description: community.description,
                 category: community.category,
+                coverImage: community.coverImage,
                 isPublic: true,
             },
         });
@@ -107,12 +121,13 @@ async function upsertMemberships() {
 }
 async function upsertTemplatesAndGoals() {
     for (const [communityIndex, community] of communities.entries()) {
-        for (let index = 0; index < 3; index++) {
+        for (let index = 0; index < 4; index++) {
             const templateId = `${community.id}-template-${index + 1}`;
             const goalText = [
                 "Check in before noon",
                 "Share one visible progress update",
                 "Complete a focused 25 minute session",
+                "Reflect on one blocker and one next move",
             ][index];
             await prisma.goalTemplate.upsert({
                 where: { id: templateId },
@@ -181,7 +196,7 @@ async function recreateActivityDensity() {
     });
     for (const [communityIndex, community] of communities.entries()) {
         const members = users.slice(0, 5);
-        for (let index = 0; index < 8; index++) {
+        for (let index = 0; index < 18; index++) {
             const actor = members[(index + communityIndex) % members.length];
             const activity = await prisma.communityActivity.create({
                 data: {
@@ -226,11 +241,14 @@ async function recreateActivityDensity() {
 }
 async function upsertInvites() {
     for (const [index, community] of communities.entries()) {
+        const inviteNumber = String(index + 1).padStart(4, "0");
+        const openCode = `S${inviteNumber}A`;
+        const mailCode = `M${inviteNumber}A`;
         await prisma.communityInvite.upsert({
-            where: { code: `SEED${index + 1}A` },
+            where: { code: openCode },
             create: {
                 communityId: community.id,
-                code: `SEED${index + 1}A`,
+                code: openCode,
                 createdBy: community.ownerId,
                 maxUses: -1,
             },
@@ -241,10 +259,10 @@ async function upsertInvites() {
             },
         });
         await prisma.communityInvite.upsert({
-            where: { code: `MAIL${index + 1}A` },
+            where: { code: mailCode },
             create: {
                 communityId: community.id,
-                code: `MAIL${index + 1}A`,
+                code: mailCode,
                 createdBy: community.ownerId,
                 inviteeEmail: `pending-${index + 1}@example.com`,
                 maxUses: 1,

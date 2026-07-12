@@ -65,7 +65,7 @@ test("Rewind completion accepts summary, insight, tags, mood, and check-in note"
   const completion = parseRewindCompletionArgs(
     {
       summary:
-        "The user reflected on a difficult conversation and recognized that they handled it with more patience than expected.",
+        "What we talked through:\n- The user reflected on a difficult conversation and recognized that they handled it with more patience than expected.\nWhat felt emotionally important:\n- They noticed that staying calm took real effort, and that the effort still counts.\nWhat shifted or became clearer:\n- The conversation feels less like proof of failure and more like evidence that they can respond with steadiness.",
       emotionalInsight:
         "They seemed tired but proud, with a need for reassurance that their progress still counts.",
       currentMood: "relieved",
