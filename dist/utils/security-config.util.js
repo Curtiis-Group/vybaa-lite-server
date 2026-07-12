@@ -41,7 +41,7 @@ exports.securityConfig = {
     httpRateWindowMs: getPositiveInteger("HTTP_RATE_WINDOW_MS", 60000),
     rewindMaxConnectionsPerUser: getPositiveInteger("REWIND_MAX_CONNECTIONS_PER_USER", 3),
     rewindMaxMessageBytes: getPositiveInteger("REWIND_MAX_MESSAGE_BYTES", 65536),
-    rewindMessageRateLimit: getPositiveInteger("REWIND_MESSAGE_RATE_LIMIT", 100),
+    rewindMessageRateLimit: getPositiveInteger("REWIND_MESSAGE_RATE_LIMIT", 200),
     rewindMessageRateWindowMs: getPositiveInteger("REWIND_MESSAGE_RATE_WINDOW_MS", 10000),
 };
 function getJwtSecret() {

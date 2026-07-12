@@ -43,7 +43,7 @@ export const securityConfig = {
     3,
   ),
   rewindMaxMessageBytes: getPositiveInteger("REWIND_MAX_MESSAGE_BYTES", 65_536),
-  rewindMessageRateLimit: getPositiveInteger("REWIND_MESSAGE_RATE_LIMIT", 100),
+  rewindMessageRateLimit: getPositiveInteger("REWIND_MESSAGE_RATE_LIMIT", 200),
   rewindMessageRateWindowMs: getPositiveInteger(
     "REWIND_MESSAGE_RATE_WINDOW_MS",
     10_000,

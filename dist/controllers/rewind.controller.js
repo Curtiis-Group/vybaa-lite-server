@@ -21,6 +21,8 @@ const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "models/gemini-3.1-fl
 const REWIND_WS_TOKEN_TTL = "10m";
 const REWIND_TOKEN_ISSUER = "vybaa-api";
 const REWIND_TOKEN_AUDIENCE = "vybaa-rewind-live";
+const GEMINI_RECONNECT_MAX_ATTEMPTS = 4;
+const GEMINI_RECONNECT_BASE_DELAY_MS = 300;
 const activeConnections = new Map();
 const consumedTokenIds = new Map();
 function createConnectionId() {
@@ -396,12 +398,8 @@ function summarizeLiveMessage(message) {
         turnComplete: Boolean(message?.serverContent?.turnComplete),
         generationComplete: Boolean(message?.serverContent?.generationComplete),
         modelPartCount: message?.serverContent?.modelTurn?.parts?.length ?? 0,
-        outputTranscriptionLength: message?.serverContent?.outputTranscription?.text?.length ??
-            message?.outputTranscription?.text?.length ??
-            0,
-        inputTranscriptionLength: message?.serverContent?.inputTranscription?.text?.length ??
-            message?.inputTranscription?.text?.length ??
-            0,
+        outputTranscriptionLength: message.serverContent?.outputTranscription?.text?.length ?? 0,
+        inputTranscriptionLength: message.serverContent?.inputTranscription?.text?.length ?? 0,
     };
 }
 function getRewindSystemInstruction(personaId, previousSessions) {
@@ -573,6 +571,14 @@ async function handleLiveConnection(ws, req) {
         let userTranscripts = [];
         let isSessionFinalized = false;
         let finishTimeout;
+        let reconnectTimeout;
+        let session;
+        let latestResumptionHandle;
+        let reconnectAttempts = 0;
+        let connectionGeneration = 0;
+        let hasInitializedClient = false;
+        let clientDisconnected = false;
+        const queuedRealtimeInputs = [];
         const finalizeSession = async (summary) => {
             if (isSessionFinalized)
                 return;
@@ -589,275 +595,379 @@ async function handleLiveConnection(ws, req) {
                 }));
             }
         };
-        const session = await ai.live.connect({
-            model: GEMINI_LIVE_MODEL,
-            config: {
-                responseModalities: [genai_1.Modality.AUDIO],
-                mediaResolution: genai_1.MediaResolution.MEDIA_RESOLUTION_LOW,
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: {
-                            voiceName,
+        const sendRealtimeInput = (input) => {
+            if (session) {
+                try {
+                    session.sendRealtimeInput(input);
+                    return;
+                }
+                catch {
+                    session = undefined;
+                }
+            }
+            queuedRealtimeInputs.push(input);
+            if (queuedRealtimeInputs.length > 40) {
+                queuedRealtimeInputs.shift();
+            }
+        };
+        function scheduleGeminiReconnect() {
+            if (clientDisconnected || reconnectTimeout) {
+                return;
+            }
+            if (reconnectAttempts >= GEMINI_RECONNECT_MAX_ATTEMPTS) {
+                logger_util_1.default.error("Gemini Live reconnection exhausted", {
+                    connectionId,
+                    personaId,
+                    sessionId: sessionState.sessionId,
+                });
+                if (ws.readyState === ws.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "error",
+                        message: "The live session was interrupted. Please reconnect.",
+                    }));
+                    ws.close(1011, "Gemini reconnect exhausted");
+                }
+                return;
+            }
+            reconnectAttempts += 1;
+            const delay = GEMINI_RECONNECT_BASE_DELAY_MS * 2 ** (reconnectAttempts - 1);
+            if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: "reconnecting" }));
+            }
+            reconnectTimeout = setTimeout(() => {
+                reconnectTimeout = undefined;
+                void connectGeminiSession(latestResumptionHandle).catch((error) => {
+                    logger_util_1.default.warn("Gemini Live reconnect attempt failed", {
+                        connectionId,
+                        personaId,
+                        sessionId: sessionState.sessionId,
+                        attempt: reconnectAttempts,
+                        errorName: error instanceof Error ? error.name : "UnknownError",
+                    });
+                    scheduleGeminiReconnect();
+                });
+            }, delay);
+        }
+        async function connectGeminiSession(resumptionHandle) {
+            const generation = connectionGeneration + 1;
+            connectionGeneration = generation;
+            const isResuming = Boolean(resumptionHandle);
+            const connectedSession = await ai.live.connect({
+                model: GEMINI_LIVE_MODEL,
+                config: {
+                    responseModalities: [genai_1.Modality.AUDIO],
+                    mediaResolution: genai_1.MediaResolution.MEDIA_RESOLUTION_LOW,
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: {
+                                voiceName,
+                            },
                         },
                     },
-                },
-                inputAudioTranscription: {},
-                // realtimeInputConfig: {
-                //   automaticActivityDetection: {
-                //     disabled: false,
-                //     startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
-                //     endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-                //     prefixPaddingMs: 20,
-                //     silenceDurationMs: 120,
-                //   },
-                // },
-                contextWindowCompression: {
-                    triggerTokens: 104857,
-                    slidingWindow: { targetTokens: 52428 },
-                },
-                realtimeInputConfig: {
-                    automaticActivityDetection: {
-                        disabled: false,
-                        startOfSpeechSensitivity: genai_1.StartSensitivity.START_SENSITIVITY_HIGH,
-                        endOfSpeechSensitivity: genai_1.EndSensitivity.END_SENSITIVITY_LOW,
-                        prefixPaddingMs: 20,
-                        silenceDurationMs: 700,
+                    inputAudioTranscription: {},
+                    // realtimeInputConfig: {
+                    //   automaticActivityDetection: {
+                    //     disabled: false,
+                    //     startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
+                    //     endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+                    //     prefixPaddingMs: 20,
+                    //     silenceDurationMs: 120,
+                    //   },
+                    // },
+                    contextWindowCompression: {
+                        triggerTokens: "104857",
+                        slidingWindow: { targetTokens: "52428" },
                     },
-                    activityHandling: genai_1.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-                },
-                systemInstruction: {
-                    parts: [
-                        { text: getRewindSystemInstruction(personaId, previousSessions) },
-                    ],
-                },
-                tools: [
-                    {
-                        functionDeclarations: [
-                            {
-                                name: "end_session",
-                                description: "Ends the current Rewind session. Must include a summary of the session.",
-                                parameters: {
-                                    type: genai_1.Type.OBJECT,
-                                    properties: {
-                                        summary: {
-                                            type: genai_1.Type.STRING,
-                                            description: "A concise summary of the session's key moments and reflections.",
-                                        },
-                                    },
-                                    required: ["summary"],
-                                },
-                            },
-                            {
-                                name: "open_history",
-                                description: "Navigates the user to their Rewind history.",
-                            },
-                            {
-                                name: "update_conversation_state",
-                                description: "Updates the app with a short user-visible note about the current conversation stage or situation. Do not include private reasoning or verbatim transcript.",
-                                parameters: {
-                                    type: genai_1.Type.OBJECT,
-                                    properties: {
-                                        note: {
-                                            type: genai_1.Type.STRING,
-                                            description: "A concise, user-safe note for the UI, such as what the conversation is circling around or whether it is opening, deepening, pausing, or closing.",
-                                        },
-                                    },
-                                    required: ["note"],
-                                },
-                            },
+                    sessionResumption: {
+                        ...(resumptionHandle ? { handle: resumptionHandle } : {}),
+                    },
+                    realtimeInputConfig: {
+                        automaticActivityDetection: {
+                            disabled: false,
+                            startOfSpeechSensitivity: genai_1.StartSensitivity.START_SENSITIVITY_HIGH,
+                            endOfSpeechSensitivity: genai_1.EndSensitivity.END_SENSITIVITY_LOW,
+                            prefixPaddingMs: 20,
+                            silenceDurationMs: 700,
+                        },
+                        activityHandling: genai_1.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+                    },
+                    systemInstruction: {
+                        parts: [
+                            { text: getRewindSystemInstruction(personaId, previousSessions) },
                         ],
                     },
-                ],
-                temperature: 0.8,
-                maxOutputTokens: 512,
-            },
-            callbacks: {
-                onopen: () => {
-                    logger_util_1.default.info("Gemini Live session opened", {
-                        connectionId,
-                        personaId,
-                        sessionId: sessionState.sessionId,
-                    });
+                    tools: [
+                        {
+                            functionDeclarations: [
+                                {
+                                    name: "end_session",
+                                    description: "Ends the current Rewind session. Must include a summary of the session.",
+                                    parameters: {
+                                        type: genai_1.Type.OBJECT,
+                                        properties: {
+                                            summary: {
+                                                type: genai_1.Type.STRING,
+                                                description: "A concise summary of the session's key moments and reflections.",
+                                            },
+                                        },
+                                        required: ["summary"],
+                                    },
+                                },
+                                {
+                                    name: "open_history",
+                                    description: "Navigates the user to their Rewind history.",
+                                },
+                                {
+                                    name: "update_conversation_state",
+                                    description: "Updates the app with a short user-visible note about the current conversation stage or situation. Do not include private reasoning or verbatim transcript.",
+                                    parameters: {
+                                        type: genai_1.Type.OBJECT,
+                                        properties: {
+                                            note: {
+                                                type: genai_1.Type.STRING,
+                                                description: "A concise, user-safe note for the UI, such as what the conversation is circling around or whether it is opening, deepening, pausing, or closing.",
+                                            },
+                                        },
+                                        required: ["note"],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                    temperature: 0.8,
+                    maxOutputTokens: 512,
                 },
-                onmessage: async (message) => {
-                    logger_util_1.default.debug("Gemini Live message received", {
-                        connectionId,
-                        personaId,
-                        sessionId: sessionState.sessionId,
-                        ...summarizeLiveMessage(message),
-                    });
-                    if (message.serverContent?.modelTurn?.parts) {
-                        for (const part of message.serverContent.modelTurn.parts) {
-                            // 1. Handle Audio/Text content
-                            if (part.inlineData?.data && ws.readyState === ws.OPEN) {
-                                ws.send(JSON.stringify({
-                                    type: "audio",
-                                    mimeType: part.inlineData.mimeType || "audio/pcm;rate=24000",
-                                    data: part.inlineData.data,
-                                }));
-                            }
-                            if (part.text && ws.readyState === ws.OPEN) {
-                                ws.send(JSON.stringify({ type: "text", content: part.text }));
-                            }
-                            // 2. Handle Tool Calls moved to root
-                        }
-                    }
-                    if (message.serverContent?.interrupted && ws.readyState === ws.OPEN) {
-                        ws.send(JSON.stringify({ type: "interrupted" }));
-                    }
-                    if (message.toolCall?.functionCalls) {
-                        for (const call of message.toolCall.functionCalls) {
-                            logger_util_1.default.info("Gemini Live tool call received", {
-                                connectionId,
-                                personaId,
-                                sessionId: sessionState.sessionId,
-                                tool: call.name,
-                            });
-                            if (call.name === "end_session") {
-                                await finalizeSession(getToolSummary(call.args) ?? sessionState.summary);
-                                session.sendToolResponse({
-                                    functionResponses: [
-                                        {
-                                            name: "end_session",
-                                            id: call.id,
-                                            response: { success: true, summary_received: true },
-                                        },
-                                    ],
-                                });
-                            }
-                            else if (call.name === "open_history") {
-                                ws.send(JSON.stringify({ type: "open_history" }));
-                                session.sendToolResponse({
-                                    functionResponses: [
-                                        {
-                                            name: "open_history",
-                                            id: call.id,
-                                            response: { success: true },
-                                        },
-                                    ],
-                                });
-                            }
-                            else if (call.name === "update_conversation_state") {
-                                const note = getConversationStateNote(call.args);
-                                if (note && ws.readyState === ws.OPEN) {
-                                    ws.send(JSON.stringify({
-                                        type: "conversation_state",
-                                        content: note,
-                                    }));
-                                }
-                                session.sendToolResponse({
-                                    functionResponses: [
-                                        {
-                                            name: "update_conversation_state",
-                                            id: call.id,
-                                            response: { success: Boolean(note) },
-                                        },
-                                    ],
-                                });
-                            }
-                        }
-                    }
-                    // 3. Handle Transcriptions
-                    const inputTranscript = message?.serverContent?.inputTranscription?.text ??
-                        message?.inputTranscription?.text;
-                    if (inputTranscript && ws.readyState === ws.OPEN) {
-                        pendingUserTranscript = inputTranscript;
-                    }
-                    const outputTranscript = message?.serverContent?.outputTranscription?.text ??
-                        message?.outputTranscription?.text;
-                    if (outputTranscript && ws.readyState === ws.OPEN) {
-                        logger_util_1.default.debug("Ignored rewind output transcription", {
+                callbacks: {
+                    onopen: () => {
+                        logger_util_1.default.info("Gemini Live session opened", {
                             connectionId,
                             personaId,
                             sessionId: sessionState.sessionId,
-                            textLength: outputTranscript.length,
                         });
-                    }
-                    // 4. Handle Turn Complete (Persistence)
-                    if (message?.serverContent?.turnComplete &&
-                        ws.readyState === ws.OPEN) {
-                        const completedUserTranscript = pendingUserTranscript
-                            .replace(/\s+/g, " ")
-                            .trim();
-                        if (completedUserTranscript &&
-                            userTranscripts[userTranscripts.length - 1] !==
-                                completedUserTranscript) {
-                            userTranscripts = [...userTranscripts, completedUserTranscript];
-                            sessionState.summary = buildDraftSessionSummary(personaId, userTranscripts);
-                        }
-                        await persistRewindSession(sessionState);
-                        pendingUserTranscript = "";
-                        ws.send(JSON.stringify({ type: "turn_complete" }));
-                    }
-                    if (message?.setupComplete && ws.readyState === ws.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: "ready",
+                    },
+                    onmessage: async (message) => {
+                        logger_util_1.default.debug("Gemini Live message received", {
+                            connectionId,
+                            personaId,
                             sessionId: sessionState.sessionId,
-                            sessionDateKey: sessionState.sessionDateKey,
-                            restored: shouldRestore,
-                            previousSession: previousSessions[0] ?? null,
-                        }));
-                        if (shouldRestore) {
-                            session.sendClientContent({
-                                turns: [
-                                    {
-                                        role: "user",
-                                        parts: [
+                            ...summarizeLiveMessage(message),
+                        });
+                        if (message.sessionResumptionUpdate?.resumable &&
+                            message.sessionResumptionUpdate.newHandle) {
+                            latestResumptionHandle =
+                                message.sessionResumptionUpdate.newHandle;
+                        }
+                        if (message.goAway) {
+                            logger_util_1.default.info("Gemini Live connection rollover announced", {
+                                connectionId,
+                                personaId,
+                                sessionId: sessionState.sessionId,
+                                timeLeft: message.goAway.timeLeft,
+                            });
+                            if (ws.readyState === ws.OPEN) {
+                                ws.send(JSON.stringify({ type: "reconnecting" }));
+                            }
+                        }
+                        if (message.serverContent?.modelTurn?.parts) {
+                            for (const part of message.serverContent.modelTurn.parts) {
+                                // 1. Handle Audio/Text content
+                                if (part.inlineData?.data && ws.readyState === ws.OPEN) {
+                                    ws.send(JSON.stringify({
+                                        type: "audio",
+                                        mimeType: part.inlineData.mimeType || "audio/pcm;rate=24000",
+                                        data: part.inlineData.data,
+                                    }));
+                                }
+                                if (part.text && ws.readyState === ws.OPEN) {
+                                    ws.send(JSON.stringify({ type: "text", content: part.text }));
+                                }
+                                // 2. Handle Tool Calls moved to root
+                            }
+                        }
+                        if (message.serverContent?.interrupted &&
+                            ws.readyState === ws.OPEN) {
+                            ws.send(JSON.stringify({ type: "interrupted" }));
+                        }
+                        if (message.toolCall?.functionCalls) {
+                            for (const call of message.toolCall.functionCalls) {
+                                logger_util_1.default.info("Gemini Live tool call received", {
+                                    connectionId,
+                                    personaId,
+                                    sessionId: sessionState.sessionId,
+                                    tool: call.name,
+                                });
+                                if (call.name === "end_session") {
+                                    await finalizeSession(getToolSummary(call.args) ?? sessionState.summary);
+                                    session?.sendToolResponse({
+                                        functionResponses: [
                                             {
-                                                text: buildResumePrompt(sessionState.summary),
+                                                name: "end_session",
+                                                id: call.id,
+                                                response: { success: true, summary_received: true },
                                             },
                                         ],
-                                    },
-                                ],
-                                turnComplete: true,
-                            });
-                        }
-                        else {
-                            session.sendClientContent({
-                                turns: [
-                                    {
-                                        role: "user",
-                                        parts: [
+                                    });
+                                }
+                                else if (call.name === "open_history") {
+                                    ws.send(JSON.stringify({ type: "open_history" }));
+                                    session?.sendToolResponse({
+                                        functionResponses: [
                                             {
-                                                text: buildOpeningPrompt(personaId, {
-                                                    shouldIntroduce: true,
-                                                }),
+                                                name: "open_history",
+                                                id: call.id,
+                                                response: { success: true },
                                             },
                                         ],
-                                    },
-                                ],
-                                turnComplete: true,
+                                    });
+                                }
+                                else if (call.name === "update_conversation_state") {
+                                    const note = getConversationStateNote(call.args);
+                                    if (note && ws.readyState === ws.OPEN) {
+                                        ws.send(JSON.stringify({
+                                            type: "conversation_state",
+                                            content: note,
+                                        }));
+                                    }
+                                    session?.sendToolResponse({
+                                        functionResponses: [
+                                            {
+                                                name: "update_conversation_state",
+                                                id: call.id,
+                                                response: { success: Boolean(note) },
+                                            },
+                                        ],
+                                    });
+                                }
+                            }
+                        }
+                        // 3. Handle Transcriptions
+                        const inputTranscript = message.serverContent?.inputTranscription?.text;
+                        if (inputTranscript && ws.readyState === ws.OPEN) {
+                            pendingUserTranscript = inputTranscript;
+                        }
+                        const outputTranscript = message.serverContent?.outputTranscription?.text;
+                        if (outputTranscript && ws.readyState === ws.OPEN) {
+                            logger_util_1.default.debug("Ignored rewind output transcription", {
+                                connectionId,
+                                personaId,
+                                sessionId: sessionState.sessionId,
+                                textLength: outputTranscript.length,
                             });
                         }
-                    }
+                        // 4. Handle Turn Complete (Persistence)
+                        if (message?.serverContent?.turnComplete &&
+                            ws.readyState === ws.OPEN) {
+                            reconnectAttempts = 0;
+                            const completedUserTranscript = pendingUserTranscript
+                                .replace(/\s+/g, " ")
+                                .trim();
+                            if (completedUserTranscript &&
+                                userTranscripts[userTranscripts.length - 1] !==
+                                    completedUserTranscript) {
+                                userTranscripts = [...userTranscripts, completedUserTranscript];
+                                sessionState.summary = buildDraftSessionSummary(personaId, userTranscripts);
+                            }
+                            await persistRewindSession(sessionState);
+                            pendingUserTranscript = "";
+                            ws.send(JSON.stringify({ type: "turn_complete" }));
+                        }
+                        if (message.setupComplete && ws.readyState === ws.OPEN) {
+                            if (hasInitializedClient) {
+                                if (!isResuming) {
+                                    session?.sendClientContent({
+                                        turns: [
+                                            {
+                                                role: "user",
+                                                parts: [{ text: buildResumePrompt(sessionState.summary) }],
+                                            },
+                                        ],
+                                        turnComplete: true,
+                                    });
+                                }
+                                ws.send(JSON.stringify({ type: "reconnected" }));
+                                return;
+                            }
+                            hasInitializedClient = true;
+                            ws.send(JSON.stringify({
+                                type: "ready",
+                                sessionId: sessionState.sessionId,
+                                sessionDateKey: sessionState.sessionDateKey,
+                                restored: shouldRestore,
+                                previousSession: previousSessions[0] ?? null,
+                            }));
+                            if (shouldRestore || isResuming) {
+                                session?.sendClientContent({
+                                    turns: [
+                                        {
+                                            role: "user",
+                                            parts: [
+                                                {
+                                                    text: buildResumePrompt(sessionState.summary),
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                    turnComplete: true,
+                                });
+                            }
+                            else {
+                                session?.sendClientContent({
+                                    turns: [
+                                        {
+                                            role: "user",
+                                            parts: [
+                                                {
+                                                    text: buildOpeningPrompt(personaId, {
+                                                        shouldIntroduce: true,
+                                                    }),
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                    turnComplete: true,
+                                });
+                            }
+                        }
+                    },
+                    onclose: (closeReason) => {
+                        if (generation !== connectionGeneration) {
+                            return;
+                        }
+                        session = undefined;
+                        logger_util_1.default.info("Gemini Live session closed", {
+                            connectionId,
+                            personaId,
+                            sessionId: sessionState.sessionId,
+                            code: closeReason.code,
+                            reason: closeReason.reason.slice(0, 160),
+                            wasClean: closeReason.wasClean,
+                            resumable: Boolean(latestResumptionHandle),
+                        });
+                        scheduleGeminiReconnect();
+                    },
+                    onerror: (error) => {
+                        logger_util_1.default.error("Gemini Live session error", {
+                            connectionId,
+                            personaId,
+                            sessionId: sessionState.sessionId,
+                            errorName: error.error instanceof Error ? error.error.name : "ErrorEvent",
+                        });
+                    },
                 },
-                onclose: () => {
-                    logger_util_1.default.info("Gemini Live session closed", {
-                        connectionId,
-                        personaId,
-                        sessionId: sessionState.sessionId,
-                    });
-                    if (ws.readyState === ws.OPEN) {
-                        ws.close();
-                    }
-                },
-                onerror: (error) => {
-                    logger_util_1.default.error("Gemini Live session error", {
-                        connectionId,
-                        personaId,
-                        sessionId: sessionState.sessionId,
-                        errorName: error instanceof Error ? error.name : "UnknownError",
-                    });
-                    if (ws.readyState === ws.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: "error",
-                            message: "Gemini Live session error",
-                        }));
-                        ws.close();
-                    }
-                },
-            },
-        });
+            });
+            if (clientDisconnected || generation !== connectionGeneration) {
+                connectedSession.close();
+                return;
+            }
+            session = connectedSession;
+            while (queuedRealtimeInputs.length) {
+                const queuedInput = queuedRealtimeInputs.shift();
+                if (queuedInput) {
+                    session.sendRealtimeInput(queuedInput);
+                }
+            }
+        }
+        await connectGeminiSession();
         let messageWindowStartedAt = Date.now();
         let messageCount = 0;
         let malformedCount = 0;
@@ -889,7 +999,7 @@ async function handleLiveConnection(ws, req) {
                         mimeType: parsed.mimeType,
                         dataLength: parsed.data.length,
                     });
-                    session.sendRealtimeInput({
+                    sendRealtimeInput({
                         audio: {
                             data: parsed.data,
                             mimeType: parsed.mimeType,
@@ -904,18 +1014,18 @@ async function handleLiveConnection(ws, req) {
                         sessionId: sessionState.sessionId,
                         textLength: parsed.content.length,
                     });
-                    session.sendRealtimeInput({ text: parsed.content.trim() });
+                    sendRealtimeInput({ text: parsed.content.trim() });
                     return;
                 }
                 if (parsed.type === "audio_stream_end") {
-                    session.sendRealtimeInput({ audioStreamEnd: true });
+                    sendRealtimeInput({ audioStreamEnd: true });
                     return;
                 }
                 if (parsed.type === "finish_session") {
                     if (isSessionFinalized || finishTimeout)
                         return;
-                    session.sendRealtimeInput({ audioStreamEnd: true });
-                    session.sendRealtimeInput({
+                    sendRealtimeInput({ audioStreamEnd: true });
+                    sendRealtimeInput({
                         text: "The user tapped Finish rewind. Briefly acknowledge the close, then call end_session now with a warm 2-4 sentence summary grounded only in this conversation.",
                     });
                     finishTimeout = setTimeout(() => {
@@ -949,6 +1059,12 @@ async function handleLiveConnection(ws, req) {
             }
         });
         ws.on("close", (code, reason) => {
+            clientDisconnected = true;
+            connectionGeneration += 1;
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = undefined;
+            }
             releaseConnection();
             logger_util_1.default.info("Rewind client WebSocket closed", {
                 connectionId,
@@ -969,9 +1085,8 @@ async function handleLiveConnection(ws, req) {
                     sessionState.summary = buildDraftSessionSummary(personaId, userTranscripts);
                 }
                 void persistRewindSession(sessionState);
-                if (typeof session.close === "function") {
-                    session.close();
-                }
+                session?.close();
+                session = undefined;
             }
             catch (error) {
                 logger_util_1.default.warn("Failed to close Gemini session after client disconnect", {
