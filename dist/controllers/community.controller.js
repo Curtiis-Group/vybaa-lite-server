@@ -36,6 +36,29 @@ const community_activity_service_1 = require("../services/community-activity.ser
 const email_service_1 = require("../services/email.service");
 const notification_service_1 = require("../services/notification.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+function getDiscoveryScore(community, isJoined) {
+    const memberScore = Math.min(community._count.members, 500) * 2;
+    const templateScore = community._count.templates * 14;
+    const activeGoalScore = community._count.goals * 8;
+    const freshnessDays = Math.max(0, 30 - Math.floor((Date.now() - community.updatedAt.getTime()) / 86400000));
+    const discoveryBoost = isJoined ? 0 : 1000;
+    return discoveryBoost + memberScore + templateScore + activeGoalScore + freshnessDays;
+}
+function getDiscoveryReason(community, isJoined) {
+    if (isJoined) {
+        return "Already in your circle";
+    }
+    if (community._count.goals >= 10) {
+        return "Active goals right now";
+    }
+    if (community._count.templates >= 4) {
+        return "Plenty to start from";
+    }
+    if (community._count.members >= 20) {
+        return "People are gathering here";
+    }
+    return "New community to explore";
+}
 // Helper function to check if user is owner or mod of community
 async function isOwnerOrMod(communityId, userId) {
     const member = await db_config_1.prisma.communityMember.findUnique({
@@ -119,48 +142,75 @@ async function createCommunity(req, res) {
         res.status(500).json({ msg: "Internal server error" });
     }
 }
-// Communities are invite-only: this now returns only the communities the user has joined
 async function getCommunities(req, res) {
     try {
         const userId = req.userId;
         const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
         const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
-        const page = parseInt(String(pageParam || "1")) || 1;
-        const limit = parseInt(String(limitParam || "10")) || 10;
+        const page = Number(pageParam || "1") || 1;
+        const limit = Number(limitParam || "10") || 10;
         const skip = (page - 1) * limit;
         if (page < 1 || limit < 1 || limit > 100) {
             return res.status(400).json({
                 msg: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-100",
             });
         }
-        // Only return communities this user is a member of
-        const totalCount = await db_config_1.prisma.communityMember.count({ where: { userId } });
         const memberships = await db_config_1.prisma.communityMember.findMany({
             where: { userId },
-            orderBy: { joinedAt: "desc" },
-            skip,
-            take: limit,
+            select: {
+                communityId: true,
+                joinedAt: true,
+                role: true,
+            },
+        });
+        const membershipByCommunityId = new Map(memberships.map((membership) => [
+            membership.communityId,
+            {
+                joinedAt: membership.joinedAt,
+                role: membership.role,
+            },
+        ]));
+        const communitiesForDiscovery = await db_config_1.prisma.community.findMany({
+            where: { isPublic: true },
             include: {
-                community: {
-                    include: {
-                        owner: {
-                            select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true },
-                        },
-                        _count: {
-                            select: { members: true, templates: true, goals: true },
-                        },
-                    },
+                owner: {
+                    select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true },
+                },
+                _count: {
+                    select: { members: true, templates: true, goals: true },
                 },
             },
         });
-        const communities = memberships.map((m) => ({
-            ...m.community,
-            createdAt: m.community.createdAt.toISOString(),
-            updatedAt: m.community.updatedAt.toISOString(),
-            isMember: true,
-            userRole: m.role,
-            joinedAt: m.joinedAt.toISOString(),
-        }));
+        const rankedCommunities = communitiesForDiscovery
+            .map((community) => {
+            const membership = membershipByCommunityId.get(community.id);
+            const isJoined = !!membership;
+            return {
+                community,
+                discoveryScore: getDiscoveryScore(community, isJoined),
+                membership,
+            };
+        })
+            .sort((left, right) => {
+            if (right.discoveryScore !== left.discoveryScore) {
+                return right.discoveryScore - left.discoveryScore;
+            }
+            return right.community.updatedAt.getTime() - left.community.updatedAt.getTime();
+        });
+        const totalCount = rankedCommunities.length;
+        const communities = rankedCommunities.slice(skip, skip + limit).map(({ community, discoveryScore, membership }) => {
+            const isJoined = !!membership;
+            return {
+                ...community,
+                createdAt: community.createdAt.toISOString(),
+                updatedAt: community.updatedAt.toISOString(),
+                discoveryReason: getDiscoveryReason(community, isJoined),
+                discoveryScore,
+                isMember: isJoined,
+                joinedAt: membership?.joinedAt.toISOString() || null,
+                userRole: membership?.role || null,
+            };
+        });
         const totalPages = Math.ceil(totalCount / limit);
         const hasNextPage = page < totalPages;
         const hasPrevPage = page > 1;
