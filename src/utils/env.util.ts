@@ -1,3 +1,9 @@
+export enum ENVIRONMENT {
+    LOCAL = "local",
+    DEVELOPMENT = "development",
+    PRODUCTION = "production"
+}
+
 type Env = {
     PORT: number;
     JWT_SECRET?: string;
@@ -13,6 +19,7 @@ type Env = {
     FIREBASE_CLIENT_EMAIL?: string
     ABLY_API_KEY?: string
     GEMINI_API_KEY?: string;
+    ENVIRONMENT: ENVIRONMENT
 }
 
 export const Env: Env = {
@@ -30,7 +37,7 @@ export const Env: Env = {
     FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
 
     ABLY_API_KEY: process.env.ABLY_API_KEY,
-    GEMINI_API_KEY:  process.env.GEMINI_API_KEY,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
 
     ...process.env as any
 }

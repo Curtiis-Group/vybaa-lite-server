@@ -1,7 +1,7 @@
 import cors from "cors";
 import dotenv from "dotenv";
-import express from "express";
 import type { NextFunction, Request, Response } from "express";
+import express from "express";
 import expressWs from "express-ws";
 import * as rewindController from "./controllers/rewind.controller";
 import { handlePaystackWebhook } from "./controllers/webhook.controller";
@@ -10,6 +10,7 @@ import { apiRateLimit, securityHeaders } from "./middleware/security.middleware"
 import routes from "./routes";
 import { schedulerService } from "./services/scheduler.service";
 import config from "./utils/config.util";
+import { Env, ENVIRONMENT } from "./utils/env.util";
 import logger from "./utils/logger.util";
 import { securityConfig, validateSecurityEnvironment } from "./utils/security-config.util";
 
@@ -26,7 +27,7 @@ app.use(securityHeaders);
 app.use(cors({
     credentials: true,
     origin(origin, callback) {
-        if (!origin || securityConfig.allowedOrigins.includes(origin)) {
+        if (!origin || securityConfig.allowedOrigins.includes(origin) || Env.ENVIRONMENT == ENVIRONMENT.LOCAL) {
             callback(null, true);
             return;
         }
