@@ -64,9 +64,11 @@ class MilestoneService {
                     const sequenceAwards = (0, sequence_milestone_util_1.calculateSequenceMilestoneAwards)({
                         bonusPoints: m.sequenceBonusPoints,
                         currentDay,
+                        endDay: m.sequenceEndDay,
                         interval: m.triggerValue,
                         points: m.points,
                         previousDay,
+                        startDay: m.sequenceStartDay,
                     });
                     for (const sequenceAward of sequenceAwards) {
                         triggered.push({

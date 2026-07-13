@@ -376,6 +376,8 @@ model TemplateMilestone {
   triggerValue        Int                  @map("trigger_value")
   points              Float                @default(0)
   sequenceBonusPoints Float                @default(10) @map("sequence_bonus_points")
+  sequenceStartDay    Int?                 @map("sequence_start_day")
+  sequenceEndDay      Int?                 @map("sequence_end_day")
   order               Int                  @default(0)
 
   createdAt         DateTime           @default(now()) @map("created_at")

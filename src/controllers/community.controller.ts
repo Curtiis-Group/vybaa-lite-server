@@ -626,6 +626,8 @@ export async function createTemplate(req: AuthRequest, res: Response) {
                   triggerValue: m.triggerValue,
                   points: m.points ?? 0,
                   sequenceBonusPoints: m.sequenceBonusPoints ?? 10,
+                  sequenceStartDay: m.sequenceStartDay ?? null,
+                  sequenceEndDay: m.sequenceEndDay ?? null,
                   order: m.order ?? index,
                 })),
               }
@@ -891,6 +893,8 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
                   triggerValue: m.triggerValue,
                   points: m.points ?? 0,
                   sequenceBonusPoints: m.sequenceBonusPoints ?? 10,
+                  sequenceStartDay: m.sequenceStartDay ?? null,
+                  sequenceEndDay: m.sequenceEndDay ?? null,
                   order,
                 },
               });
@@ -904,6 +908,8 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
                   triggerValue: m.triggerValue,
                   points: m.points ?? 0,
                   sequenceBonusPoints: m.sequenceBonusPoints ?? 10,
+                  sequenceStartDay: m.sequenceStartDay ?? null,
+                  sequenceEndDay: m.sequenceEndDay ?? null,
                   order,
                 },
               });

@@ -61,11 +61,35 @@ const milestoneSchema = zod_1.z.object({
         .number()
         .min(0, "Sequence bonus points cannot be negative")
         .optional(),
+    sequenceStartDay: zod_1.z
+        .number()
+        .int("Sequence start day must be an integer")
+        .min(1, "Sequence start day must be at least 1")
+        .max(365, "Sequence start day cannot exceed 365")
+        .optional(),
+    sequenceEndDay: zod_1.z
+        .number()
+        .int("Sequence end day must be an integer")
+        .min(1, "Sequence end day must be at least 1")
+        .max(365, "Sequence end day cannot exceed 365")
+        .optional(),
     order: zod_1.z
         .number()
         .int("Order must be an integer")
         .min(0, "Order cannot be negative")
         .optional(),
+}).superRefine((milestone, context) => {
+    if (milestone.triggerType !== "SEQUENCE") {
+        return;
+    }
+    const startDay = milestone.sequenceStartDay ?? milestone.triggerValue;
+    if (milestone.sequenceEndDay !== undefined && milestone.sequenceEndDay < startDay) {
+        context.addIssue({
+            code: zod_1.z.ZodIssueCode.custom,
+            message: "Sequence end day must be on or after the start day",
+            path: ["sequenceEndDay"],
+        });
+    }
 });
 // Goal template creation schema (aligned with goal creation)
 exports.createTemplateSchema = zod_1.z.object({

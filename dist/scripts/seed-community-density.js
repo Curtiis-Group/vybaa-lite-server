@@ -163,6 +163,8 @@ async function upsertTemplatesAndGoals() {
                                 triggerValue: 5,
                                 points: 20,
                                 sequenceBonusPoints: 10,
+                                sequenceStartDay: 5,
+                                sequenceEndDay: 14 + index * 7,
                                 order: 3,
                             },
                         ],

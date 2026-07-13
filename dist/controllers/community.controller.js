@@ -579,6 +579,8 @@ async function createTemplate(req, res) {
                             triggerValue: m.triggerValue,
                             points: m.points ?? 0,
                             sequenceBonusPoints: m.sequenceBonusPoints ?? 10,
+                            sequenceStartDay: m.sequenceStartDay ?? null,
+                            sequenceEndDay: m.sequenceEndDay ?? null,
                             order: m.order ?? index,
                         })),
                     }
@@ -817,6 +819,8 @@ async function updateTemplate(req, res) {
                                     triggerValue: m.triggerValue,
                                     points: m.points ?? 0,
                                     sequenceBonusPoints: m.sequenceBonusPoints ?? 10,
+                                    sequenceStartDay: m.sequenceStartDay ?? null,
+                                    sequenceEndDay: m.sequenceEndDay ?? null,
                                     order,
                                 },
                             });
@@ -831,6 +835,8 @@ async function updateTemplate(req, res) {
                                     triggerValue: m.triggerValue,
                                     points: m.points ?? 0,
                                     sequenceBonusPoints: m.sequenceBonusPoints ?? 10,
+                                    sequenceStartDay: m.sequenceStartDay ?? null,
+                                    sequenceEndDay: m.sequenceEndDay ?? null,
                                     order,
                                 },
                             });
