@@ -14,7 +14,7 @@ const users = [
     { id: "seed-user-ivy", email: "ivy.seed@vybaa.local", username: "ivy_seed", firstName: "Ivy", lastName: "Reed" },
     { id: "seed-user-kai", email: "kai.seed@vybaa.local", username: "kai_seed", firstName: "Kai", lastName: "Grey" },
 ];
-const communityProfiles = [
+const coreCommunityProfiles = [
     ["seed-community-morning-builders", "Morning Builders", "Daily momentum, quiet accountability, and practical wins.", "productivity", "seed-user-ava"],
     ["seed-community-fit-loop", "Fit Loop", "Movement goals, streak support, and friendly check-ins.", "fitness", "seed-user-noah"],
     ["seed-community-creative-reset", "Creative Reset", "A small room for creators getting unstuck together.", "creativity", "seed-user-mia"],
@@ -40,6 +40,36 @@ const communityProfiles = [
     ["seed-community-mindful-money", "Mindful Money", "Spending awareness, no-buy challenges, and saving support.", "finance", "seed-user-ivy"],
     ["seed-community-social-flexx", "Social Flexx", "Friendly public wins, progress screenshots, and group energy.", "social", "seed-user-zion"],
     ["seed-community-quiet-wins", "Quiet Wins", "Small private wins for people building without noise.", "accountability", "seed-user-noah"],
+];
+const generatedCommunityThemes = [
+    ["Momentum Circle", "Practical routines, shared progress, and steady accountability.", "productivity"],
+    ["Wellness Crew", "Daily wellbeing goals supported by calm, consistent check-ins.", "wellness"],
+    ["Creative Practice", "A place to make, share, and build a sustainable creative rhythm.", "creativity"],
+    ["Learning Guild", "Focused learning goals, study updates, and peer encouragement.", "education"],
+    ["Movement Club", "Accessible movement goals and friendly progress support.", "fitness"],
+    ["Builder Room", "Small launches, useful experiments, and visible weekly progress.", "makers"],
+    ["Growth Table", "Personal growth goals grounded in reflection and action.", "personal growth"],
+    ["Focus Collective", "Distraction-light work sessions and meaningful daily outcomes.", "accountability"],
+    ["Healthy Habits", "Simple health routines designed for long-term consistency.", "health"],
+    ["Community Lab", "Shared challenges, conversations, and collaborative progress.", "social"],
+];
+function createGeneratedCommunityProfile(index) {
+    const communityNumber = coreCommunityProfiles.length + index + 1;
+    const theme = generatedCommunityThemes[index % generatedCommunityThemes.length];
+    const owner = users[index % users.length];
+    const paddedNumber = String(communityNumber).padStart(3, "0");
+    return [
+        `seed-community-${paddedNumber}`,
+        `${theme[0]} ${paddedNumber}`,
+        theme[1],
+        theme[2],
+        owner.id,
+    ];
+}
+const generatedCommunityProfiles = Array.from({ length: 100 - coreCommunityProfiles.length }, (_, index) => createGeneratedCommunityProfile(index));
+const communityProfiles = [
+    ...coreCommunityProfiles,
+    ...generatedCommunityProfiles,
 ];
 const illustrationIds = ["orbit", "pulse", "bloom", "arc", "grid", "current"];
 const communities = communityProfiles.map(([id, name, description, category, ownerId], index) => ({
@@ -292,7 +322,7 @@ async function main() {
     await upsertTemplatesAndGoals();
     await recreateActivityDensity();
     await upsertInvites();
-    console.log("Seeded community density data.");
+    console.log(`Seeded density data for ${communities.length} communities.`);
     console.log("Seed user password: Password123!");
 }
 main()
