@@ -7,6 +7,7 @@ exports.milestoneService = exports.MilestoneService = void 0;
 const client_1 = require("@prisma/client");
 const db_config_1 = require("../config/db.config");
 const points_config_1 = require("../config/points.config");
+const sequence_milestone_util_1 = require("../utils/sequence-milestone.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const community_activity_service_1 = require("./community-activity.service");
 const notification_service_1 = require("./notification.service");
@@ -39,29 +40,61 @@ class MilestoneService {
             const prevPct = (previousDay / targetDays) * 100;
             const currPct = (currentDay / targetDays) * 100;
             for (const m of milestones) {
-                let shouldTrigger = false;
                 if (m.triggerType === client_1.MilestoneTriggerType.DAY) {
-                    shouldTrigger = currentDay >= m.triggerValue && previousDay < m.triggerValue;
+                    if (currentDay >= m.triggerValue && previousDay < m.triggerValue) {
+                        triggered.push({
+                            milestone: m,
+                            pointsAwarded: m.points,
+                            sequenceValue: 0,
+                        });
+                    }
+                    continue;
                 }
-                else if (m.triggerType === client_1.MilestoneTriggerType.PERCENTAGE) {
-                    shouldTrigger = currPct >= m.triggerValue && prevPct < m.triggerValue;
+                if (m.triggerType === client_1.MilestoneTriggerType.PERCENTAGE) {
+                    if (currPct >= m.triggerValue && prevPct < m.triggerValue) {
+                        triggered.push({
+                            milestone: m,
+                            pointsAwarded: m.points,
+                            sequenceValue: 0,
+                        });
+                    }
+                    continue;
                 }
-                if (shouldTrigger) {
-                    triggered.push(m);
+                if (m.triggerType === client_1.MilestoneTriggerType.SEQUENCE) {
+                    const sequenceAwards = (0, sequence_milestone_util_1.calculateSequenceMilestoneAwards)({
+                        bonusPoints: m.sequenceBonusPoints,
+                        currentDay,
+                        interval: m.triggerValue,
+                        points: m.points,
+                        previousDay,
+                    });
+                    for (const sequenceAward of sequenceAwards) {
+                        triggered.push({
+                            milestone: m,
+                            pointsAwarded: sequenceAward.pointsAwarded,
+                            sequenceValue: sequenceAward.sequenceValue,
+                        });
+                    }
                 }
             }
             if (triggered.length === 0) {
                 return;
             }
-            const triggeredIds = triggered.map((m) => m.id);
+            const triggeredIds = triggered.map((award) => award.milestone.id);
             const existingHits = await db_config_1.prisma.goalMilestoneHit.findMany({
                 where: {
                     goalId,
                     milestoneId: { in: triggeredIds },
                 },
+                select: {
+                    milestoneId: true,
+                    sequenceValue: true,
+                },
             });
-            const alreadyHitIds = new Set(existingHits.map((h) => h.milestoneId));
-            const newHits = triggered.filter((m) => !alreadyHitIds.has(m.id));
+            const alreadyHitKeys = new Set(existingHits.map((hit) => `${hit.milestoneId}:${hit.sequenceValue}`));
+            const newHits = triggered.filter((award) => {
+                return !alreadyHitKeys.has(`${award.milestone.id}:${award.sequenceValue}`);
+            });
             if (newHits.length === 0) {
                 return;
             }
@@ -70,8 +103,10 @@ class MilestoneService {
                 where: { id: goal.communityId },
                 select: { name: true },
             });
-            // Calculate total points from new milestones
-            const totalNewPoints = newHits.reduce((sum, m) => sum + m.points, 0);
+            let totalNewPoints = 0;
+            for (const award of newHits) {
+                totalNewPoints += award.pointsAwarded;
+            }
             // Create or update pending points record
             await db_config_1.prisma.goalPendingPoints.upsert({
                 where: { goalId },
@@ -86,16 +121,24 @@ class MilestoneService {
                 },
             });
             // Record milestone hits and create activities
-            for (const m of newHits) {
+            for (const award of newHits) {
                 await db_config_1.prisma.goalMilestoneHit.create({
                     data: {
                         goalId,
-                        milestoneId: m.id,
+                        milestoneId: award.milestone.id,
+                        pointsAwarded: award.pointsAwarded,
+                        sequenceValue: award.sequenceValue,
                     },
                 });
-                await community_activity_service_1.communityActivityService.createMilestoneReachedActivity(goalId, userId, m);
-                // Send milestone notification
-                notification_service_1.notificationService.sendMilestoneReachedNotification(userId, goalId, m.name, m.points, goal.goalText || "", community?.name).catch((err) => logger_util_1.default.error("Error sending milestone notification:", err));
+                const milestoneName = award.sequenceValue > 0
+                    ? `${award.milestone.name} (${award.sequenceValue})`
+                    : award.milestone.name;
+                await community_activity_service_1.communityActivityService.createMilestoneReachedActivity(goalId, userId, {
+                    id: award.milestone.id,
+                    name: milestoneName,
+                    points: award.pointsAwarded,
+                });
+                notification_service_1.notificationService.sendMilestoneReachedNotification(userId, goalId, milestoneName, award.pointsAwarded, goal.goalText || "", community?.name).catch((err) => logger_util_1.default.error("Error sending milestone notification:", err));
             }
         }
         catch (error) {

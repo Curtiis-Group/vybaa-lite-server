@@ -1,9 +1,16 @@
 import { MilestoneTriggerType, TemplateMilestone } from "@prisma/client";
 import { prisma } from "../config/db.config";
 import { getStreakMilestonePoints, isStreakMilestoneWithPoints } from "../config/points.config";
+import { calculateSequenceMilestoneAwards } from "../utils/sequence-milestone.util";
 import logger from "../utils/logger.util";
 import { communityActivityService } from "./community-activity.service";
 import { notificationService } from "./notification.service";
+
+type MilestoneAward = {
+  milestone: TemplateMilestone;
+  pointsAwarded: number;
+  sequenceValue: number;
+};
 
 export class MilestoneService {
   /**
@@ -35,22 +42,50 @@ export class MilestoneService {
         return;
       }
 
-      const triggered: TemplateMilestone[] = [];
+      const triggered: MilestoneAward[] = [];
 
       const prevPct = (previousDay / targetDays) * 100;
       const currPct = (currentDay / targetDays) * 100;
 
       for (const m of milestones) {
-        let shouldTrigger = false;
-
         if (m.triggerType === MilestoneTriggerType.DAY) {
-          shouldTrigger = currentDay >= m.triggerValue && previousDay < m.triggerValue;
-        } else if (m.triggerType === MilestoneTriggerType.PERCENTAGE) {
-          shouldTrigger = currPct >= m.triggerValue && prevPct < m.triggerValue;
+          if (currentDay >= m.triggerValue && previousDay < m.triggerValue) {
+            triggered.push({
+              milestone: m,
+              pointsAwarded: m.points,
+              sequenceValue: 0,
+            });
+          }
+          continue;
         }
 
-        if (shouldTrigger) {
-          triggered.push(m);
+        if (m.triggerType === MilestoneTriggerType.PERCENTAGE) {
+          if (currPct >= m.triggerValue && prevPct < m.triggerValue) {
+            triggered.push({
+              milestone: m,
+              pointsAwarded: m.points,
+              sequenceValue: 0,
+            });
+          }
+          continue;
+        }
+
+        if (m.triggerType === MilestoneTriggerType.SEQUENCE) {
+          const sequenceAwards = calculateSequenceMilestoneAwards({
+            bonusPoints: m.sequenceBonusPoints,
+            currentDay,
+            interval: m.triggerValue,
+            points: m.points,
+            previousDay,
+          });
+
+          for (const sequenceAward of sequenceAwards) {
+            triggered.push({
+              milestone: m,
+              pointsAwarded: sequenceAward.pointsAwarded,
+              sequenceValue: sequenceAward.sequenceValue,
+            });
+          }
         }
       }
 
@@ -58,17 +93,27 @@ export class MilestoneService {
         return;
       }
 
-      const triggeredIds = triggered.map((m) => m.id);
+      const triggeredIds = triggered.map((award) => award.milestone.id);
 
       const existingHits = await prisma.goalMilestoneHit.findMany({
         where: {
           goalId,
           milestoneId: { in: triggeredIds },
         },
+        select: {
+          milestoneId: true,
+          sequenceValue: true,
+        },
       });
 
-      const alreadyHitIds = new Set(existingHits.map((h) => h.milestoneId));
-      const newHits = triggered.filter((m) => !alreadyHitIds.has(m.id));
+      const alreadyHitKeys = new Set(
+        existingHits.map((hit) => `${hit.milestoneId}:${hit.sequenceValue}`),
+      );
+      const newHits = triggered.filter((award) => {
+        return !alreadyHitKeys.has(
+          `${award.milestone.id}:${award.sequenceValue}`,
+        );
+      });
 
       if (newHits.length === 0) {
         return;
@@ -80,8 +125,10 @@ export class MilestoneService {
         select: { name: true },
       });
 
-      // Calculate total points from new milestones
-      const totalNewPoints = newHits.reduce((sum, m) => sum + m.points, 0);
+      let totalNewPoints = 0;
+      for (const award of newHits) {
+        totalNewPoints += award.pointsAwarded;
+      }
 
       // Create or update pending points record
       await prisma.goalPendingPoints.upsert({
@@ -98,22 +145,32 @@ export class MilestoneService {
       });
 
       // Record milestone hits and create activities
-      for (const m of newHits) {
+      for (const award of newHits) {
         await prisma.goalMilestoneHit.create({
           data: {
             goalId,
-            milestoneId: m.id,
+            milestoneId: award.milestone.id,
+            pointsAwarded: award.pointsAwarded,
+            sequenceValue: award.sequenceValue,
           },
         });
 
-        await communityActivityService.createMilestoneReachedActivity(goalId, userId, m);
+        const milestoneName =
+          award.sequenceValue > 0
+            ? `${award.milestone.name} (${award.sequenceValue})`
+            : award.milestone.name;
 
-        // Send milestone notification
+        await communityActivityService.createMilestoneReachedActivity(goalId, userId, {
+          id: award.milestone.id,
+          name: milestoneName,
+          points: award.pointsAwarded,
+        });
+
         notificationService.sendMilestoneReachedNotification(
           userId,
           goalId,
-          m.name,
-          m.points,
+          milestoneName,
+          award.pointsAwarded,
           goal.goalText || "",
           community?.name
         ).catch((err) => logger.error("Error sending milestone notification:", err));
@@ -198,4 +255,3 @@ export class MilestoneService {
 }
 
 export const milestoneService = new MilestoneService();
-

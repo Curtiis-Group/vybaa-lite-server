@@ -54,7 +54,7 @@ const milestoneSchema = z.object({
     .string()
     .max(500, "Description must be less than 500 characters")
     .optional(),
-  triggerType: z.enum(["DAY", "PERCENTAGE"]),
+  triggerType: z.enum(["DAY", "PERCENTAGE", "SEQUENCE"]),
   triggerValue: z
     .number()
     .int("Trigger value must be an integer")
@@ -62,8 +62,11 @@ const milestoneSchema = z.object({
     .max(365, "Trigger value cannot exceed 365"),
   points: z
     .number()
-    .int("Points must be an integer")
     .min(0, "Points cannot be negative"),
+  sequenceBonusPoints: z
+    .number()
+    .min(0, "Sequence bonus points cannot be negative")
+    .optional(),
   order: z
     .number()
     .int("Order must be an integer")

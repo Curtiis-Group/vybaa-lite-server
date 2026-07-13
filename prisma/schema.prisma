@@ -22,7 +22,7 @@ model User {
   // User bio/profile fields
   firstName            String?   @map("first_name")
   lastName             String?   @map("last_name")
-  username             String?    @unique // Required - auto-generated on signup
+  username             String?   @unique // Required - auto-generated on signup
   avatarUrl            String?   @map("avatar_url")
   currentMood          String?   @map("current_mood")
   rewindPersona        String?   @map("rewind_persona")
@@ -87,24 +87,24 @@ model RewindSession {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  personaId            String  @map("persona_id")
-  sessionDateKey       String?  @map("session_date_key")
-  openingAnswered      Boolean? @default(false) @map("opening_answered")
-  currentQuestionIndex Int?     @default(0) @map("current_question_index")
-  completed            Boolean @default(false)
+  personaId            String    @map("persona_id")
+  sessionDateKey       String?   @map("session_date_key")
+  openingAnswered      Boolean?  @default(false) @map("opening_answered")
+  currentQuestionIndex Int?      @default(0) @map("current_question_index")
+  completed            Boolean   @default(false)
   completedAt          DateTime? @map("completed_at")
   checkInAt            DateTime? @map("check_in_at")
   responses            Json?
   summary              String?
-  emotionalInsight     String? @map("emotional_insight")
-  emotionalTags        String[] @default([]) @map("emotional_tags")
-  nextStepNote         String? @map("next_step_note")
+  emotionalInsight     String?   @map("emotional_insight")
+  emotionalTags        String[]  @default([]) @map("emotional_tags")
+  nextStepNote         String?   @map("next_step_note")
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@index([userId, personaId, updatedAt])
   @@unique([userId, personaId, sessionDateKey])
+  @@index([userId, personaId, updatedAt])
   @@map("rewind_sessions")
 }
 
@@ -298,9 +298,9 @@ model CommunityInvite {
   communityId String    @map("community_id")
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
 
-  code      String  @unique // Short shareable code e.g. "A3K9F2"
-  createdBy String  @map("created_by")
-  creator   User    @relation("InviteCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  code      String @unique // Short shareable code e.g. "A3K9F2"
+  createdBy String @map("created_by")
+  creator   User   @relation("InviteCreator", fields: [createdBy], references: [id], onDelete: Cascade)
 
   // For targeted invites
   inviteeEmail    String? @map("invitee_email")
@@ -308,8 +308,8 @@ model CommunityInvite {
   inviteeUserId   String? @map("invitee_user_id")
   invitee         User?   @relation("InviteRecipient", fields: [inviteeUserId], references: [id], onDelete: SetNull)
 
-  maxUses  Int      @default(-1) @map("max_uses") // -1 = unlimited
-  uses     Int      @default(0)
+  maxUses   Int       @default(-1) @map("max_uses") // -1 = unlimited
+  uses      Int       @default(0)
   expiresAt DateTime? @map("expires_at")
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -363,18 +363,20 @@ model GoalTemplate {
 enum MilestoneTriggerType {
   DAY
   PERCENTAGE
+  SEQUENCE
 }
 
 model TemplateMilestone {
-  id           String               @id @default(cuid())
-  templateId   String               @map("template_id")
-  template     GoalTemplate         @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  name         String
-  description  String?
-  triggerType  MilestoneTriggerType @map("trigger_type")
-  triggerValue Int                  @map("trigger_value")
-  points       Float                @default(0)
-  order        Int                  @default(0)
+  id                  String               @id @default(cuid())
+  templateId          String               @map("template_id")
+  template            GoalTemplate         @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name                String
+  description         String?
+  triggerType         MilestoneTriggerType @map("trigger_type")
+  triggerValue        Int                  @map("trigger_value")
+  points              Float                @default(0)
+  sequenceBonusPoints Float                @default(10) @map("sequence_bonus_points")
+  order               Int                  @default(0)
 
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at")
@@ -385,14 +387,16 @@ model TemplateMilestone {
 }
 
 model GoalMilestoneHit {
-  id          String            @id @default(cuid())
-  goalId      String            @map("goal_id")
-  goal        Goal              @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  milestoneId String            @map("milestone_id")
-  milestone   TemplateMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  awardedAt   DateTime          @default(now()) @map("awarded_at")
+  id            String            @id @default(cuid())
+  goalId        String            @map("goal_id")
+  goal          Goal              @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  milestoneId   String            @map("milestone_id")
+  milestone     TemplateMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  sequenceValue Int               @default(0) @map("sequence_value")
+  pointsAwarded Float             @default(0) @map("points_awarded")
+  awardedAt     DateTime          @default(now()) @map("awarded_at")
 
-  @@unique([goalId, milestoneId])
+  @@unique([goalId, milestoneId, sequenceValue])
   @@index([goalId])
   @@index([milestoneId])
   @@map("goal_milestone_hits")
@@ -489,8 +493,8 @@ enum TransactionType {
 model Transaction {
   id String @id @default(cuid())
 
-  type   TransactionType
-  amount Float // Amount in points
+  type       TransactionType
+  amount     Float // Amount in points
   fiatAmount Float? // Optional: Amount in USD/Fiat
 
   senderId String? @map("sender_id")
