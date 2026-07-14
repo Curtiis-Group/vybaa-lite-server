@@ -48,6 +48,7 @@ const security_middleware_1 = require("./middleware/security.middleware");
 const routes_1 = __importDefault(require("./routes"));
 const scheduler_service_1 = require("./services/scheduler.service");
 const config_util_1 = __importDefault(require("./utils/config.util"));
+const env_util_1 = require("./utils/env.util");
 const logger_util_1 = __importDefault(require("./utils/logger.util"));
 const security_config_util_1 = require("./utils/security-config.util");
 dotenv_1.default.config();
@@ -60,7 +61,7 @@ exports.app.use(security_middleware_1.securityHeaders);
 exports.app.use((0, cors_1.default)({
     credentials: true,
     origin(origin, callback) {
-        if (!origin || security_config_util_1.securityConfig.allowedOrigins.includes(origin)) {
+        if (!origin || security_config_util_1.securityConfig.allowedOrigins.includes(origin) || env_util_1.Env.ENVIRONMENT == env_util_1.ENVIRONMENT.LOCAL) {
             callback(null, true);
             return;
         }

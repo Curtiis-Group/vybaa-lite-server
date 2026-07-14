@@ -19,6 +19,7 @@ type Env = {
     FIREBASE_CLIENT_EMAIL?: string
     ABLY_API_KEY?: string
     GEMINI_API_KEY?: string;
+    REVENUECAT_REST_API_KEY?: string;
     ENVIRONMENT: ENVIRONMENT
 }
 
@@ -38,6 +39,7 @@ export const Env: Env = {
 
     ABLY_API_KEY: process.env.ABLY_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    REVENUECAT_REST_API_KEY: process.env.REVENUECAT_REST_API_KEY,
 
     ...process.env as any
 }
