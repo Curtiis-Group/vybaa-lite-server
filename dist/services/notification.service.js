@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.notificationService = void 0;
+const node_crypto_1 = require("node:crypto");
 const ably_config_1 = require("../config/ably.config");
 const db_config_1 = require("../config/db.config");
 const points_config_1 = require("../config/points.config");
@@ -11,6 +12,26 @@ const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const cache_service_1 = require("./cache.service");
 const metrics_service_1 = require("./metrics.service");
 const push_notification_service_1 = require("./push-notification.service");
+const NOTIFICATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
+function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function parseNotificationData(value) {
+    if (!value)
+        return undefined;
+    try {
+        const parsed = JSON.parse(value);
+        return isRecord(parsed) ? parsed : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+function isUniqueConstraintError(error) {
+    return (isRecord(error) &&
+        typeof error.code === "string" &&
+        error.code === "P2002");
+}
 class NotificationService {
     constructor() {
         this.ablyClient = (0, ably_config_1.getAblyClient)();
@@ -26,64 +47,59 @@ class NotificationService {
     getSharedFcmTokenPrefix(user) {
         return `[${user.username || user.firstName || "user"}]`;
     }
-    async getSharedFcmTokens(userId, userFcmTokens) {
-        if (!userFcmTokens.length) {
-            return new Set();
+    async getSharedFcmTokensByUser(notifications) {
+        const allTokens = new Set();
+        for (const notification of notifications) {
+            for (const token of notification.user.fcmTokens) {
+                if (token)
+                    allTokens.add(token);
+            }
         }
-        const usersSharingTokens = await db_config_1.prisma.user.findMany({
-            where: {
-                id: { not: userId },
-                fcmTokens: { hasSome: userFcmTokens },
-            },
-            select: { fcmTokens: true },
+        if (!allTokens.size)
+            return new Map();
+        const users = await db_config_1.prisma.user.findMany({
+            where: { fcmTokens: { hasSome: [...allTokens] } },
+            select: { id: true, fcmTokens: true },
         });
-        const sharedTokens = new Set();
-        const ownTokens = new Set(userFcmTokens);
-        for (const user of usersSharingTokens) {
-            for (const token of user.fcmTokens) {
-                if (ownTokens.has(token)) {
+        const tokenOwnerIds = new Map();
+        for (const user of users) {
+            for (const token of new Set(user.fcmTokens)) {
+                if (!allTokens.has(token))
+                    continue;
+                const ownerIds = tokenOwnerIds.get(token) ?? new Set();
+                ownerIds.add(user.id);
+                tokenOwnerIds.set(token, ownerIds);
+            }
+        }
+        const sharedByUser = new Map();
+        for (const notification of notifications) {
+            const sharedTokens = new Set();
+            for (const token of new Set(notification.user.fcmTokens)) {
+                if ((tokenOwnerIds.get(token)?.size ?? 0) > 1) {
                     sharedTokens.add(token);
                 }
             }
+            sharedByUser.set(notification.userId, sharedTokens);
         }
-        return sharedTokens;
+        return sharedByUser;
     }
     async createDedupedSystemNotification(params) {
-        const recentNotifications = await db_config_1.prisma.notification.findMany({
-            where: {
+        try {
+            return await this.createNotification({
                 userId: params.userId,
                 type: "system",
-                createdAt: { gte: params.windowStart },
-            },
-            select: { data: true },
-            take: 100,
-        });
-        const alreadyCreated = recentNotifications.some((notification) => {
-            if (!notification.data) {
-                return false;
-            }
-            try {
-                const data = JSON.parse(notification.data);
-                return data.dedupeKey === params.dedupeKey;
-            }
-            catch {
-                return false;
-            }
-        });
-        if (alreadyCreated) {
-            return null;
-        }
-        return this.createNotification({
-            userId: params.userId,
-            type: "system",
-            title: params.title,
-            message: params.message,
-            data: {
-                ...params.data,
+                title: params.title,
+                message: params.message,
+                data: params.data,
                 dedupeKey: params.dedupeKey,
-            },
-            scheduledFor: params.scheduledFor,
-        });
+                scheduledFor: params.scheduledFor,
+            });
+        }
+        catch (error) {
+            if (isUniqueConstraintError(error))
+                return null;
+            throw error;
+        }
     }
     /**
      * Create a notification in the database
@@ -98,8 +114,9 @@ class NotificationService {
                     title: data.title,
                     message: data.message,
                     data: data.data ? JSON.stringify(data.data) : null,
-                    scheduledFor: data.scheduledFor,
-                    sentAt: data.scheduledFor ? null : new Date(), // If no schedule, mark as sent immediately
+                    dedupeKey: data.dedupeKey,
+                    scheduledFor: data.scheduledFor ?? new Date(),
+                    sentAt: null,
                 },
             });
             // If not scheduled, send immediately
@@ -113,66 +130,126 @@ class NotificationService {
             throw error;
         }
     }
-    /**
-     * Send a notification via Ably and FCM
-     */
-    async sendNotification(notificationId) {
-        try {
-            const notification = await db_config_1.prisma.notification.findUnique({
-                where: { id: notificationId },
-                include: {
-                    user: {
-                        select: { fcmTokens: true, firstName: true, username: true },
-                    },
+    async claimNotifications(notificationIds) {
+        const uniqueIds = [...new Set(notificationIds)];
+        if (!uniqueIds.length)
+            return null;
+        const dispatchToken = (0, node_crypto_1.randomUUID)();
+        const claimedAt = new Date();
+        const expiredLease = new Date(claimedAt.getTime() - NOTIFICATION_CLAIM_LEASE_MS);
+        const result = await db_config_1.prisma.notification.updateMany({
+            where: {
+                id: { in: uniqueIds },
+                sentAt: null,
+                OR: [
+                    { dispatchingAt: null },
+                    { dispatchingAt: { lt: expiredLease } },
+                ],
+            },
+            data: {
+                dispatchToken,
+                dispatchingAt: claimedAt,
+                deliveryAttempts: { increment: 1 },
+            },
+        });
+        if (!result.count)
+            return null;
+        const notifications = await db_config_1.prisma.notification.findMany({
+            where: { dispatchToken },
+            include: {
+                user: {
+                    select: { fcmTokens: true, firstName: true, username: true },
                 },
-            });
-            if (!notification) {
-                logger_util_1.default.warn(`Notification ${notificationId} not found`);
-                return;
-            }
-            // Create channel for user
-            const channel = this.ablyClient.channels.get(`user:${notification.userId}`);
-            // Prepare payload
-            const payload = {
-                id: notification.id,
-                type: notification.type,
-                title: notification.title,
-                message: notification.message,
-                data: notification.data ? JSON.parse(notification.data) : undefined,
-                createdAt: notification.createdAt.toISOString(),
-            };
-            // Publish to Ably (for real-time web notifications)
-            await channel.publish("notification", payload);
-            // Send FCM push notification if user has tokens
-            if (notification.user.fcmTokens && notification.user.fcmTokens.length > 0) {
-                try {
-                    const sharedTokens = await this.getSharedFcmTokens(notification.userId, notification.user.fcmTokens);
-                    const sharedPrefix = this.getSharedFcmTokenPrefix(notification.user);
-                    await push_notification_service_1.pushNotificationService.sendFCMBatchMessages(notification.user.fcmTokens.map((token) => ({
+            },
+        });
+        return { dispatchToken, notifications };
+    }
+    async releaseNotificationClaim(dispatchToken) {
+        await db_config_1.prisma.notification.updateMany({
+            where: { dispatchToken, sentAt: null },
+            data: { dispatchToken: null, dispatchingAt: null },
+        });
+    }
+    async markNotificationsDelivered(dispatchToken) {
+        await db_config_1.prisma.notification.updateMany({
+            where: { dispatchToken, sentAt: null },
+            data: {
+                dispatchToken: null,
+                dispatchingAt: null,
+                sentAt: new Date(),
+            },
+        });
+    }
+    toPayload(notification) {
+        return {
+            id: notification.id,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            data: parseNotificationData(notification.data),
+            createdAt: notification.createdAt.toISOString(),
+        };
+    }
+    async dispatchNotificationBatch(notificationIds) {
+        const claim = await this.claimNotifications(notificationIds);
+        if (!claim?.notifications.length)
+            return 0;
+        try {
+            const sharedTokensByUser = await this.getSharedFcmTokensByUser(claim.notifications);
+            const pushMessages = [];
+            const ablyPublishes = claim.notifications.map(async (notification) => {
+                const payload = this.toPayload(notification);
+                const sharedTokens = sharedTokensByUser.get(notification.userId) ?? new Set();
+                const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
+                for (const token of new Set(notification.user.fcmTokens)) {
+                    if (!token)
+                        continue;
+                    pushMessages.push({
                         token,
                         title: sharedTokens.has(token)
-                            ? `${sharedPrefix} ${notification.title}`
+                            ? `${titlePrefix} ${notification.title}`
                             : notification.title,
                         body: notification.message,
                         payload,
                         silent: false,
-                    })));
+                    });
                 }
-                catch (fcmError) {
-                    logger_util_1.default.error("Error sending FCM push:", fcmError);
-                    // Don't fail the entire notification if FCM fails
-                }
-            }
-            // Mark as sent
-            await db_config_1.prisma.notification.update({
-                where: { id: notificationId },
-                data: { sentAt: new Date() },
+                const channel = this.ablyClient.channels.get(`user:${notification.userId}`);
+                return channel.publish("notification", payload);
             });
-            logger_util_1.default.info(`Notification ${notificationId} sent to user ${notification.userId}`);
+            const ablyResults = await Promise.allSettled(ablyPublishes);
+            const ablyFailures = ablyResults.filter((result) => result.status === "rejected").length;
+            if (ablyFailures) {
+                logger_util_1.default.warn("Notification realtime batch had failures", {
+                    attempted: ablyResults.length,
+                    failed: ablyFailures,
+                });
+            }
+            if (pushMessages.length) {
+                await push_notification_service_1.pushNotificationService.sendFCMBatchMessages(pushMessages);
+            }
+            await this.markNotificationsDelivered(claim.dispatchToken);
+            logger_util_1.default.info("Notification batch delivered", {
+                notifications: claim.notifications.length,
+                pushMessages: pushMessages.length,
+            });
+            return claim.notifications.length;
         }
         catch (error) {
-            logger_util_1.default.error(`Error sending notification ${notificationId}:`, error);
+            await this.releaseNotificationClaim(claim.dispatchToken);
+            logger_util_1.default.error("Notification batch delivery failed", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+                notifications: claim.notifications.length,
+            });
             throw error;
+        }
+    }
+    async sendNotification(notificationId) {
+        const delivered = await this.dispatchNotificationBatch([notificationId]);
+        if (!delivered) {
+            logger_util_1.default.debug("Notification was already claimed or delivered", {
+                notificationId,
+            });
         }
     }
     /**
@@ -486,6 +563,8 @@ class NotificationService {
                     type: true,
                     goalId: true,
                 },
+                orderBy: { scheduledFor: "asc" },
+                take: 500,
             });
             if (pendingNotifications.length === 0) {
                 return;
@@ -513,28 +592,29 @@ class NotificationService {
                     a.getUTCMonth() === b.getUTCMonth() &&
                     a.getUTCDate() === b.getUTCDate());
             };
-            let processedCount = 0;
-            let skippedBecauseCheckedIn = 0;
+            const skippedNotificationIds = [];
+            const deliverableNotificationIds = [];
             for (const notification of pendingNotifications) {
                 // For goal reminders, skip sending if the goal has already been
                 // checked in for "today" (UTC date comparison).
                 if (notification.type === "goal_reminder" && notification.goalId) {
                     const goal = goalsById[notification.goalId];
                     if (goal?.lastCheckInDate && isSameUtcDate(goal.lastCheckInDate, now)) {
-                        // Mark as sent without sending a push/real-time notification,
-                        // so it won't be retried again for this cycle.
-                        await db_config_1.prisma.notification.update({
-                            where: { id: notification.id },
-                            data: { sentAt: now },
-                        });
-                        processedCount++;
-                        skippedBecauseCheckedIn++;
+                        skippedNotificationIds.push(notification.id);
                         continue;
                     }
                 }
-                await this.sendNotification(notification.id);
-                processedCount++;
+                deliverableNotificationIds.push(notification.id);
             }
+            if (skippedNotificationIds.length) {
+                await db_config_1.prisma.notification.updateMany({
+                    where: { id: { in: skippedNotificationIds }, sentAt: null },
+                    data: { sentAt: now },
+                });
+            }
+            const deliveredCount = await this.dispatchNotificationBatch(deliverableNotificationIds);
+            const skippedBecauseCheckedIn = skippedNotificationIds.length;
+            const processedCount = deliveredCount + skippedBecauseCheckedIn;
             if (processedCount > 0) {
                 logger_util_1.default.info(`Processed ${processedCount} pending notifications`);
             }

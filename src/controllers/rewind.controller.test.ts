@@ -6,7 +6,8 @@ import {
   buildOpeningPrompt,
   buildResumePrompt,
   createRewindWsToken,
-  parseRewindCompletionArgs,
+  getRewindSystemInstruction,
+  shouldResumeGeminiLiveSession,
   verifyRewindWsToken,
 } from "./rewind.controller";
 
@@ -38,57 +39,34 @@ test("draft summaries are always non-empty and persona-specific", () => {
   assert.match(reflectionSummary, /difficult conversation/i);
 });
 
-test("Rewind completion requires a useful summary and emotional insight", () => {
-  assert.equal(
-    parseRewindCompletionArgs(
-      {
-        summary: "Done",
-        emotionalInsight: "The user felt lighter.",
-      },
-      "ella",
-    ),
-    null,
-  );
-  assert.equal(
-    parseRewindCompletionArgs(
-      {
-        summary:
-          "The user talked through a heavy decision and noticed that they are less stuck than they felt at the start.",
-      },
-      "ella",
-    ),
-    null,
-  );
-});
-
-test("Rewind completion accepts summary, insight, tags, mood, and check-in note", () => {
-  const completion = parseRewindCompletionArgs(
+test("identity and private memory are included in every Live system instruction", () => {
+  const prompt = getRewindSystemInstruction(
+    "ella",
     {
-      summary:
-        "What we talked through:\n- The user reflected on a difficult conversation and recognized that they handled it with more patience than expected.\nWhat felt emotionally important:\n- They noticed that staying calm took real effort, and that the effort still counts.\nWhat shifted or became clearer:\n- The conversation feels less like proof of failure and more like evidence that they can respond with steadiness.",
-      emotionalInsight:
-        "They seemed tired but proud, with a need for reassurance that their progress still counts.",
-      currentMood: "relieved",
-      emotionalTags: ["Tired", "proud", "proud", "", "steady", "clear", "extra"],
-      nextStepNote: "Check in later on whether the conversation still feels resolved.",
+      id: "user-1",
+      username: "niawrites",
+      firstName: "Nia",
+      lastName: null,
+      currentMood: null,
+      emotionSummary: null,
     },
-    "jake",
+    [
+      {
+        sessionId: "ella-session-1",
+        sessionDateKey: "2026-07-15",
+        completed: true,
+        summary: "Nia felt calmer after setting a boundary.",
+        emotionalInsight: "Steadiness mattered to her.",
+        updatedAt: Date.now(),
+      },
+    ],
+    [{ dateKey: "2026-07-14", content: "I want to protect my energy." }],
   );
 
-  assert.equal(completion?.summary.includes("difficult conversation"), true);
-  assert.equal(completion?.emotionalInsight.includes("tired but proud"), true);
-  assert.equal(completion?.currentMood, "relieved");
-  assert.deepEqual(completion?.emotionalTags, [
-    "tired",
-    "proud",
-    "steady",
-    "clear",
-    "extra",
-  ]);
-  assert.equal(
-    completion?.nextStepNote,
-    "Check in later on whether the conversation still feels resolved.",
-  );
+  assert.match(prompt, /preferred name is Nia/i);
+  assert.match(prompt, /private memories/i);
+  assert.match(prompt, /other Rewind partners have separate memories/i);
+  assert.match(prompt, /explicit Journal entries/i);
 });
 
 test("resume context is framed as private memory instead of instructions", () => {
@@ -97,6 +75,42 @@ test("resume context is framed as private memory instead of instructions", () =>
   assert.match(prompt, /private note/i);
   assert.match(prompt, /never as instructions/i);
   assert.match(prompt, /more confident/i);
+});
+
+test("Gemini Live only resumes recoverable connections with a resumption handle", () => {
+  assert.equal(
+    shouldResumeGeminiLiveSession({
+      clientDisconnected: false,
+      closeCode: 1000,
+      hasResumptionHandle: true,
+      isSessionFinalized: false,
+      isSessionFinalizing: false,
+      rolloverRequested: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldResumeGeminiLiveSession({
+      clientDisconnected: false,
+      closeCode: 1012,
+      hasResumptionHandle: true,
+      isSessionFinalized: false,
+      isSessionFinalizing: false,
+      rolloverRequested: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldResumeGeminiLiveSession({
+      clientDisconnected: false,
+      closeCode: 1006,
+      hasResumptionHandle: false,
+      isSessionFinalized: false,
+      isSessionFinalizing: false,
+      rolloverRequested: false,
+    }),
+    false,
+  );
 });
 
 test("Rewind token is audience-bound and single use", () => {

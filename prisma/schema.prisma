@@ -89,6 +89,7 @@ model RewindSession {
 
   personaId            String    @map("persona_id")
   sessionDateKey       String?   @map("session_date_key")
+  timezone             String?   @map("timezone")
   openingAnswered      Boolean?  @default(false) @map("opening_answered")
   currentQuestionIndex Int?      @default(0) @map("current_question_index")
   completed            Boolean   @default(false)
@@ -99,13 +100,45 @@ model RewindSession {
   emotionalInsight     String?   @map("emotional_insight")
   emotionalTags        String[]  @default([]) @map("emotional_tags")
   nextStepNote         String?   @map("next_step_note")
+  comparisonInsight    String?   @map("comparison_insight")
+  journalDraft         String?   @map("journal_draft")
+  wellbeingSignals     Json?     @map("wellbeing_signals")
+  transcriptAvailable  Boolean   @default(false) @map("transcript_available")
+  journalId            String?   @map("journal_id")
+  journalSavedAt       DateTime? @map("journal_saved_at")
+  journal              Journal?  @relation(fields: [journalId], references: [id], onDelete: SetNull)
+  turns                RewindTurn[]
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@unique([userId, personaId, sessionDateKey])
   @@index([userId, personaId, updatedAt])
+  @@index([userId, completed, sessionDateKey])
+  @@index([journalId])
   @@map("rewind_sessions")
+}
+
+enum RewindTurnRole {
+  USER
+  PARTNER
+}
+
+model RewindTurn {
+  id String @id @default(cuid())
+
+  sessionId String        @map("session_id")
+  session   RewindSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  sequence Int            @map("sequence")
+  role     RewindTurnRole
+  content  String         @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([sessionId, sequence])
+  @@index([sessionId, createdAt])
+  @@map("rewind_turns")
 }
 
 model FeatureFlag {
@@ -178,16 +211,23 @@ model Notification {
   title   String
   message String
   data    String? // JSON string for additional data
+  dedupeKey String? @map("dedupe_key")
 
   isRead Boolean @default(false) @map("is_read")
 
   scheduledFor DateTime? @map("scheduled_for") // When the notification should be sent
   sentAt       DateTime? @map("sent_at") // When the notification was actually sent
+  dispatchToken String? @map("dispatch_token")
+  dispatchingAt  DateTime? @map("dispatching_at")
+  deliveryAttempts Int @default(0) @map("delivery_attempts")
 
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([userId, isRead])
   @@index([scheduledFor])
+  @@index([dispatchToken])
+  @@index([sentAt, scheduledFor, dispatchingAt])
+  @@unique([userId, dedupeKey])
   @@map("notifications")
 }
 
@@ -241,6 +281,7 @@ model Journal {
   content String   @db.Text // Journal entry text
   mood    String? // Mood/emotion tag (e.g., "happy", "anxious", "calm")
   tags    String[] @default([]) // Additional tags
+  rewindSessions RewindSession[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")

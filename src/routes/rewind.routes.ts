@@ -5,6 +5,12 @@ import * as rewindController from "../controllers/rewind.controller";
 const router = Router();
 
 router.get("/sessions", authMiddleware, rewindController.getPaginatedRewindSessions);
+router.get("/insights", authMiddleware, rewindController.getRewindInsights);
+router.post(
+  "/sessions/:sessionId/add-to-journal",
+  authMiddleware,
+  rewindController.addRewindSessionToJournal,
+);
 router.get("/sessions/:sessionId", authMiddleware, rewindController.getRewindSession);
 router.post("/live-token", authMiddleware, rewindController.createLiveToken);
 

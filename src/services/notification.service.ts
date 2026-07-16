@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getAblyClient } from "../config/ably.config";
 import { prisma } from "../config/db.config";
 import { getStreakMilestonePoints } from "../config/points.config";
@@ -12,17 +13,65 @@ export interface CreateNotificationData {
   type: "goal_reminder" | "goal_completed" | "streak_milestone" | "system";
   title: string;
   message: string;
-  data?: any;
+  data?: Record<string, unknown>;
+  dedupeKey?: string;
   scheduledFor?: Date;
 }
 
-export interface NotificationPayload {
+export interface NotificationPayload extends Record<string, unknown> {
   id: string;
   type: string;
   title: string;
   message: string;
-  data?: any;
+  data?: Record<string, unknown>;
   createdAt: string;
+}
+
+type DeliverableNotification = {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  data: string | null;
+  createdAt: Date;
+  user: {
+    fcmTokens: string[];
+    firstName: string | null;
+    username: string | null;
+  };
+};
+
+type NotificationClaim = {
+  dispatchToken: string;
+  notifications: DeliverableNotification[];
+};
+
+const NOTIFICATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseNotificationData(
+  value: string | null,
+): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    isRecord(error) &&
+    typeof error.code === "string" &&
+    error.code === "P2002"
+  );
 }
 
 class NotificationService {
@@ -46,31 +95,42 @@ class NotificationService {
     return `[${user.username || user.firstName || "user"}]`;
   }
 
-  private async getSharedFcmTokens(userId: string, userFcmTokens: string[]) {
-    if (!userFcmTokens.length) {
-      return new Set<string>();
+  private async getSharedFcmTokensByUser(
+    notifications: DeliverableNotification[],
+  ): Promise<Map<string, Set<string>>> {
+    const allTokens = new Set<string>();
+    for (const notification of notifications) {
+      for (const token of notification.user.fcmTokens) {
+        if (token) allTokens.add(token);
+      }
     }
+    if (!allTokens.size) return new Map();
 
-    const usersSharingTokens = await prisma.user.findMany({
-      where: {
-        id: { not: userId },
-        fcmTokens: { hasSome: userFcmTokens },
-      },
-      select: { fcmTokens: true },
+    const users = await prisma.user.findMany({
+      where: { fcmTokens: { hasSome: [...allTokens] } },
+      select: { id: true, fcmTokens: true },
     });
-
-    const sharedTokens = new Set<string>();
-    const ownTokens = new Set(userFcmTokens);
-
-    for (const user of usersSharingTokens) {
-      for (const token of user.fcmTokens) {
-        if (ownTokens.has(token)) {
-          sharedTokens.add(token);
-        }
+    const tokenOwnerIds = new Map<string, Set<string>>();
+    for (const user of users) {
+      for (const token of new Set(user.fcmTokens)) {
+        if (!allTokens.has(token)) continue;
+        const ownerIds = tokenOwnerIds.get(token) ?? new Set<string>();
+        ownerIds.add(user.id);
+        tokenOwnerIds.set(token, ownerIds);
       }
     }
 
-    return sharedTokens;
+    const sharedByUser = new Map<string, Set<string>>();
+    for (const notification of notifications) {
+      const sharedTokens = new Set<string>();
+      for (const token of new Set(notification.user.fcmTokens)) {
+        if ((tokenOwnerIds.get(token)?.size ?? 0) > 1) {
+          sharedTokens.add(token);
+        }
+      }
+      sharedByUser.set(notification.userId, sharedTokens);
+    }
+    return sharedByUser;
   }
 
   private async createDedupedSystemNotification(params: {
@@ -82,44 +142,20 @@ class NotificationService {
     windowStart: Date;
     scheduledFor?: Date;
   }) {
-    const recentNotifications = await prisma.notification.findMany({
-      where: {
+    try {
+      return await this.createNotification({
         userId: params.userId,
         type: "system",
-        createdAt: { gte: params.windowStart },
-      },
-      select: { data: true },
-      take: 100,
-    });
-
-    const alreadyCreated = recentNotifications.some((notification) => {
-      if (!notification.data) {
-        return false;
-      }
-
-      try {
-        const data = JSON.parse(notification.data) as { dedupeKey?: string };
-        return data.dedupeKey === params.dedupeKey;
-      } catch {
-        return false;
-      }
-    });
-
-    if (alreadyCreated) {
-      return null;
-    }
-
-    return this.createNotification({
-      userId: params.userId,
-      type: "system",
-      title: params.title,
-      message: params.message,
-      data: {
-        ...params.data,
+        title: params.title,
+        message: params.message,
+        data: params.data,
         dedupeKey: params.dedupeKey,
-      },
-      scheduledFor: params.scheduledFor,
-    });
+        scheduledFor: params.scheduledFor,
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) return null;
+      throw error;
+    }
   }
 
   /**
@@ -130,13 +166,14 @@ class NotificationService {
       const notification = await prisma.notification.create({
         data: {
           userId: data.userId,
-          goalId: data.goalId!,
+          goalId: data.goalId,
           type: data.type,
           title: data.title,
           message: data.message,
           data: data.data ? JSON.stringify(data.data) : null,
-          scheduledFor: data.scheduledFor!,
-          sentAt: data.scheduledFor ? null : new Date(), // If no schedule, mark as sent immediately
+          dedupeKey: data.dedupeKey,
+          scheduledFor: data.scheduledFor ?? new Date(),
+          sentAt: null,
         },
       });
 
@@ -152,77 +189,151 @@ class NotificationService {
     }
   }
 
-  /**
-   * Send a notification via Ably and FCM
-   */
-  async sendNotification(notificationId: string) {
-    try {
-      const notification = await prisma.notification.findUnique({
-        where: { id: notificationId },
-        include: {
-          user: {
-            select: { fcmTokens: true, firstName: true, username: true },
-          },
+  private async claimNotifications(
+    notificationIds: string[],
+  ): Promise<NotificationClaim | null> {
+    const uniqueIds = [...new Set(notificationIds)];
+    if (!uniqueIds.length) return null;
+
+    const dispatchToken = randomUUID();
+    const claimedAt = new Date();
+    const expiredLease = new Date(
+      claimedAt.getTime() - NOTIFICATION_CLAIM_LEASE_MS,
+    );
+    const result = await prisma.notification.updateMany({
+      where: {
+        id: { in: uniqueIds },
+        sentAt: null,
+        OR: [
+          { dispatchingAt: null },
+          { dispatchingAt: { lt: expiredLease } },
+        ],
+      },
+      data: {
+        dispatchToken,
+        dispatchingAt: claimedAt,
+        deliveryAttempts: { increment: 1 },
+      },
+    });
+    if (!result.count) return null;
+
+    const notifications = await prisma.notification.findMany({
+      where: { dispatchToken },
+      include: {
+        user: {
+          select: { fcmTokens: true, firstName: true, username: true },
         },
-      });
+      },
+    });
+    return { dispatchToken, notifications };
+  }
 
-      if (!notification) {
-        logger.warn(`Notification ${notificationId} not found`);
-        return;
-      }
+  private async releaseNotificationClaim(dispatchToken: string): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { dispatchToken, sentAt: null },
+      data: { dispatchToken: null, dispatchingAt: null },
+    });
+  }
 
-      // Create channel for user
-      const channel = this.ablyClient.channels.get(`user:${notification.userId}`);
+  private async markNotificationsDelivered(
+    dispatchToken: string,
+  ): Promise<void> {
+    await prisma.notification.updateMany({
+      where: { dispatchToken, sentAt: null },
+      data: {
+        dispatchToken: null,
+        dispatchingAt: null,
+        sentAt: new Date(),
+      },
+    });
+  }
 
-      // Prepare payload
-      const payload: NotificationPayload = {
-        id: notification.id,
-        type: notification.type,
-        title: notification.title,
-        message: notification.message,
-        data: notification.data ? JSON.parse(notification.data) : undefined,
-        createdAt: notification.createdAt.toISOString(),
-      };
+  private toPayload(notification: DeliverableNotification): NotificationPayload {
+    return {
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      data: parseNotificationData(notification.data),
+      createdAt: notification.createdAt.toISOString(),
+    };
+  }
 
-      // Publish to Ably (for real-time web notifications)
-      await channel.publish("notification", payload);
+  private async dispatchNotificationBatch(
+    notificationIds: string[],
+  ): Promise<number> {
+    const claim = await this.claimNotifications(notificationIds);
+    if (!claim?.notifications.length) return 0;
 
-      // Send FCM push notification if user has tokens
-      if (notification.user.fcmTokens && notification.user.fcmTokens.length > 0) {
-        try {
-          const sharedTokens = await this.getSharedFcmTokens(
-            notification.userId,
-            notification.user.fcmTokens,
-          );
-          const sharedPrefix = this.getSharedFcmTokenPrefix(notification.user);
+    try {
+      const sharedTokensByUser = await this.getSharedFcmTokensByUser(
+        claim.notifications,
+      );
+      const pushMessages: Array<{
+        token: string;
+        title: string;
+        body: string;
+        payload: Record<string, unknown>;
+        silent: boolean;
+      }> = [];
+      const ablyPublishes = claim.notifications.map(async (notification) => {
+        const payload = this.toPayload(notification);
+        const sharedTokens = sharedTokensByUser.get(notification.userId) ?? new Set<string>();
+        const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
 
-          await pushNotificationService.sendFCMBatchMessages(
-            notification.user.fcmTokens.map((token) => ({
-              token,
-              title: sharedTokens.has(token)
-                ? `${sharedPrefix} ${notification.title}`
-                : notification.title,
-              body: notification.message,
-              payload,
-              silent: false,
-            })),
-          );
-        } catch (fcmError) {
-          logger.error("Error sending FCM push:", fcmError);
-          // Don't fail the entire notification if FCM fails
+        for (const token of new Set(notification.user.fcmTokens)) {
+          if (!token) continue;
+          pushMessages.push({
+            token,
+            title: sharedTokens.has(token)
+              ? `${titlePrefix} ${notification.title}`
+              : notification.title,
+            body: notification.message,
+            payload,
+            silent: false,
+          });
         }
+
+        const channel = this.ablyClient.channels.get(`user:${notification.userId}`);
+        return channel.publish("notification", payload);
+      });
+      const ablyResults = await Promise.allSettled(ablyPublishes);
+      const ablyFailures = ablyResults.filter(
+        (result) => result.status === "rejected",
+      ).length;
+      if (ablyFailures) {
+        logger.warn("Notification realtime batch had failures", {
+          attempted: ablyResults.length,
+          failed: ablyFailures,
+        });
       }
 
-      // Mark as sent
-      await prisma.notification.update({
-        where: { id: notificationId },
-        data: { sentAt: new Date() },
-      });
+      if (pushMessages.length) {
+        await pushNotificationService.sendFCMBatchMessages(pushMessages);
+      }
 
-      logger.info(`Notification ${notificationId} sent to user ${notification.userId}`);
+      await this.markNotificationsDelivered(claim.dispatchToken);
+      logger.info("Notification batch delivered", {
+        notifications: claim.notifications.length,
+        pushMessages: pushMessages.length,
+      });
+      return claim.notifications.length;
     } catch (error) {
-      logger.error(`Error sending notification ${notificationId}:`, error);
+      await this.releaseNotificationClaim(claim.dispatchToken);
+      logger.error("Notification batch delivery failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        notifications: claim.notifications.length,
+      });
       throw error;
+    }
+  }
+
+  async sendNotification(notificationId: string): Promise<void> {
+    const delivered = await this.dispatchNotificationBatch([notificationId]);
+    if (!delivered) {
+      logger.debug("Notification was already claimed or delivered", {
+        notificationId,
+      });
     }
   }
 
@@ -567,6 +678,8 @@ class NotificationService {
           type: true,
           goalId: true,
         },
+        orderBy: { scheduledFor: "asc" },
+        take: 500,
       });
 
       if (pendingNotifications.length === 0) {
@@ -610,8 +723,8 @@ class NotificationService {
         );
       };
 
-      let processedCount = 0;
-      let skippedBecauseCheckedIn = 0;
+      const skippedNotificationIds: string[] = [];
+      const deliverableNotificationIds: string[] = [];
 
       for (const notification of pendingNotifications) {
         // For goal reminders, skip sending if the goal has already been
@@ -619,21 +732,26 @@ class NotificationService {
         if (notification.type === "goal_reminder" && notification.goalId) {
           const goal = goalsById[notification.goalId];
           if (goal?.lastCheckInDate && isSameUtcDate(goal.lastCheckInDate, now)) {
-            // Mark as sent without sending a push/real-time notification,
-            // so it won't be retried again for this cycle.
-            await prisma.notification.update({
-              where: { id: notification.id },
-              data: { sentAt: now },
-            });
-            processedCount++;
-            skippedBecauseCheckedIn++;
+            skippedNotificationIds.push(notification.id);
             continue;
           }
         }
 
-        await this.sendNotification(notification.id);
-        processedCount++;
+        deliverableNotificationIds.push(notification.id);
       }
+
+      if (skippedNotificationIds.length) {
+        await prisma.notification.updateMany({
+          where: { id: { in: skippedNotificationIds }, sentAt: null },
+          data: { sentAt: now },
+        });
+      }
+
+      const deliveredCount = await this.dispatchNotificationBatch(
+        deliverableNotificationIds,
+      );
+      const skippedBecauseCheckedIn = skippedNotificationIds.length;
+      const processedCount = deliveredCount + skippedBecauseCheckedIn;
 
       if (processedCount > 0) {
         logger.info(`Processed ${processedCount} pending notifications`);
