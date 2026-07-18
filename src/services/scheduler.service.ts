@@ -1,8 +1,10 @@
 import { notificationService } from "./notification.service";
+import { runRewindRoutineLifecycle } from "./rewind-routine.service";
 import logger from "../utils/logger.util";
 
 class SchedulerService {
   private intervalId: NodeJS.Timeout | null = null;
+  private rewindLifecycleIntervalId: NodeJS.Timeout | null = null;
   private isRunning = false;
 
   /**
@@ -31,6 +33,13 @@ class SchedulerService {
       this.processPendingNotifications();
     }, 60 * 1000); // Every minute
 
+    // Rewind slots are account-local, so their lifecycle must be evaluated
+    // every minute instead of against a server-wide UTC day.
+    this.processRewindRoutineLifecycle();
+    this.rewindLifecycleIntervalId = setInterval(() => {
+      this.processRewindRoutineLifecycle();
+    }, 60 * 1000);
+
     logger.info("Notification scheduler started successfully");
   }
 
@@ -48,6 +57,10 @@ class SchedulerService {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+    if (this.rewindLifecycleIntervalId) {
+      clearInterval(this.rewindLifecycleIntervalId);
+      this.rewindLifecycleIntervalId = null;
     }
 
     this.isRunning = false;
@@ -84,6 +97,24 @@ class SchedulerService {
       await notificationService.processPendingNotifications();
     } catch (error) {
       logger.error("Error in processPendingNotifications:", error);
+    }
+  }
+
+  private async processRewindRoutineLifecycle() {
+    try {
+      const result = await runRewindRoutineLifecycle();
+      if (
+        result.finalizedCount ||
+        result.missedCount ||
+        result.reminderNotificationCount ||
+        result.startNotificationCount
+      ) {
+        logger.info("Processed Rewind routine lifecycle", result);
+      }
+    } catch (error) {
+      logger.error("Error in Rewind routine lifecycle", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
     }
   }
 }

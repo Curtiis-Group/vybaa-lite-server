@@ -7,7 +7,10 @@ import {
   sanitizeUsername,
   validateUsername,
 } from "../utils/username.util";
-import { isValidRewindTimezone } from "../services/rewind-routine.service";
+import {
+  isValidRewindTimezone,
+  refreshFutureRewindOccurrences,
+} from "../services/rewind-routine.service";
 import { formatUserResponse } from "./auth.controller";
 
 export async function updateProfile(req: AuthRequest, res: Response) {
@@ -87,6 +90,10 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       where: { id: userId },
       data: updateData,
     });
+
+    if (timezone !== undefined || rewindPersona !== undefined) {
+      await refreshFutureRewindOccurrences({ userId });
+    }
 
     res.json({
       msg: "Profile updated successfully",

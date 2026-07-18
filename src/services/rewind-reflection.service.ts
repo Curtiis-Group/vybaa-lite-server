@@ -22,6 +22,7 @@ export type RewindReflection = {
 };
 
 export type RewindReflectionContext = {
+  intent?: string | null;
   journalEntries: Array<{ content: string; dateKey: string }>;
   personaName: string;
   previousSummaries: Array<{ dateKey: string; summary: string }>;
@@ -143,6 +144,9 @@ export async function generateRewindReflection(
           {
             text:
               "Create a substantial, grounded daily Rewind reflection from the completed transcript. Do not diagnose, invent events, or make medical claims. The partner can use only its own private memories and the user's explicit journals. Mention a prior pattern only when it genuinely clarifies today. The summary must contain four concise plain-text sections: What happened, What mattered emotionally, What became clearer, and A useful next check-in. Ground every point in the conversation. The journalDraft must be a first-person note the user can review and append without overwriting their writing. Wellbeing signals are non-clinical 0-100 reflective readings, not health scores.\n\n" +
+              (context.intent
+                ? `The user's stated Rewind intention is: ${context.intent}. Let it shape emphasis, but never force it where the transcript does not support it.\n\n`
+                : "") +
               `Transcript:\n${formatTranscript(context.transcript)}\n\n` +
               `${formatPriorContext(context)}`,
           },

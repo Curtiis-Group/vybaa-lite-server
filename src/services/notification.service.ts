@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { DateTime } from "luxon";
 import { getAblyClient } from "../config/ably.config";
 import { prisma } from "../config/db.config";
 import { getStreakMilestonePoints } from "../config/points.config";
@@ -49,6 +50,21 @@ type NotificationClaim = {
 };
 
 const NOTIFICATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
+const FLEXX_DAILY_SEND_CHANCE = 0.55;
+const FLEXX_TEMPLATES = [
+  {
+    message: "Yo ${name}, aren't you flexxing today? Share ${goal} and show them who's boss.",
+    title: "Let today show",
+  },
+  {
+    message: "${name}, ${goal} deserves a little spotlight today. Flexx your progress with the people rooting for you.",
+    title: "Make your progress visible",
+  },
+  {
+    message: "A small win still counts, ${name}. Give ${goal} its moment on Flexx today.",
+    title: "Your win belongs out loud",
+  },
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -91,6 +107,38 @@ class NotificationService {
     firstName: string | null;
   }) {
     return `[${user.username || user.firstName || "user"}]`;
+  }
+
+  private getDeterministicRatio(seed: string): number {
+    const hash = createHash("sha256").update(seed).digest();
+    return hash.readUInt32BE(0) / 0xffffffff;
+  }
+
+  private getLocalFlexxSchedule(params: {
+    dayKey: string;
+    timezone: string;
+    userId: string;
+  }): { templateIndex: number; scheduledFor: Date } {
+    const day = DateTime.fromFormat(params.dayKey, "yyyy-LL-dd", {
+      zone: params.timezone,
+    }).startOf("day");
+    const hour = 11 + Math.floor(
+      this.getDeterministicRatio(`${params.userId}:${params.dayKey}:hour`) * 8,
+    );
+    const minute = Math.floor(
+      this.getDeterministicRatio(`${params.userId}:${params.dayKey}:minute`) * 60,
+    );
+    const templateIndex = Math.min(
+      FLEXX_TEMPLATES.length - 1,
+      Math.floor(
+        this.getDeterministicRatio(`${params.userId}:${params.dayKey}:template`) *
+          FLEXX_TEMPLATES.length,
+      ),
+    );
+    return {
+      scheduledFor: day.set({ hour, minute }).toUTC().toJSDate(),
+      templateIndex,
+    };
   }
 
   private async getSharedFcmTokensByUser(
@@ -538,6 +586,7 @@ class NotificationService {
           id: true,
           username: true,
           firstName: true,
+          timezone: true,
         },
         take: 500,
       });
@@ -545,30 +594,6 @@ class NotificationService {
       let scheduledCount = 0;
 
       for (const user of users) {
-        const completedRewindToday = await prisma.rewindSession.findFirst({
-          where: {
-            userId: user.id,
-            completed: true,
-            OR: [
-              { completedAt: { gte: dayStart } },
-              { checkInAt: { gte: dayStart } },
-            ],
-          },
-          select: { id: true },
-        });
-
-        if (!completedRewindToday) {
-          const notification = await this.createDedupedSystemNotification({
-            userId: user.id,
-            title: "Time to Rewind",
-            message: "Time to rewind and check in with yourself.",
-            data: { type: "time_to_rewind", route: "/app/rewind" },
-            dedupeKey: `time_to_rewind:${dayKey}`,
-            scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
-          });
-          if (notification) scheduledCount++;
-        }
-
         const recentGoals = await prisma.goal.findMany({
           where: {
             userId: user.id,
@@ -587,19 +612,42 @@ class NotificationService {
         );
 
         if (activeGoal) {
-          const notification = await this.createDedupedSystemNotification({
+          const timezone = DateTime.now().setZone(user.timezone).isValid
+            ? user.timezone
+            : "UTC";
+          const localDayKey = DateTime.fromJSDate(now, { zone: timezone }).toFormat(
+            "yyyy-LL-dd",
+          );
+          const shouldSendFlexx =
+            this.getDeterministicRatio(
+              `${user.id}:${localDayKey}:flexx-decision`,
+            ) < FLEXX_DAILY_SEND_CHANCE;
+          const flexxSchedule = this.getLocalFlexxSchedule({
+            dayKey: localDayKey,
+            timezone,
             userId: user.id,
-            title: "Flexx Check-in",
-            message: `Flexx on your friends today: ${activeGoal.goalText}`,
-            data: {
-              type: "flexx_prompt",
-              route: "/app/goal",
-              goalId: activeGoal.id,
-            },
-            dedupeKey: `flexx_prompt:${dayKey}`,
-            scheduledFor: this.getScheduledUtcTime(dayStart, 12, now),
           });
-          if (notification) scheduledCount++;
+
+          if (shouldSendFlexx && flexxSchedule.scheduledFor > now) {
+            const template = FLEXX_TEMPLATES[flexxSchedule.templateIndex];
+            const name = user.firstName || user.username || "there";
+            const message = template.message
+              .replace("${name}", name)
+              .replace("${goal}", activeGoal.goalText);
+            const notification = await this.createDedupedSystemNotification({
+              userId: user.id,
+              title: template.title,
+              message,
+              data: {
+                type: "flexx_prompt",
+                route: "/app/actions/flexx",
+                goalId: activeGoal.id,
+              },
+              dedupeKey: `flexx_prompt:${localDayKey}`,
+              scheduledFor: flexxSchedule.scheduledFor,
+            });
+            if (notification) scheduledCount++;
+          }
         }
 
         const recentCommunityActivity =

@@ -53,6 +53,7 @@ export async function getRewindRoutine(req: AuthRequest, res: Response) {
       msg: "Rewind routine retrieved",
       data: {
         currentSession: serializeOccurrence(overview.currentSession),
+        latestSession: serializeOccurrence(overview.latestSession),
         nextSession: serializeOccurrence(overview.nextSession),
         routine: overview.routine,
         timezone: overview.timezone,
@@ -98,6 +99,7 @@ export async function updateRewindRoutine(req: AuthRequest, res: Response) {
       msg: "Rewind routine updated",
       data: {
         currentSession: serializeOccurrence(overview?.currentSession ?? null),
+        latestSession: serializeOccurrence(overview?.latestSession ?? null),
         nextSession: serializeOccurrence(overview?.nextSession ?? null),
         routine,
         timezone: overview?.timezone ?? timezone,
