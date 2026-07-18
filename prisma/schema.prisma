@@ -26,6 +26,7 @@ model User {
   avatarUrl            String?   @map("avatar_url")
   currentMood          String?   @map("current_mood")
   rewindPersona        String?   @map("rewind_persona")
+  timezone             String    @default("UTC") @map("timezone")
   lastUsernameChangeAt DateTime? @map("last_username_change_at") // Track username changes for cooldown
 
   // Auth fields
@@ -67,6 +68,7 @@ model User {
   createdInvites       CommunityInvite[]   @relation("InviteCreator")
   receivedInvites      CommunityInvite[]   @relation("InviteRecipient")
   rewindSessions       RewindSession[]
+  rewindRoutine        RewindRoutine?
 
   // Summary caching
   lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
@@ -90,6 +92,11 @@ model RewindSession {
   personaId            String    @map("persona_id")
   sessionDateKey       String?   @map("session_date_key")
   timezone             String?   @map("timezone")
+  scheduledFor         DateTime? @map("scheduled_for")
+  windowEndsAt         DateTime? @map("window_ends_at")
+  startedAt            DateTime? @map("started_at")
+  status               RewindSessionStatus @default(LEGACY)
+  completionSource     RewindCompletionSource? @map("completion_source")
   openingAnswered      Boolean?  @default(false) @map("opening_answered")
   currentQuestionIndex Int?      @default(0) @map("current_question_index")
   completed            Boolean   @default(false)
@@ -112,11 +119,58 @@ model RewindSession {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@unique([userId, personaId, sessionDateKey])
+  @@unique([userId, scheduledFor])
   @@index([userId, personaId, updatedAt])
   @@index([userId, completed, sessionDateKey])
+  @@index([status, windowEndsAt])
   @@index([journalId])
   @@map("rewind_sessions")
+}
+
+model RewindRoutine {
+  id String @id @default(cuid())
+
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  frequency    RewindFrequency
+  times        String[]        @default([])
+  intent       RewindIntent
+  customIntent String?         @map("custom_intent") @db.Text
+  enabled      Boolean         @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("rewind_routines")
+}
+
+enum RewindFrequency {
+  MORNINGS_AND_EVENINGS
+  JUST_MORNINGS
+  JUST_EVENINGS
+  CUSTOM
+}
+
+enum RewindIntent {
+  UNDERSTAND_EMOTIONS
+  SPOT_PATTERNS
+  BUILD_SMALL_CHANGES
+  CUSTOM
+}
+
+enum RewindSessionStatus {
+  LEGACY
+  SCHEDULED
+  IN_PROGRESS
+  FINALIZING
+  COMPLETED
+  MISSED
+}
+
+enum RewindCompletionSource {
+  USER
+  AUTO_TIMEOUT
 }
 
 enum RewindTurnRole {

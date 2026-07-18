@@ -100,6 +100,7 @@ export const updateProfileSchema = z.object({
   username: usernameSchema.optional(),
   profileImageId: z.string().optional(),
   rewindPersona: z.enum(["ella", "lyra", "jake", "ariel"]).nullable().optional(),
+  timezone: z.string().min(1).max(64).optional(),
 });
 
 // Params validators

@@ -7,13 +7,20 @@ import {
   sanitizeUsername,
   validateUsername,
 } from "../utils/username.util";
+import { isValidRewindTimezone } from "../services/rewind-routine.service";
 import { formatUserResponse } from "./auth.controller";
 
 export async function updateProfile(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { firstName, lastName, username, profileImageId, rewindPersona } =
-      req.body;
+    const {
+      firstName,
+      lastName,
+      username,
+      profileImageId,
+      rewindPersona,
+      timezone,
+    } = req.body;
 
     const updateData: any = {};
 
@@ -69,6 +76,12 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       updateData.avatarUrl = profileImageId;
     }
     if (rewindPersona !== undefined) updateData.rewindPersona = rewindPersona;
+    if (timezone !== undefined) {
+      if (typeof timezone !== "string" || !isValidRewindTimezone(timezone)) {
+        return res.status(400).json({ msg: "A valid IANA timezone is required" });
+      }
+      updateData.timezone = timezone;
+    }
 
     const user = await prisma.user.update({
       where: { id: userId },

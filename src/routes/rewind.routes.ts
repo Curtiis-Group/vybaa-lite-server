@@ -1,9 +1,12 @@
 import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
 import * as rewindController from "../controllers/rewind.controller";
+import * as rewindRoutineController from "../controllers/rewind-routine.controller";
 
 const router = Router();
 
+router.get("/routine", authMiddleware, rewindRoutineController.getRewindRoutine);
+router.put("/routine", authMiddleware, rewindRoutineController.updateRewindRoutine);
 router.get("/sessions", authMiddleware, rewindController.getPaginatedRewindSessions);
 router.get("/insights", authMiddleware, rewindController.getRewindInsights);
 router.post(
