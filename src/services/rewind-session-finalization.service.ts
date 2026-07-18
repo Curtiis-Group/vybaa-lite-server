@@ -67,7 +67,9 @@ function normalizeSignals(value: unknown): RewindWellbeingSignals | null {
   return signals;
 }
 
-function hasSubstantiveUserTurn(turns: Array<{ content: string; role: RewindTurnRole }>): boolean {
+export function hasSubstantiveUserTurn(
+  turns: Array<{ content: string; role: RewindTurnRole }>,
+): boolean {
   return turns.some(
     (turn) =>
       turn.role === RewindTurnRole.USER &&

@@ -4,6 +4,8 @@ import { RewindFrequency, RewindIntent } from "@prisma/client";
 import {
   EVENING_REWIND_TIME,
   MORNING_REWIND_TIME,
+  getRewindIntentLabel,
+  getRoutineOccurrenceStarts,
   getRoutineTimes,
   normalizeRewindTimezone,
   validateRewindRoutineInput,
@@ -57,4 +59,47 @@ test("custom Rewind intentions and timezone must be valid", () => {
     /custom rewind intention/i,
   );
   assert.equal(normalizeRewindTimezone("Invalid/Timezone"), "UTC");
+});
+
+test("occurrences preserve user wall-clock schedules across timezones and DST", () => {
+  const lagosStarts = getRoutineOccurrenceStarts({
+    now: new Date("2026-07-18T00:00:00.000Z"),
+    times: ["08:00"],
+    timezone: "Africa/Lagos",
+  });
+  assert.equal(lagosStarts[0]?.toFormat("yyyy-LL-dd HH:mm"), "2026-07-18 08:00");
+
+  const newYorkStarts = getRoutineOccurrenceStarts({
+    now: new Date("2026-03-08T00:00:00.000Z"),
+    times: ["02:30"],
+    timezone: "America/New_York",
+  });
+  const springForwardStart = newYorkStarts.find(
+    (start) => start.toFormat("yyyy-LL-dd") === "2026-03-08",
+  );
+  assert.equal(springForwardStart?.toFormat("HH:mm"), "03:30");
+
+  const fallbackStarts = getRoutineOccurrenceStarts({
+    now: new Date("2026-11-01T00:00:00.000Z"),
+    times: ["01:30"],
+    timezone: "America/New_York",
+  }).filter((start) => start.toFormat("yyyy-LL-dd") === "2026-11-01");
+  assert.equal(fallbackStarts.length, 1);
+});
+
+test("routine intention labels stay meaningful in reflection prompts", () => {
+  assert.equal(
+    getRewindIntentLabel({
+      customIntent: null,
+      intent: RewindIntent.BUILD_SMALL_CHANGES,
+    }),
+    "Turn reflection into small changes",
+  );
+  assert.equal(
+    getRewindIntentLabel({
+      customIntent: "Notice when I feel most like myself",
+      intent: RewindIntent.CUSTOM,
+    }),
+    "Notice when I feel most like myself",
+  );
 });

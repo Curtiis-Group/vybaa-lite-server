@@ -172,7 +172,7 @@ function buildOccurrenceStart(params: {
   );
 }
 
-function getRoutineOccurrenceStarts(params: {
+export function getRoutineOccurrenceStarts(params: {
   now: Date;
   times: string[];
   timezone: string;

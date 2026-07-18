@@ -37,6 +37,7 @@ function formatUserResponse(user) {
         avatarUrl: user.avatarUrl || undefined,
         currentMood: user.currentMood || undefined,
         rewindPersona: user.rewindPersona || undefined,
+        timezone: user.timezone || "UTC",
         isConfirmed: user.isConfirmed,
         isFirstTime: user.isFirstTime,
         lastUsernameChangeAt: user.lastUsernameChangeAt?.toISOString() || undefined,

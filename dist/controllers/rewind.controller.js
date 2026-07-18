@@ -22,8 +22,10 @@ const genai_1 = require("@google/genai");
 const client_1 = require("@prisma/client");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const node_crypto_1 = require("node:crypto");
+const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
-const rewind_reflection_service_1 = require("../services/rewind-reflection.service");
+const rewind_routine_service_1 = require("../services/rewind-routine.service");
+const rewind_session_finalization_service_1 = require("../services/rewind-session-finalization.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const security_config_util_1 = require("../utils/security-config.util");
 const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "models/gemini-3.1-flash-live-preview";
@@ -95,29 +97,6 @@ function shouldResumeGeminiLiveSession(state) {
         return true;
     }
     return state.closeCode !== 1000;
-}
-function createEmptySession(params) {
-    return {
-        sessionId: params.sessionId,
-        userId: params.userId,
-        personaId: params.personaId,
-        sessionDateKey: params.sessionDateKey,
-        timezone: params.timezone ?? null,
-        completed: false,
-        completedAt: null,
-        checkInAt: null,
-        summary: getEmptySessionSummary(params.personaId),
-        emotionalInsight: null,
-        emotionalTags: [],
-        nextStepNote: null,
-        comparisonInsight: null,
-        journalDraft: null,
-        wellbeingSignals: null,
-        transcriptAvailable: false,
-        journalId: null,
-        journalSavedAt: null,
-        updatedAt: Date.now(),
-    };
 }
 function getPersonaName(personaId) {
     return personaId.charAt(0).toUpperCase() + personaId.slice(1);
@@ -271,39 +250,10 @@ async function loadRewindSession(params) {
         personaId: session.personaId,
         sessionDateKey: session.sessionDateKey ?? getDateString(session.createdAt),
         timezone: session.timezone,
-        completed: session.completed,
-        completedAt: session.completedAt,
-        checkInAt: session.checkInAt,
-        summary: normalizeSummary(session.summary, session.personaId),
-        emotionalInsight: session.emotionalInsight,
-        emotionalTags: session.emotionalTags,
-        nextStepNote: session.nextStepNote,
-        comparisonInsight: session.comparisonInsight,
-        journalDraft: session.journalDraft,
-        wellbeingSignals: normalizeWellbeingSignals(session.wellbeingSignals),
-        transcriptAvailable: session.transcriptAvailable,
-        journalId: session.journalId,
-        journalSavedAt: session.journalSavedAt,
-        updatedAt: session.updatedAt.getTime(),
-    };
-}
-async function loadRewindSessionForDate(params) {
-    const session = await db_config_1.prisma.rewindSession.findFirst({
-        where: {
-            userId: params.userId,
-            personaId: params.personaId,
-            sessionDateKey: params.sessionDateKey,
-        },
-        orderBy: { updatedAt: "desc" },
-    });
-    if (!session)
-        return null;
-    return {
-        sessionId: session.id,
-        userId: session.userId,
-        personaId: session.personaId,
-        sessionDateKey: session.sessionDateKey ?? params.sessionDateKey,
-        timezone: session.timezone,
+        scheduledFor: session.scheduledFor,
+        windowEndsAt: session.windowEndsAt,
+        startedAt: session.startedAt,
+        status: session.status,
         completed: session.completed,
         completedAt: session.completedAt,
         checkInAt: session.checkInAt,
@@ -327,7 +277,9 @@ async function loadPreviousRewindSessions(params) {
             personaId: params.personaId,
             completed: true,
             NOT: {
-                sessionDateKey: params.currentSessionDateKey,
+                ...(params.currentSessionId
+                    ? { id: params.currentSessionId }
+                    : { sessionDateKey: params.currentSessionDateKey }),
             },
         },
         orderBy: { createdAt: "desc" },
@@ -351,32 +303,9 @@ async function persistRewindSession(sessionState, userInfo = null) {
         userUpdateData.emotionSummary = userInfo.emotionSummary ?? null;
     }
     const writes = [
-        db_config_1.prisma.rewindSession.upsert({
+        db_config_1.prisma.rewindSession.update({
             where: { id: sessionState.sessionId },
-            update: {
-                personaId: sessionState.personaId,
-                sessionDateKey: sessionState.sessionDateKey,
-                timezone: sessionState.timezone,
-                completed: sessionState.completed,
-                completedAt: sessionState.completedAt,
-                checkInAt: sessionState.checkInAt,
-                summary: sessionState.summary,
-                emotionalInsight: sessionState.emotionalInsight,
-                emotionalTags: sessionState.emotionalTags,
-                nextStepNote: sessionState.nextStepNote,
-                comparisonInsight: sessionState.comparisonInsight,
-                journalDraft: sessionState.journalDraft,
-                wellbeingSignals: sessionState.wellbeingSignals,
-                transcriptAvailable: sessionState.transcriptAvailable,
-                journalId: sessionState.journalId,
-                journalSavedAt: sessionState.journalSavedAt,
-            },
-            create: {
-                id: sessionState.sessionId,
-                userId: sessionState.userId,
-                personaId: sessionState.personaId,
-                sessionDateKey: sessionState.sessionDateKey,
-                timezone: sessionState.timezone,
+            data: {
                 completed: sessionState.completed,
                 completedAt: sessionState.completedAt,
                 checkInAt: sessionState.checkInAt,
@@ -402,18 +331,20 @@ async function persistRewindSession(sessionState, userInfo = null) {
     await Promise.all(writes);
 }
 function getDateString(date, timezone) {
-    return new Intl.DateTimeFormat("en-CA", {
-        day: "2-digit",
-        month: "2-digit",
-        timeZone: normalizeRewindTimezone(timezone),
-        year: "numeric",
-    }).format(date);
+    return luxon_1.DateTime.fromJSDate(date, {
+        zone: normalizeRewindTimezone(timezone),
+    }).toFormat("yyyy-LL-dd");
 }
-function getDayBounds(dateKey) {
-    const start = new Date(`${dateKey}T00:00:00.000Z`);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 1);
-    return { end, start };
+function getDayBounds(dateKey, timezone) {
+    const zone = normalizeRewindTimezone(timezone);
+    const parsedDate = luxon_1.DateTime.fromFormat(dateKey, "yyyy-LL-dd", { zone });
+    const fallbackDate = luxon_1.DateTime.fromJSDate(new Date(dateKey), { zone });
+    const start = (parsedDate.isValid ? parsedDate : fallbackDate).startOf("day");
+    const safeStart = start.isValid ? start : luxon_1.DateTime.now().setZone(zone).startOf("day");
+    return {
+        end: safeStart.plus({ days: 1 }).toUTC().toJSDate(),
+        start: safeStart.toUTC().toJSDate(),
+    };
 }
 async function loadRecentJournalEntries(params) {
     const journals = await db_config_1.prisma.journal.findMany({
@@ -454,56 +385,6 @@ async function persistRewindTranscriptTurns(sessionId, turns) {
         })),
         skipDuplicates: true,
     });
-}
-async function getOrCreateRewindSession(params) {
-    const timezone = normalizeRewindTimezone(params.timezone);
-    const sessionDateKey = getDateString(new Date(), timezone);
-    const previousSessions = await loadPreviousRewindSessions({
-        userId: params.userId,
-        personaId: params.personaId,
-        currentSessionDateKey: sessionDateKey,
-    });
-    const journalEntries = await loadRecentJournalEntries({
-        userId: params.userId,
-        timezone,
-    });
-    if (params.requestedSessionId) {
-        const existing = await loadRewindSession({
-            userId: params.userId,
-            personaId: params.personaId,
-            sessionId: params.requestedSessionId,
-        });
-        if (existing) {
-            return {
-                sessionState: existing,
-                restored: existing.completed === false,
-                previousSessions,
-                journalEntries,
-            };
-        }
-    }
-    const todaySession = await loadRewindSessionForDate({
-        userId: params.userId,
-        personaId: params.personaId,
-        sessionDateKey,
-    });
-    if (todaySession) {
-        return {
-            sessionState: todaySession,
-            restored: true,
-            previousSessions,
-            journalEntries,
-        };
-    }
-    const sessionState = createEmptySession({
-        sessionId: createConnectionId(),
-        userId: params.userId,
-        personaId: params.personaId,
-        sessionDateKey,
-        timezone,
-    });
-    await persistRewindSession(sessionState);
-    return { sessionState, restored: false, previousSessions, journalEntries };
 }
 function getRewindVoiceName(personaId) {
     switch (personaId) {
@@ -670,9 +551,10 @@ function getRewindInsightsRange(value) {
     return value === "7d" || value === "90d" || value === "30d" ? value : "30d";
 }
 function getRangeStartDateKey(days, timezone) {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() - (days - 1));
-    return getDateString(date, timezone);
+    return luxon_1.DateTime.now()
+        .setZone(normalizeRewindTimezone(timezone))
+        .minus({ days: days - 1 })
+        .toFormat("yyyy-LL-dd");
 }
 function averageSignals(sessions) {
     const validSignals = sessions
@@ -698,12 +580,14 @@ async function getRewindInsights(req, res) {
     try {
         const range = getRewindInsightsRange(getSingleQueryParam(req.query.range));
         const days = REWIND_INSIGHT_RANGES[range];
-        const timezone = typeof req.headers["x-user-tz"] === "string"
-            ? req.headers["x-user-tz"]
-            : undefined;
+        const userId = req.userId;
+        const user = await db_config_1.prisma.user.findUnique({
+            where: { id: userId },
+            select: { timezone: true },
+        });
+        const timezone = normalizeRewindTimezone(user?.timezone);
         const rangeStartDateKey = getRangeStartDateKey(days, timezone);
         const previousRangeStartDateKey = getRangeStartDateKey(days * 2, timezone);
-        const userId = req.userId;
         const sessions = await db_config_1.prisma.rewindSession.findMany({
             where: {
                 userId,
@@ -797,7 +681,7 @@ async function addRewindSessionToJournal(req, res) {
             if (!journalDraft)
                 return { status: "no-draft" };
             const dateKey = session.sessionDateKey ?? getDateString(session.createdAt);
-            const { end, start } = getDayBounds(dateKey);
+            const { end, start } = getDayBounds(dateKey, session.timezone);
             let journal = await transaction.journal.findFirst({
                 where: {
                     userId,
@@ -875,7 +759,7 @@ function summarizeLiveMessage(message) {
         inputTranscriptionLength: message.serverContent?.inputTranscription?.text?.length ?? 0,
     };
 }
-function getRewindSystemInstruction(personaId, user, previousSessions, journalEntries, temporalContext = getRewindTemporalContext()) {
+function getRewindSystemInstruction(personaId, user, previousSessions, journalEntries, temporalContext = getRewindTemporalContext(), rewindIntent) {
     const personaPrompts = {
         ella: "You are Ella. You understand the user through emotional nuance: notice feelings beneath their words, shifts in energy, and needs they may not have named. You are warm, gentle, and reflective. Speak with soft clarity and keep spoken replies short.",
         lyra: "You are Lyra. You understand the user through patterns and meaning: notice recurring themes, contradictions, growth, and quiet changes over time. You are calm, poetic but concrete, and insight-oriented. Keep replies brief and grounded.",
@@ -902,6 +786,9 @@ function getRewindSystemInstruction(personaId, user, previousSessions, journalEn
     return (`${base}\n\n` +
         `The user's preferred name is ${displayName}. This identity is stable across this connection, restores, and reconnects. Use it naturally sometimes, especially when greeting them; never say that you have forgotten it.\n\n` +
         `The user's local time is ${temporalContext.localDateTime} in ${temporalContext.timezone}; it is ${temporalContext.dayPhase}. Treat this as current connection context. Do not mechanically begin with "how was your day?" or assume their day is over. In the morning, invite them into what is beginning or taking shape; in the afternoon, ask about what is happening now; in the evening or at night, a day reflection can be natural. Never recite the time unless it genuinely helps.\n\n` +
+        (rewindIntent
+            ? `The user's stated reason for Rewind is "${rewindIntent}". Let that guide which details matter, without forcing the conversation into a checklist.\n\n`
+            : "") +
         `${historyContext}${journalContext}` +
         `This is a daily reflection, not an interview. Internally move through arriving, unpacking the day, making meaning, optionally noticing a relevant pattern, and closing; never announce or rigidly force those stages. ` +
         `Use the local time guidance above to choose a fitting opening. Acknowledge and briefly reflect what they say before probing. Keep spoken replies short. ` +
@@ -954,36 +841,69 @@ function buildResumePrompt(currentSummary, recentTranscript) {
 async function createLiveToken(req, res) {
     try {
         const userId = req.userId;
-        const requestedTimezone = typeof req.body?.timezone === "string"
-            ? req.body.timezone
-            : req.headers["x-user-tz"];
-        const timezone = normalizeRewindTimezone(requestedTimezone);
-        const requestedPersonaId = req.body?.personaId;
-        const personaId = isValidPersonaId(requestedPersonaId)
-            ? requestedPersonaId
-            : "ella";
         const requestedSessionId = typeof req.body?.sessionId === "string" && req.body.sessionId.trim()
             ? req.body.sessionId.trim()
             : undefined;
-        const { sessionState } = await getOrCreateRewindSession({
-            userId,
-            personaId,
+        const { occurrence, timezone } = await (0, rewind_routine_service_1.startOrResumeRewindOccurrence)({
             requestedSessionId,
-            timezone,
+            userId,
         });
-        const token = createRewindWsToken(userId, personaId, sessionState.sessionId, timezone);
+        const personaId = isValidPersonaId(occurrence.personaId)
+            ? occurrence.personaId
+            : "ella";
+        const token = createRewindWsToken(userId, personaId, occurrence.id, timezone);
         res.json({
             msg: "Rewind live token created",
             data: {
                 token,
                 wsUrl: `/api/v1/rewind/live?token=${encodeURIComponent(token)}`,
                 personaId,
-                sessionId: sessionState.sessionId,
-                sessionDateKey: sessionState.sessionDateKey,
+                sessionId: occurrence.id,
+                sessionDateKey: occurrence.sessionDateKey,
+                scheduledFor: occurrence.scheduledFor?.toISOString() ?? null,
+                windowEndsAt: occurrence.windowEndsAt?.toISOString() ?? null,
             },
         });
     }
     catch (error) {
+        if (error instanceof rewind_routine_service_1.RewindRoutineAvailabilityError) {
+            const overview = await (0, rewind_routine_service_1.getRewindRoutineOverview)({ userId: req.userId });
+            res.status(409).json({
+                msg: error.reason === "not_configured"
+                    ? "Set up your Rewind routine before starting a session"
+                    : "There is no Rewind session available right now",
+                data: {
+                    currentSession: overview?.currentSession
+                        ? {
+                            id: overview.currentSession.id,
+                            scheduledFor: overview.currentSession.scheduledFor?.toISOString() ?? null,
+                            status: overview.currentSession.status,
+                            windowEndsAt: overview.currentSession.windowEndsAt?.toISOString() ?? null,
+                        }
+                        : null,
+                    latestSession: overview?.latestSession
+                        ? {
+                            id: overview.latestSession.id,
+                            scheduledFor: overview.latestSession.scheduledFor?.toISOString() ?? null,
+                            status: overview.latestSession.status,
+                            windowEndsAt: overview.latestSession.windowEndsAt?.toISOString() ?? null,
+                        }
+                        : null,
+                    nextSession: overview?.nextSession
+                        ? {
+                            id: overview.nextSession.id,
+                            scheduledFor: overview.nextSession.scheduledFor?.toISOString() ?? null,
+                            status: overview.nextSession.status,
+                            windowEndsAt: overview.nextSession.windowEndsAt?.toISOString() ?? null,
+                        }
+                        : null,
+                    reason: error.reason,
+                    routine: overview?.routine ?? null,
+                    timezone: overview?.timezone ?? "UTC",
+                },
+            });
+            return;
+        }
         logger_util_1.default.error("Create rewind live token error", {
             errorName: error instanceof Error ? error.name : "UnknownError",
             userId: req.userId,
@@ -1016,6 +936,7 @@ async function handleLiveConnection(ws, req) {
             lastName: true,
             emotionSummary: true,
             currentMood: true,
+            timezone: true,
         },
     });
     const currentConnections = activeConnections.get(auth.userId) ?? 0;
@@ -1041,15 +962,50 @@ async function handleLiveConnection(ws, req) {
     };
     const personaId = isValidPersonaId(auth.personaId) ? auth.personaId : "ella";
     const requestedSessionId = auth.sessionId?.trim() || undefined;
-    const { sessionState, restored: shouldRestore, previousSessions, journalEntries, } = await getOrCreateRewindSession({
+    const sessionState = await loadRewindSession({
         userId: auth.userId,
         personaId,
-        requestedSessionId,
-        timezone: auth.timezone,
+        sessionId: requestedSessionId,
     });
-    const connectionTimezone = normalizeRewindTimezone(auth.timezone ?? sessionState.timezone);
+    if (!sessionState) {
+        ws.send(JSON.stringify({
+            type: "error",
+            message: "This Rewind session is no longer available.",
+        }));
+        releaseConnection();
+        ws.close(1008, "Rewind occurrence unavailable");
+        return;
+    }
+    const [previousSessions, journalEntries, routine] = await Promise.all([
+        loadPreviousRewindSessions({
+            userId: auth.userId,
+            personaId,
+            currentSessionId: sessionState.sessionId,
+        }),
+        loadRecentJournalEntries({
+            userId: auth.userId,
+            timezone: sessionState.timezone ?? user?.timezone ?? auth.timezone,
+        }),
+        db_config_1.prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
+    ]);
+    const shouldRestore = sessionState.transcriptAvailable;
+    const connectionTimezone = normalizeRewindTimezone(sessionState.timezone ?? user?.timezone ?? auth.timezone);
     const voiceName = getRewindVoiceName(personaId);
     try {
+        const hasScheduledWindow = Boolean(sessionState.scheduledFor && sessionState.windowEndsAt);
+        if (hasScheduledWindow &&
+            !sessionState.completed &&
+            (sessionState.windowEndsAt <= new Date() ||
+                sessionState.status !== client_1.RewindSessionStatus.IN_PROGRESS)) {
+            ws.send(JSON.stringify({
+                type: "session_unavailable",
+                sessionId: sessionState.sessionId,
+                message: "This Rewind window has closed.",
+            }));
+            releaseConnection();
+            ws.close(1000, "Rewind window closed");
+            return;
+        }
         if (sessionState.completed) {
             ws.send(JSON.stringify({
                 type: "session_ended",
@@ -1103,6 +1059,7 @@ async function handleLiveConnection(ws, req) {
         let transcriptFlushTimeout;
         let reconnectTimeout;
         let pauseCloseTimeout;
+        let windowExpiryTimeout;
         let session;
         let latestResumptionHandle;
         let reconnectAttempts = 0;
@@ -1182,9 +1139,12 @@ async function handleLiveConnection(ws, req) {
                 });
             }, 350);
         };
-        const finalizeSession = async () => {
-            if (isSessionFinalized || isSessionFinalizing || isSessionPaused)
-                return;
+        const finalizeSession = async (source = client_1.RewindCompletionSource.USER) => {
+            if (isSessionFinalized ||
+                isSessionFinalizing ||
+                (isSessionPaused && source === client_1.RewindCompletionSource.USER)) {
+                return "unavailable";
+            }
             isSessionFinalizing = true;
             try {
                 if (finishTimeout)
@@ -1192,39 +1152,39 @@ async function handleLiveConnection(ws, req) {
                 if (transcriptFlushTimeout)
                     clearTimeout(transcriptFlushTimeout);
                 await flushTranscriptTurn();
-                const persistedTurns = await loadRewindTranscriptTurns(sessionState.sessionId);
-                const usableTranscript = persistedTurns.filter((turn) => turn.content.trim());
-                if (usableTranscript.length < 2) {
-                    throw new Error("Rewind needs a completed conversation before it can be saved");
-                }
-                const reflection = await (0, rewind_reflection_service_1.generateRewindReflection)({
-                    personaName: getPersonaName(personaId),
-                    transcript: usableTranscript.map((turn) => ({
-                        content: turn.content,
-                        role: turn.role === client_1.RewindTurnRole.USER ? "user" : "partner",
-                    })),
-                    previousSummaries: previousSessions.map((previousSession) => ({
-                        dateKey: previousSession.sessionDateKey,
-                        summary: previousSession.summary,
-                    })),
-                    journalEntries,
+                const result = await (0, rewind_session_finalization_service_1.finalizeRewindSession)({
+                    sessionId: sessionState.sessionId,
+                    source,
                 });
+                if (result.status === "needs_more_reflection") {
+                    throw new Error("Rewind needs a little more of your reflection before it can be saved");
+                }
+                if (result.status === "finalizing") {
+                    throw new Error("Rewind finalization is already in progress");
+                }
+                if (result.status === "missing") {
+                    throw new Error("Rewind session is no longer available");
+                }
+                if (result.status === "missed") {
+                    isSessionFinalized = true;
+                    sessionState.status = client_1.RewindSessionStatus.MISSED;
+                    if (ws.readyState === ws.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "session_missed",
+                            sessionId: sessionState.sessionId,
+                        }));
+                    }
+                    return "missed";
+                }
                 isSessionFinalized = true;
                 const completedAt = new Date();
                 sessionState.completed = true;
                 sessionState.completedAt = completedAt;
                 sessionState.checkInAt = completedAt;
-                sessionState.summary = reflection.summary;
-                sessionState.emotionalInsight = reflection.emotionalInsight;
-                sessionState.emotionalTags = reflection.emotionalTags;
-                sessionState.nextStepNote = reflection.nextStepNote;
-                sessionState.comparisonInsight = reflection.comparisonInsight;
-                sessionState.journalDraft = reflection.journalDraft;
-                sessionState.wellbeingSignals = reflection.wellbeingSignals;
-                await persistRewindSession(sessionState, {
-                    currentMood: reflection.currentMood ?? null,
-                    emotionSummary: reflection.emotionalInsight,
-                });
+                sessionState.status = client_1.RewindSessionStatus.COMPLETED;
+                sessionState.summary = result.summary ?? sessionState.summary;
+                sessionState.emotionalInsight = result.emotionalInsight;
+                sessionState.wellbeingSignals = result.wellbeingSignals;
                 if (ws.readyState === ws.OPEN) {
                     ws.send(JSON.stringify({
                         type: "session_ended",
@@ -1233,6 +1193,7 @@ async function handleLiveConnection(ws, req) {
                         summary: sessionState.summary,
                     }));
                 }
+                return "completed";
             }
             finally {
                 isSessionFinalizing = false;
@@ -1263,6 +1224,25 @@ async function handleLiveConnection(ws, req) {
                 throw error;
             }
         };
+        if (sessionState.windowEndsAt) {
+            const remainingWindowMs = Math.max(0, sessionState.windowEndsAt.getTime() - Date.now());
+            windowExpiryTimeout = setTimeout(() => {
+                void finalizeSession(client_1.RewindCompletionSource.AUTO_TIMEOUT)
+                    .catch((error) => {
+                    logger_util_1.default.error("Automatic Rewind finalization failed", {
+                        connectionId,
+                        errorName: error instanceof Error ? error.name : "UnknownError",
+                        personaId,
+                        sessionId: sessionState.sessionId,
+                    });
+                })
+                    .finally(() => {
+                    if (ws.readyState === ws.OPEN) {
+                        ws.close(1000, "Rewind window ended");
+                    }
+                });
+            }, remainingWindowMs);
+        }
         const sendRealtimeInput = (input) => {
             if (session) {
                 try {
@@ -1371,7 +1351,7 @@ async function handleLiveConnection(ws, req) {
                     systemInstruction: {
                         parts: [
                             {
-                                text: getRewindSystemInstruction(personaId, user, previousSessions, journalEntries, getRewindTemporalContext(new Date(), connectionTimezone)),
+                                text: getRewindSystemInstruction(personaId, user, previousSessions, journalEntries, getRewindTemporalContext(new Date(), connectionTimezone), routine ? (0, rewind_routine_service_1.getRewindIntentLabel)(routine) : undefined),
                             },
                         ],
                     },
@@ -1849,6 +1829,10 @@ async function handleLiveConnection(ws, req) {
                 clearTimeout(reconnectTimeout);
                 reconnectTimeout = undefined;
             }
+            if (windowExpiryTimeout) {
+                clearTimeout(windowExpiryTimeout);
+                windowExpiryTimeout = undefined;
+            }
             releaseConnection();
             logger_util_1.default.info("Rewind client WebSocket closed", {
                 connectionId,
@@ -1870,7 +1854,9 @@ async function handleLiveConnection(ws, req) {
                 if (transcriptFlushTimeout)
                     clearTimeout(transcriptFlushTimeout);
                 void flushTranscriptTurn()
-                    .then(() => persistRewindSession(sessionState))
+                    .then(() => isSessionFinalized
+                    ? undefined
+                    : persistRewindSession(sessionState))
                     .catch(() => undefined);
                 session?.close();
                 session = undefined;

@@ -87,6 +87,7 @@ exports.updateProfileSchema = zod_1.z.object({
     username: exports.usernameSchema.optional(),
     profileImageId: zod_1.z.string().optional(),
     rewindPersona: zod_1.z.enum(["ella", "lyra", "jake", "ariel"]).nullable().optional(),
+    timezone: zod_1.z.string().min(1).max(64).optional(),
 });
 // Params validators
 exports.emailParamSchema = zod_1.z.object({

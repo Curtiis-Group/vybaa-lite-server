@@ -5,10 +5,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.schedulerService = void 0;
 const notification_service_1 = require("./notification.service");
+const rewind_routine_service_1 = require("./rewind-routine.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 class SchedulerService {
     constructor() {
         this.intervalId = null;
+        this.rewindLifecycleIntervalId = null;
         this.isRunning = false;
     }
     /**
@@ -33,6 +35,12 @@ class SchedulerService {
         this.intervalId = setInterval(() => {
             this.processPendingNotifications();
         }, 60 * 1000); // Every minute
+        // Rewind slots are account-local, so their lifecycle must be evaluated
+        // every minute instead of against a server-wide UTC day.
+        this.processRewindRoutineLifecycle();
+        this.rewindLifecycleIntervalId = setInterval(() => {
+            this.processRewindRoutineLifecycle();
+        }, 60 * 1000);
         logger_util_1.default.info("Notification scheduler started successfully");
     }
     /**
@@ -47,6 +55,10 @@ class SchedulerService {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = null;
+        }
+        if (this.rewindLifecycleIntervalId) {
+            clearInterval(this.rewindLifecycleIntervalId);
+            this.rewindLifecycleIntervalId = null;
         }
         this.isRunning = false;
         logger_util_1.default.info("Notification scheduler stopped");
@@ -82,6 +94,22 @@ class SchedulerService {
         }
         catch (error) {
             logger_util_1.default.error("Error in processPendingNotifications:", error);
+        }
+    }
+    async processRewindRoutineLifecycle() {
+        try {
+            const result = await (0, rewind_routine_service_1.runRewindRoutineLifecycle)();
+            if (result.finalizedCount ||
+                result.missedCount ||
+                result.reminderNotificationCount ||
+                result.startNotificationCount) {
+                logger_util_1.default.info("Processed Rewind routine lifecycle", result);
+            }
+        }
+        catch (error) {
+            logger_util_1.default.error("Error in Rewind routine lifecycle", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+            });
         }
     }
 }

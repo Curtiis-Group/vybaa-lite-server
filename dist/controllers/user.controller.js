@@ -13,11 +13,12 @@ exports.checkUsernameAvailability = checkUsernameAvailability;
 const db_config_1 = require("../config/db.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const username_util_1 = require("../utils/username.util");
+const rewind_routine_service_1 = require("../services/rewind-routine.service");
 const auth_controller_1 = require("./auth.controller");
 async function updateProfile(req, res) {
     try {
         const userId = req.userId;
-        const { firstName, lastName, username, profileImageId, rewindPersona } = req.body;
+        const { firstName, lastName, username, profileImageId, rewindPersona, timezone, } = req.body;
         const updateData = {};
         // Handle username change with 7-day cooldown
         if (username !== undefined) {
@@ -66,10 +67,19 @@ async function updateProfile(req, res) {
         }
         if (rewindPersona !== undefined)
             updateData.rewindPersona = rewindPersona;
+        if (timezone !== undefined) {
+            if (typeof timezone !== "string" || !(0, rewind_routine_service_1.isValidRewindTimezone)(timezone)) {
+                return res.status(400).json({ msg: "A valid IANA timezone is required" });
+            }
+            updateData.timezone = timezone;
+        }
         const user = await db_config_1.prisma.user.update({
             where: { id: userId },
             data: updateData,
         });
+        if (timezone !== undefined || rewindPersona !== undefined) {
+            await (0, rewind_routine_service_1.refreshFutureRewindOccurrences)({ userId });
+        }
         res.json({
             msg: "Profile updated successfully",
             data: (0, auth_controller_1.formatUserResponse)(user),

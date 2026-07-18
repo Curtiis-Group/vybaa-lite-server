@@ -20,6 +20,7 @@ import {
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
+import { DateTime } from "luxon";
 import type { WebSocket } from "ws";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
@@ -530,19 +531,24 @@ async function persistRewindSession(
 }
 
 function getDateString(date: Date, timezone?: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone: normalizeRewindTimezone(timezone),
-    year: "numeric",
-  }).format(date);
+  return DateTime.fromJSDate(date, {
+    zone: normalizeRewindTimezone(timezone),
+  }).toFormat("yyyy-LL-dd");
 }
 
-function getDayBounds(dateKey: string): { end: Date; start: Date } {
-  const start = new Date(`${dateKey}T00:00:00.000Z`);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { end, start };
+function getDayBounds(
+  dateKey: string,
+  timezone?: string,
+): { end: Date; start: Date } {
+  const zone = normalizeRewindTimezone(timezone);
+  const parsedDate = DateTime.fromFormat(dateKey, "yyyy-LL-dd", { zone });
+  const fallbackDate = DateTime.fromJSDate(new Date(dateKey), { zone });
+  const start = (parsedDate.isValid ? parsedDate : fallbackDate).startOf("day");
+  const safeStart = start.isValid ? start : DateTime.now().setZone(zone).startOf("day");
+  return {
+    end: safeStart.plus({ days: 1 }).toUTC().toJSDate(),
+    start: safeStart.toUTC().toJSDate(),
+  };
 }
 
 async function loadRecentJournalEntries(params: {
@@ -793,9 +799,10 @@ function getRewindInsightsRange(value: unknown): RewindInsightsRange {
 }
 
 function getRangeStartDateKey(days: number, timezone?: string): string {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() - (days - 1));
-  return getDateString(date, timezone);
+  return DateTime.now()
+    .setZone(normalizeRewindTimezone(timezone))
+    .minus({ days: days - 1 })
+    .toFormat("yyyy-LL-dd");
 }
 
 function averageSignals(
@@ -828,13 +835,14 @@ export async function getRewindInsights(req: AuthRequest, res: Response) {
   try {
     const range = getRewindInsightsRange(getSingleQueryParam(req.query.range));
     const days = REWIND_INSIGHT_RANGES[range];
-    const timezone =
-      typeof req.headers["x-user-tz"] === "string"
-        ? req.headers["x-user-tz"]
-        : undefined;
+    const userId = req.userId!;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    const timezone = normalizeRewindTimezone(user?.timezone);
     const rangeStartDateKey = getRangeStartDateKey(days, timezone);
     const previousRangeStartDateKey = getRangeStartDateKey(days * 2, timezone);
-    const userId = req.userId!;
     const sessions = await prisma.rewindSession.findMany({
       where: {
         userId,
@@ -944,7 +952,7 @@ export async function addRewindSessionToJournal(
 
       const dateKey =
         session.sessionDateKey ?? getDateString(session.createdAt);
-      const { end, start } = getDayBounds(dateKey);
+      const { end, start } = getDayBounds(dateKey, session.timezone);
       let journal = await transaction.journal.findFirst({
         where: {
           userId,
