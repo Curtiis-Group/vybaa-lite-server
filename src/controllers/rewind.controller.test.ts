@@ -6,7 +6,9 @@ import {
   buildOpeningPrompt,
   buildResumePrompt,
   createRewindWsToken,
+  getRewindTemporalContext,
   getRewindSystemInstruction,
+  normalizeRewindTimezone,
   shouldResumeGeminiLiveSession,
   verifyRewindWsToken,
 } from "./rewind.controller";
@@ -19,6 +21,22 @@ test("opening is relaxed and does not require a scripted question", () => {
   assert.match(prompt, /low-pressure/i);
   assert.doesNotMatch(prompt, /exactly two/i);
   assert.doesNotMatch(prompt, /ask exactly/i);
+});
+
+test("opening context respects the user's local time instead of assuming a finished day", () => {
+  const temporalContext = getRewindTemporalContext(
+    new Date("2026-07-18T06:30:00.000Z"),
+    "Africa/Lagos",
+  );
+  const prompt = buildOpeningPrompt("ella", {
+    shouldIntroduce: true,
+    temporalContext,
+  });
+
+  assert.equal(temporalContext.dayPhase, "morning");
+  assert.equal(temporalContext.timezone, "Africa/Lagos");
+  assert.match(prompt, /do not frame the day as finished/i);
+  assert.equal(normalizeRewindTimezone("not/a-timezone"), "UTC");
 });
 
 test("resume forbids invented context and limits follow-up questions", () => {
@@ -67,6 +85,9 @@ test("identity and private memory are included in every Live system instruction"
   assert.match(prompt, /private memories/i);
   assert.match(prompt, /other Rewind partners have separate memories/i);
   assert.match(prompt, /explicit Journal entries/i);
+  assert.match(prompt, /local time is/i);
+  assert.match(prompt, /pause_session/i);
+  assert.doesNotMatch(prompt, /Open by asking how their day went/i);
 });
 
 test("resume context is framed as private memory instead of instructions", () => {
@@ -83,6 +104,7 @@ test("Gemini Live only resumes recoverable connections with a resumption handle"
       clientDisconnected: false,
       closeCode: 1000,
       hasResumptionHandle: true,
+      isSessionPaused: false,
       isSessionFinalized: false,
       isSessionFinalizing: false,
       rolloverRequested: false,
@@ -94,6 +116,7 @@ test("Gemini Live only resumes recoverable connections with a resumption handle"
       clientDisconnected: false,
       closeCode: 1012,
       hasResumptionHandle: true,
+      isSessionPaused: false,
       isSessionFinalized: false,
       isSessionFinalizing: false,
       rolloverRequested: false,
@@ -105,6 +128,19 @@ test("Gemini Live only resumes recoverable connections with a resumption handle"
       clientDisconnected: false,
       closeCode: 1006,
       hasResumptionHandle: false,
+      isSessionPaused: false,
+      isSessionFinalized: false,
+      isSessionFinalizing: false,
+      rolloverRequested: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldResumeGeminiLiveSession({
+      clientDisconnected: false,
+      closeCode: 1012,
+      hasResumptionHandle: true,
+      isSessionPaused: true,
       isSessionFinalized: false,
       isSessionFinalizing: false,
       rolloverRequested: false,
@@ -113,10 +149,16 @@ test("Gemini Live only resumes recoverable connections with a resumption handle"
   );
 });
 
-test("Rewind token is audience-bound and single use", () => {
-  const token = createRewindWsToken("user-1", "ella", "session-1");
+test("Rewind token is audience-bound, timezone-aware, and single use", () => {
+  const token = createRewindWsToken(
+    "user-1",
+    "ella",
+    "session-1",
+    "Africa/Lagos",
+  );
   const verified = verifyRewindWsToken(token);
   assert.equal(verified?.userId, "user-1");
+  assert.equal(verified?.timezone, "Africa/Lagos");
   assert.equal(verifyRewindWsToken(token), null);
 });
 
