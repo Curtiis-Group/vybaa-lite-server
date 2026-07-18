@@ -1,20 +1,53 @@
 import { firebaseClient } from "../config/firebase.config";
 import logger from "../utils/logger.util";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isInternalAppRoute(route: string): boolean {
+  return route.startsWith("/") && !route.startsWith("//");
+}
+
+function getNotificationRoute(payload: Record<string, unknown>): string | null {
+  const directRoute = payload.route;
+  if (typeof directRoute === "string" && isInternalAppRoute(directRoute)) {
+    return directRoute;
+  }
+
+  const nestedPayload = payload.data;
+  if (!isRecord(nestedPayload)) return null;
+
+  const nestedRoute = nestedPayload.route;
+  return typeof nestedRoute === "string" && isInternalAppRoute(nestedRoute)
+    ? nestedRoute
+    : null;
+}
+
+export function serializePushPayload(
+  payload: Record<string, unknown>,
+): Record<string, string> {
+  const data: Record<string, string> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    data[key] = typeof value === "string" ? value : JSON.stringify(value);
+  }
+
+  const route = getNotificationRoute(payload);
+  if (route) {
+    data.route = route;
+  }
+
+  return data;
+}
+
 export class PushNotificationService {
   private buildBaseMessage(
     title: string,
     body: string,
-    payload: Record<string, any> = {},
+    payload: Record<string, unknown> = {},
     silent = false
   ) {
-    const data = Object.keys(payload || {}).reduce((acc, key) => {
-      acc[key] =
-        typeof payload[key] === "string"
-          ? payload[key]
-          : JSON.stringify(payload[key]);
-      return acc;
-    }, {} as Record<string, string>);
+    const data = serializePushPayload(payload);
 
     return {
       data,
@@ -29,7 +62,7 @@ export class PushNotificationService {
       },
       android: {
         notification: {
-          channelId: silent ? "" : "vybaa_notifications",
+          channelId: silent ? "" : "mycove_notifications",
           sound: silent ? undefined : "default",
         },
       },
@@ -56,7 +89,7 @@ export class PushNotificationService {
     userFcmTokens: string[],
     title: string,
     body: string,
-    payload: Record<string, any> = {},
+    payload: Record<string, unknown> = {},
     silent = false
   ) {
     if (!userFcmTokens || userFcmTokens.length === 0) {
@@ -132,7 +165,7 @@ export class PushNotificationService {
     userFcmTokens: string[],
     title: string,
     body: string,
-    payload: Record<string, any> = {},
+    payload: Record<string, unknown> = {},
     silent = false
   ) {
     if (!userFcmTokens?.length) {
@@ -194,7 +227,7 @@ export class PushNotificationService {
       token: string;
       title: string;
       body: string;
-      payload?: Record<string, any>;
+      payload?: Record<string, unknown>;
       silent?: boolean;
     }>
   ) {

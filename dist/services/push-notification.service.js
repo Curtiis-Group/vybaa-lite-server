@@ -4,17 +4,42 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pushNotificationService = exports.PushNotificationService = void 0;
+exports.serializePushPayload = serializePushPayload;
 const firebase_config_1 = require("../config/firebase.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function isInternalAppRoute(route) {
+    return route.startsWith("/") && !route.startsWith("//");
+}
+function getNotificationRoute(payload) {
+    const directRoute = payload.route;
+    if (typeof directRoute === "string" && isInternalAppRoute(directRoute)) {
+        return directRoute;
+    }
+    const nestedPayload = payload.data;
+    if (!isRecord(nestedPayload))
+        return null;
+    const nestedRoute = nestedPayload.route;
+    return typeof nestedRoute === "string" && isInternalAppRoute(nestedRoute)
+        ? nestedRoute
+        : null;
+}
+function serializePushPayload(payload) {
+    const data = {};
+    for (const [key, value] of Object.entries(payload)) {
+        data[key] = typeof value === "string" ? value : JSON.stringify(value);
+    }
+    const route = getNotificationRoute(payload);
+    if (route) {
+        data.route = route;
+    }
+    return data;
+}
 class PushNotificationService {
     buildBaseMessage(title, body, payload = {}, silent = false) {
-        const data = Object.keys(payload || {}).reduce((acc, key) => {
-            acc[key] =
-                typeof payload[key] === "string"
-                    ? payload[key]
-                    : JSON.stringify(payload[key]);
-            return acc;
-        }, {});
+        const data = serializePushPayload(payload);
         return {
             data,
             notification: silent ? undefined : { title, body },
@@ -28,7 +53,7 @@ class PushNotificationService {
             },
             android: {
                 notification: {
-                    channelId: silent ? "" : "vybaa_notifications",
+                    channelId: silent ? "" : "mycove_notifications",
                     sound: silent ? undefined : "default",
                 },
             },

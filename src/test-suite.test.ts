@@ -1,6 +1,7 @@
 import "./controllers/rewind.controller.test";
 import "./services/milestone.service.test";
 import "./services/notification-realtime.service.test";
+import "./services/push-notification.service.test";
 import "./services/rewind-reflection.service.test";
 import "./services/rewind-routine.service.test";
 import "./services/rewind-session-finalization.service.test";
