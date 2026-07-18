@@ -2015,10 +2015,25 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         }
         messageCount += 1;
         if (raw.toString().length > securityConfig.rewindMaxMessageBytes) {
+          logger.warn("Rewind client message exceeded size limit", {
+            connectionId,
+            messageBytes: raw.toString().length,
+            maxMessageBytes: securityConfig.rewindMaxMessageBytes,
+            personaId,
+            sessionId: sessionState.sessionId,
+          });
           ws.close(1009, "Message too large");
           return;
         }
         if (messageCount > securityConfig.rewindMessageRateLimit) {
+          logger.warn("Rewind client message rate exceeded", {
+            connectionId,
+            messageCount,
+            messageRateLimit: securityConfig.rewindMessageRateLimit,
+            messageRateWindowMs: securityConfig.rewindMessageRateWindowMs,
+            personaId,
+            sessionId: sessionState.sessionId,
+          });
           ws.close(1008, "Message rate exceeded");
           return;
         }
@@ -2119,6 +2134,14 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       }
       releaseConnection();
       logger.info("Rewind client WebSocket closed", {
+        connectionId,
+        personaId,
+        sessionId: sessionState.sessionId,
+        code,
+        reason: reason?.toString() || "",
+      });
+
+      console.log("Rewind client WebSocket closed", {
         connectionId,
         personaId,
         sessionId: sessionState.sessionId,

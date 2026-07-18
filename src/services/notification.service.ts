@@ -3,6 +3,7 @@ import { getAblyClient } from "../config/ably.config";
 import { prisma } from "../config/db.config";
 import { getStreakMilestonePoints } from "../config/points.config";
 import logger from "../utils/logger.util";
+import { isNotificationDedupeConflict } from "../utils/notification-dedupe.util";
 import { cacheService } from "./cache.service";
 import { metricsService } from "./metrics.service";
 import { pushNotificationService } from "./push-notification.service";
@@ -66,14 +67,6 @@ function parseNotificationData(
   }
 }
 
-function isUniqueConstraintError(error: unknown): boolean {
-  return (
-    isRecord(error) &&
-    typeof error.code === "string" &&
-    error.code === "P2002"
-  );
-}
-
 class NotificationService {
   private ablyClient;
 
@@ -82,7 +75,9 @@ class NotificationService {
   }
 
   private getStartOfUtcDay(date: Date) {
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    return new Date(
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+    );
   }
 
   private getScheduledUtcTime(dayStart: Date, hour: number, now: Date) {
@@ -91,7 +86,10 @@ class NotificationService {
     return scheduledFor <= now ? now : scheduledFor;
   }
 
-  private getSharedFcmTokenPrefix(user: { username: string | null; firstName: string | null }) {
+  private getSharedFcmTokenPrefix(user: {
+    username: string | null;
+    firstName: string | null;
+  }) {
     return `[${user.username || user.firstName || "user"}]`;
   }
 
@@ -139,23 +137,17 @@ class NotificationService {
     message: string;
     data: Record<string, unknown>;
     dedupeKey: string;
-    windowStart: Date;
     scheduledFor?: Date;
   }) {
-    try {
-      return await this.createNotification({
-        userId: params.userId,
-        type: "system",
-        title: params.title,
-        message: params.message,
-        data: params.data,
-        dedupeKey: params.dedupeKey,
-        scheduledFor: params.scheduledFor,
-      });
-    } catch (error) {
-      if (isUniqueConstraintError(error)) return null;
-      throw error;
-    }
+    return this.createNotification({
+      userId: params.userId,
+      type: "system",
+      title: params.title,
+      message: params.message,
+      data: params.data,
+      dedupeKey: params.dedupeKey,
+      scheduledFor: params.scheduledFor,
+    });
   }
 
   /**
@@ -184,7 +176,15 @@ class NotificationService {
 
       return notification;
     } catch (error) {
-      logger.error("Error creating notification:", error);
+      if (isNotificationDedupeConflict(error, data.dedupeKey)) {
+        return null;
+      }
+
+      logger.error("Error creating notification", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        notificationType: data.type,
+        userId: data.userId,
+      });
       throw error;
     }
   }
@@ -204,10 +204,7 @@ class NotificationService {
       where: {
         id: { in: uniqueIds },
         sentAt: null,
-        OR: [
-          { dispatchingAt: null },
-          { dispatchingAt: { lt: expiredLease } },
-        ],
+        OR: [{ dispatchingAt: null }, { dispatchingAt: { lt: expiredLease } }],
       },
       data: {
         dispatchToken,
@@ -248,7 +245,9 @@ class NotificationService {
     });
   }
 
-  private toPayload(notification: DeliverableNotification): NotificationPayload {
+  private toPayload(
+    notification: DeliverableNotification,
+  ): NotificationPayload {
     return {
       id: notification.id,
       type: notification.type,
@@ -278,7 +277,8 @@ class NotificationService {
       }> = [];
       const ablyPublishes = claim.notifications.map(async (notification) => {
         const payload = this.toPayload(notification);
-        const sharedTokens = sharedTokensByUser.get(notification.userId) ?? new Set<string>();
+        const sharedTokens =
+          sharedTokensByUser.get(notification.userId) ?? new Set<string>();
         const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
 
         for (const token of new Set(notification.user.fcmTokens)) {
@@ -294,7 +294,9 @@ class NotificationService {
           });
         }
 
-        const channel = this.ablyClient.channels.get(`user:${notification.userId}`);
+        const channel = this.ablyClient.channels.get(
+          `user:${notification.userId}`,
+        );
         return channel.publish("notification", payload);
       });
       const ablyResults = await Promise.allSettled(ablyPublishes);
@@ -340,7 +342,11 @@ class NotificationService {
   /**
    * Get all notifications for a user
    */
-  async getUserNotifications(userId: string, limit: number = 50, page: number = 1) {
+  async getUserNotifications(
+    userId: string,
+    limit: number = 50,
+    page: number = 1,
+  ) {
     const skip = (page - 1) * limit;
 
     const [notifications, totalCount] = await Promise.all([
@@ -443,7 +449,9 @@ class NotificationService {
       });
 
       // Use UTC date to avoid timezone issues
-      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const today = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+      );
 
       let scheduledCount = 0;
 
@@ -452,7 +460,7 @@ class NotificationService {
 
         // Parse reminder time (format: "HH:MM")
         const [hours, minutes] = goal.reminderTime.split(":").map(Number);
-        
+
         // Calculate scheduled time for today using UTC
         const scheduledTime = new Date(today);
         scheduledTime.setUTCHours(hours || 0, minutes, 0, 0);
@@ -556,7 +564,6 @@ class NotificationService {
             message: "Time to rewind and check in with yourself.",
             data: { type: "time_to_rewind", route: "/app/rewind" },
             dedupeKey: `time_to_rewind:${dayKey}`,
-            windowStart: dayStart,
             scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
           });
           if (notification) scheduledCount++;
@@ -566,41 +573,52 @@ class NotificationService {
           where: {
             userId: user.id,
           },
-          select: { id: true, goalText: true, currentDay: true, targetDays: true },
+          select: {
+            id: true,
+            goalText: true,
+            currentDay: true,
+            targetDays: true,
+          },
           orderBy: { updatedAt: "desc" },
           take: 10,
         });
-        const activeGoal = recentGoals.find((goal) => goal.currentDay < goal.targetDays);
+        const activeGoal = recentGoals.find(
+          (goal) => goal.currentDay < goal.targetDays,
+        );
 
         if (activeGoal) {
           const notification = await this.createDedupedSystemNotification({
             userId: user.id,
             title: "Flexx Check-in",
             message: `Flexx on your friends today: ${activeGoal.goalText}`,
-            data: { type: "flexx_prompt", route: "/app/goal", goalId: activeGoal.id },
+            data: {
+              type: "flexx_prompt",
+              route: "/app/goal",
+              goalId: activeGoal.id,
+            },
             dedupeKey: `flexx_prompt:${dayKey}`,
-            windowStart: dayStart,
             scheduledFor: this.getScheduledUtcTime(dayStart, 12, now),
           });
           if (notification) scheduledCount++;
         }
 
-        const recentCommunityActivity = await prisma.communityActivity.findFirst({
-          where: {
-            userId: { not: user.id },
-            createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
-            community: {
-              members: {
-                some: { userId: user.id },
+        const recentCommunityActivity =
+          await prisma.communityActivity.findFirst({
+            where: {
+              userId: { not: user.id },
+              createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+              community: {
+                members: {
+                  some: { userId: user.id },
+                },
               },
             },
-          },
-          select: {
-            communityId: true,
-            community: { select: { name: true } },
-          },
-          orderBy: { createdAt: "desc" },
-        });
+            select: {
+              communityId: true,
+              community: { select: { name: true } },
+            },
+            orderBy: { createdAt: "desc" },
+          });
 
         if (recentCommunityActivity) {
           const notification = await this.createDedupedSystemNotification({
@@ -613,35 +631,33 @@ class NotificationService {
               communityId: recentCommunityActivity.communityId,
             },
             dedupeKey: `community_activity:${dayKey}:${recentCommunityActivity.communityId}`,
-            windowStart: dayStart,
             scheduledFor: this.getScheduledUtcTime(dayStart, 17, now),
           });
           if (notification) scheduledCount++;
         }
 
-        const endOfDayNotification = await this.createDedupedSystemNotification({
-          userId: user.id,
-          title: "End-of-Day Summary",
-          message: "Your end-of-day summary is ready when you are.",
-          data: { type: "end_of_day_summary", route: "/app/home" },
-          dedupeKey: `end_of_day_summary:${dayKey}`,
-          windowStart: dayStart,
-          scheduledFor: this.getScheduledUtcTime(dayStart, 21, now),
-        });
+        const endOfDayNotification = await this.createDedupedSystemNotification(
+          {
+            userId: user.id,
+            title: "End-of-Day Summary",
+            message: "Your end-of-day summary is ready when you are.",
+            data: { type: "end_of_day_summary", route: "/app/home" },
+            dedupeKey: `end_of_day_summary:${dayKey}`,
+            scheduledFor: this.getScheduledUtcTime(dayStart, 21, now),
+          },
+        );
         if (endOfDayNotification) scheduledCount++;
 
         if (now.getUTCDay() === 0) {
-          const weekStart = new Date(dayStart);
-          weekStart.setUTCDate(dayStart.getUTCDate() - 6);
-          const endOfWeekNotification = await this.createDedupedSystemNotification({
-            userId: user.id,
-            title: "Weekly Summary",
-            message: "Your end-of-week summary is ready.",
-            data: { type: "end_of_week_summary", route: "/app/home" },
-            dedupeKey: `end_of_week_summary:${dayKey}`,
-            windowStart: weekStart,
-            scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
-          });
+          const endOfWeekNotification =
+            await this.createDedupedSystemNotification({
+              userId: user.id,
+              title: "Weekly Summary",
+              message: "Your end-of-week summary is ready.",
+              data: { type: "end_of_week_summary", route: "/app/home" },
+              dedupeKey: `end_of_week_summary:${dayKey}`,
+              scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
+            });
           if (endOfWeekNotification) scheduledCount++;
         }
       }
@@ -650,9 +666,13 @@ class NotificationService {
 
       if (scheduledCount > 0) {
         metricsService
-          .record("scheduler_engagement_notifications_scheduled", scheduledCount, {
-            hour: hourKey,
-          })
+          .record(
+            "scheduler_engagement_notifications_scheduled",
+            scheduledCount,
+            {
+              hour: hourKey,
+            },
+          )
           .catch(() => {});
       }
     } catch (error) {
@@ -731,7 +751,10 @@ class NotificationService {
         // checked in for "today" (UTC date comparison).
         if (notification.type === "goal_reminder" && notification.goalId) {
           const goal = goalsById[notification.goalId];
-          if (goal?.lastCheckInDate && isSameUtcDate(goal.lastCheckInDate, now)) {
+          if (
+            goal?.lastCheckInDate &&
+            isSameUtcDate(goal.lastCheckInDate, now)
+          ) {
             skippedNotificationIds.push(notification.id);
             continue;
           }
@@ -779,14 +802,19 @@ class NotificationService {
   /**
    * Send goal completed notification
    */
-  async sendGoalCompletedNotification(userId: string, goalId: string, goalText: string, communityName?: string) {
-    const title = communityName 
+  async sendGoalCompletedNotification(
+    userId: string,
+    goalId: string,
+    goalText: string,
+    communityName?: string,
+  ) {
+    const title = communityName
       ? "Community Goal Completed! 🎉"
       : "Goal Completed!";
     const message = communityName
       ? `Congratulations! You've completed your goal in ${communityName}: ${goalText}`
       : `Congratulations! You've completed your goal: ${goalText}`;
-    
+
     return this.createNotification({
       userId,
       goalId,
@@ -800,14 +828,20 @@ class NotificationService {
   /**
    * Send streak milestone notification
    */
-  async sendStreakMilestoneNotification(userId: string, goalId: string, days: number, goalText: string, communityName?: string) {
+  async sendStreakMilestoneNotification(
+    userId: string,
+    goalId: string,
+    days: number,
+    goalText: string,
+    communityName?: string,
+  ) {
     const points = getStreakMilestonePoints(days);
     const pointsText = points > 0 ? ` (+${points} Play Points)` : "";
-    
+
     const message = communityName
       ? `Amazing! You're on a ${days}-day streak in ${communityName} for: ${goalText}${pointsText}`
       : `Amazing! You're on a ${days}-day streak for: ${goalText}${pointsText}`;
-    
+
     return this.createNotification({
       userId,
       goalId,
@@ -821,25 +855,42 @@ class NotificationService {
   /**
    * Send streak reset notification
    */
-  async sendStreakResetNotification(userId: string, goalId: string, previousDays: number, goalText: string, communityName?: string) {
+  async sendStreakResetNotification(
+    userId: string,
+    goalId: string,
+    previousDays: number,
+    goalText: string,
+    communityName?: string,
+  ) {
     const message = communityName
       ? `Your ${previousDays}-day streak in ${communityName} for "${goalText}" was reset due to a missed check-in.`
       : `Your ${previousDays}-day streak for "${goalText}" was reset due to a missed check-in.`;
-    
+
     return this.createNotification({
       userId,
       goalId,
       type: "system",
       title: "Streak Reset",
       message,
-      data: { goalId, goalText, previousDays, resetReason: "missed_checkin", communityName },
+      data: {
+        goalId,
+        goalText,
+        previousDays,
+        resetReason: "missed_checkin",
+        communityName,
+      },
     });
   }
 
   /**
    * Send notification when someone joins a community (notify owner and mods)
    */
-  async sendMemberJoinedNotification(communityId: string, newMemberId: string, newMemberName: string, communityName: string) {
+  async sendMemberJoinedNotification(
+    communityId: string,
+    newMemberId: string,
+    newMemberName: string,
+    communityName: string,
+  ) {
     // Get all owners and mods to notify
     const ownersAndMods = await prisma.communityMember.findMany({
       where: {
@@ -857,7 +908,7 @@ class NotificationService {
         title: "New Member Joined",
         message: `${newMemberName} joined ${communityName}`,
         data: { communityId, newMemberId, communityName },
-      })
+      }),
     );
 
     await Promise.all(notifications);
@@ -866,7 +917,12 @@ class NotificationService {
   /**
    * Send notification when someone leaves a community (notify owner and mods)
    */
-  async sendMemberLeftNotification(communityId: string, leftMemberId: string, leftMemberName: string, communityName: string) {
+  async sendMemberLeftNotification(
+    communityId: string,
+    leftMemberId: string,
+    leftMemberName: string,
+    communityName: string,
+  ) {
     // Get all owners and mods to notify
     const ownersAndMods = await prisma.communityMember.findMany({
       where: {
@@ -884,7 +940,7 @@ class NotificationService {
         title: "Member Left",
         message: `${leftMemberName} left ${communityName}`,
         data: { communityId, leftMemberId, communityName },
-      })
+      }),
     );
 
     await Promise.all(notifications);
@@ -893,7 +949,14 @@ class NotificationService {
   /**
    * Send notification when a new template is created (notify all members except creator)
    */
-  async sendTemplateCreatedNotification(communityId: string, templateId: string, templateGoalText: string, creatorName: string, communityName: string, creatorId: string) {
+  async sendTemplateCreatedNotification(
+    communityId: string,
+    templateId: string,
+    templateGoalText: string,
+    creatorName: string,
+    communityName: string,
+    creatorId: string,
+  ) {
     // Get all members except the creator
     const members = await prisma.communityMember.findMany({
       where: {
@@ -912,7 +975,7 @@ class NotificationService {
           title: "New Goal Template",
           message: `${creatorName} created a new goal template in ${communityName}: ${templateGoalText}`,
           data: { communityId, templateId, templateGoalText, communityName },
-        })
+        }),
       );
 
     await Promise.all(notifications);
@@ -921,7 +984,13 @@ class NotificationService {
   /**
    * Send notification when someone starts a goal from your template
    */
-  async sendGoalStartedFromTemplateNotification(templateCreatorId: string, starterName: string, templateGoalText: string, communityName: string, goalId: string) {
+  async sendGoalStartedFromTemplateNotification(
+    templateCreatorId: string,
+    starterName: string,
+    templateGoalText: string,
+    communityName: string,
+    goalId: string,
+  ) {
     return this.createNotification({
       userId: templateCreatorId,
       goalId,
@@ -935,7 +1004,13 @@ class NotificationService {
   /**
    * Send notification when someone reacts to your activity
    */
-  async sendActivityReactionNotification(activityOwnerId: string, reactorName: string, activityType: string, communityName: string, activityId: string) {
+  async sendActivityReactionNotification(
+    activityOwnerId: string,
+    reactorName: string,
+    activityType: string,
+    communityName: string,
+    activityId: string,
+  ) {
     // Don't notify if user reacted to their own activity
     if (!activityOwnerId) return;
 
@@ -951,11 +1026,20 @@ class NotificationService {
   /**
    * Send notification when someone comments on your activity
    */
-  async sendActivityCommentNotification(activityOwnerId: string, commenterName: string, commentText: string, communityName: string, activityId: string) {
+  async sendActivityCommentNotification(
+    activityOwnerId: string,
+    commenterName: string,
+    commentText: string,
+    communityName: string,
+    activityId: string,
+  ) {
     // Don't notify if user commented on their own activity
     if (!activityOwnerId) return;
 
-    const truncatedComment = commentText.length > 50 ? commentText.substring(0, 50) + "..." : commentText;
+    const truncatedComment =
+      commentText.length > 50
+        ? commentText.substring(0, 50) + "..."
+        : commentText;
 
     return this.createNotification({
       userId: activityOwnerId,
@@ -969,7 +1053,12 @@ class NotificationService {
   /**
    * Send notification when user's role is changed
    */
-  async sendRoleChangedNotification(userId: string, newRole: string, communityName: string, changedBy: string) {
+  async sendRoleChangedNotification(
+    userId: string,
+    newRole: string,
+    communityName: string,
+    changedBy: string,
+  ) {
     const roleLabel = newRole === "MOD" ? "moderator" : "member";
     return this.createNotification({
       userId,
@@ -983,7 +1072,10 @@ class NotificationService {
   /**
    * Send notification when a community is deleted (notify all members)
    */
-  async sendCommunityDeletedNotification(communityId: string, communityName: string) {
+  async sendCommunityDeletedNotification(
+    communityId: string,
+    communityName: string,
+  ) {
     const members = await prisma.communityMember.findMany({
       where: { communityId },
       select: { userId: true },
@@ -996,7 +1088,7 @@ class NotificationService {
         title: "Community Deleted",
         message: `The community "${communityName}" has been deleted`,
         data: { communityId, communityName },
-      })
+      }),
     );
 
     await Promise.all(notifications);
@@ -1005,7 +1097,11 @@ class NotificationService {
   /**
    * Send notification when a template is deleted (notify users who started goals from it)
    */
-  async sendTemplateDeletedNotification(templateId: string, templateGoalText: string, communityName: string) {
+  async sendTemplateDeletedNotification(
+    templateId: string,
+    templateGoalText: string,
+    communityName: string,
+  ) {
     // Find all goals started from this template
     const goals = await prisma.goal.findMany({
       where: { templateId },
@@ -1021,7 +1117,7 @@ class NotificationService {
         title: "Template Deleted",
         message: `The goal template "${templateGoalText}" in ${communityName} has been deleted`,
         data: { templateId, templateGoalText, communityName, goalId: goal.id },
-      })
+      }),
     );
 
     await Promise.all(notifications);
@@ -1030,7 +1126,14 @@ class NotificationService {
   /**
    * Send notification when a milestone is reached
    */
-  async sendMilestoneReachedNotification(userId: string, goalId: string, milestoneName: string, points: number, goalText: string, communityName?: string) {
+  async sendMilestoneReachedNotification(
+    userId: string,
+    goalId: string,
+    milestoneName: string,
+    points: number,
+    goalText: string,
+    communityName?: string,
+  ) {
     const message = communityName
       ? `You reached the milestone "${milestoneName}" (+${points} pts) in ${communityName} for: ${goalText}`
       : `You reached the milestone "${milestoneName}" (+${points} pts) for: ${goalText}`;

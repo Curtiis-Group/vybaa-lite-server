@@ -9,6 +9,7 @@ const ably_config_1 = require("../config/ably.config");
 const db_config_1 = require("../config/db.config");
 const points_config_1 = require("../config/points.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const notification_dedupe_util_1 = require("../utils/notification-dedupe.util");
 const cache_service_1 = require("./cache.service");
 const metrics_service_1 = require("./metrics.service");
 const push_notification_service_1 = require("./push-notification.service");
@@ -26,11 +27,6 @@ function parseNotificationData(value) {
     catch {
         return undefined;
     }
-}
-function isUniqueConstraintError(error) {
-    return (isRecord(error) &&
-        typeof error.code === "string" &&
-        error.code === "P2002");
 }
 class NotificationService {
     constructor() {
@@ -84,22 +80,15 @@ class NotificationService {
         return sharedByUser;
     }
     async createDedupedSystemNotification(params) {
-        try {
-            return await this.createNotification({
-                userId: params.userId,
-                type: "system",
-                title: params.title,
-                message: params.message,
-                data: params.data,
-                dedupeKey: params.dedupeKey,
-                scheduledFor: params.scheduledFor,
-            });
-        }
-        catch (error) {
-            if (isUniqueConstraintError(error))
-                return null;
-            throw error;
-        }
+        return this.createNotification({
+            userId: params.userId,
+            type: "system",
+            title: params.title,
+            message: params.message,
+            data: params.data,
+            dedupeKey: params.dedupeKey,
+            scheduledFor: params.scheduledFor,
+        });
     }
     /**
      * Create a notification in the database
@@ -126,7 +115,14 @@ class NotificationService {
             return notification;
         }
         catch (error) {
-            logger_util_1.default.error("Error creating notification:", error);
+            if ((0, notification_dedupe_util_1.isNotificationDedupeConflict)(error, data.dedupeKey)) {
+                return null;
+            }
+            logger_util_1.default.error("Error creating notification", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+                notificationType: data.type,
+                userId: data.userId,
+            });
             throw error;
         }
     }
@@ -141,10 +137,7 @@ class NotificationService {
             where: {
                 id: { in: uniqueIds },
                 sentAt: null,
-                OR: [
-                    { dispatchingAt: null },
-                    { dispatchingAt: { lt: expiredLease } },
-                ],
+                OR: [{ dispatchingAt: null }, { dispatchingAt: { lt: expiredLease } }],
             },
             data: {
                 dispatchToken,
@@ -445,7 +438,6 @@ class NotificationService {
                         message: "Time to rewind and check in with yourself.",
                         data: { type: "time_to_rewind", route: "/app/rewind" },
                         dedupeKey: `time_to_rewind:${dayKey}`,
-                        windowStart: dayStart,
                         scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
                     });
                     if (notification)
@@ -455,7 +447,12 @@ class NotificationService {
                     where: {
                         userId: user.id,
                     },
-                    select: { id: true, goalText: true, currentDay: true, targetDays: true },
+                    select: {
+                        id: true,
+                        goalText: true,
+                        currentDay: true,
+                        targetDays: true,
+                    },
                     orderBy: { updatedAt: "desc" },
                     take: 10,
                 });
@@ -465,9 +462,12 @@ class NotificationService {
                         userId: user.id,
                         title: "Flexx Check-in",
                         message: `Flexx on your friends today: ${activeGoal.goalText}`,
-                        data: { type: "flexx_prompt", route: "/app/goal", goalId: activeGoal.id },
+                        data: {
+                            type: "flexx_prompt",
+                            route: "/app/goal",
+                            goalId: activeGoal.id,
+                        },
                         dedupeKey: `flexx_prompt:${dayKey}`,
-                        windowStart: dayStart,
                         scheduledFor: this.getScheduledUtcTime(dayStart, 12, now),
                     });
                     if (notification)
@@ -500,7 +500,6 @@ class NotificationService {
                             communityId: recentCommunityActivity.communityId,
                         },
                         dedupeKey: `community_activity:${dayKey}:${recentCommunityActivity.communityId}`,
-                        windowStart: dayStart,
                         scheduledFor: this.getScheduledUtcTime(dayStart, 17, now),
                     });
                     if (notification)
@@ -512,21 +511,17 @@ class NotificationService {
                     message: "Your end-of-day summary is ready when you are.",
                     data: { type: "end_of_day_summary", route: "/app/home" },
                     dedupeKey: `end_of_day_summary:${dayKey}`,
-                    windowStart: dayStart,
                     scheduledFor: this.getScheduledUtcTime(dayStart, 21, now),
                 });
                 if (endOfDayNotification)
                     scheduledCount++;
                 if (now.getUTCDay() === 0) {
-                    const weekStart = new Date(dayStart);
-                    weekStart.setUTCDate(dayStart.getUTCDate() - 6);
                     const endOfWeekNotification = await this.createDedupedSystemNotification({
                         userId: user.id,
                         title: "Weekly Summary",
                         message: "Your end-of-week summary is ready.",
                         data: { type: "end_of_week_summary", route: "/app/home" },
                         dedupeKey: `end_of_week_summary:${dayKey}`,
-                        windowStart: weekStart,
                         scheduledFor: this.getScheduledUtcTime(dayStart, 18, now),
                     });
                     if (endOfWeekNotification)
@@ -599,7 +594,8 @@ class NotificationService {
                 // checked in for "today" (UTC date comparison).
                 if (notification.type === "goal_reminder" && notification.goalId) {
                     const goal = goalsById[notification.goalId];
-                    if (goal?.lastCheckInDate && isSameUtcDate(goal.lastCheckInDate, now)) {
+                    if (goal?.lastCheckInDate &&
+                        isSameUtcDate(goal.lastCheckInDate, now)) {
                         skippedNotificationIds.push(notification.id);
                         continue;
                     }
@@ -684,7 +680,13 @@ class NotificationService {
             type: "system",
             title: "Streak Reset",
             message,
-            data: { goalId, goalText, previousDays, resetReason: "missed_checkin", communityName },
+            data: {
+                goalId,
+                goalText,
+                previousDays,
+                resetReason: "missed_checkin",
+                communityName,
+            },
         });
     }
     /**
@@ -789,7 +791,9 @@ class NotificationService {
         // Don't notify if user commented on their own activity
         if (!activityOwnerId)
             return;
-        const truncatedComment = commentText.length > 50 ? commentText.substring(0, 50) + "..." : commentText;
+        const truncatedComment = commentText.length > 50
+            ? commentText.substring(0, 50) + "..."
+            : commentText;
         return this.createNotification({
             userId: activityOwnerId,
             type: "system",
