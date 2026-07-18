@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DateTime } from "luxon";
-import { getAblyClient } from "../config/ably.config";
 import { prisma } from "../config/db.config";
 import { getStreakMilestonePoints } from "../config/points.config";
 import logger from "../utils/logger.util";
 import { isNotificationDedupeConflict } from "../utils/notification-dedupe.util";
 import { cacheService } from "./cache.service";
 import { metricsService } from "./metrics.service";
+import { notificationRealtimePublisher } from "./notification-realtime.service";
 import { pushNotificationService } from "./push-notification.service";
 
 export interface CreateNotificationData {
@@ -84,12 +84,6 @@ function parseNotificationData(
 }
 
 class NotificationService {
-  private ablyClient;
-
-  constructor() {
-    this.ablyClient = getAblyClient();
-  }
-
   private getStartOfUtcDay(date: Date) {
     return new Date(
       Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
@@ -264,6 +258,7 @@ class NotificationService {
 
     const notifications = await prisma.notification.findMany({
       where: { dispatchToken },
+      orderBy: { createdAt: "asc" },
       include: {
         user: {
           select: { fcmTokens: true, firstName: true, username: true },
@@ -323,7 +318,11 @@ class NotificationService {
         payload: Record<string, unknown>;
         silent: boolean;
       }> = [];
-      const ablyPublishes = claim.notifications.map(async (notification) => {
+      const realtimeSignals: Array<{
+        notification: DeliverableNotification;
+        payload: NotificationPayload;
+      }> = [];
+      for (const notification of claim.notifications) {
         const payload = this.toPayload(notification);
         const sharedTokens =
           sharedTokensByUser.get(notification.userId) ?? new Set<string>();
@@ -341,21 +340,7 @@ class NotificationService {
             silent: false,
           });
         }
-
-        const channel = this.ablyClient.channels.get(
-          `user:${notification.userId}`,
-        );
-        return channel.publish("notification", payload);
-      });
-      const ablyResults = await Promise.allSettled(ablyPublishes);
-      const ablyFailures = ablyResults.filter(
-        (result) => result.status === "rejected",
-      ).length;
-      if (ablyFailures) {
-        logger.warn("Notification realtime batch had failures", {
-          attempted: ablyResults.length,
-          failed: ablyFailures,
-        });
+        realtimeSignals.push({ notification, payload });
       }
 
       if (pushMessages.length) {
@@ -363,9 +348,16 @@ class NotificationService {
       }
 
       await this.markNotificationsDelivered(claim.dispatchToken);
+      for (const realtimeSignal of realtimeSignals) {
+        notificationRealtimePublisher.enqueue(
+          realtimeSignal.notification.userId,
+          realtimeSignal.payload,
+        );
+      }
       logger.info("Notification batch delivered", {
         notifications: claim.notifications.length,
         pushMessages: pushMessages.length,
+        realtimeSignals: realtimeSignals.length,
       });
       return claim.notifications.length;
     } catch (error) {

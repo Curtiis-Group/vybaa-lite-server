@@ -6,13 +6,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.notificationService = void 0;
 const node_crypto_1 = require("node:crypto");
 const luxon_1 = require("luxon");
-const ably_config_1 = require("../config/ably.config");
 const db_config_1 = require("../config/db.config");
 const points_config_1 = require("../config/points.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const notification_dedupe_util_1 = require("../utils/notification-dedupe.util");
 const cache_service_1 = require("./cache.service");
 const metrics_service_1 = require("./metrics.service");
+const notification_realtime_service_1 = require("./notification-realtime.service");
 const push_notification_service_1 = require("./push-notification.service");
 const NOTIFICATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
 const FLEXX_DAILY_SEND_CHANCE = 0.55;
@@ -45,9 +45,6 @@ function parseNotificationData(value) {
     }
 }
 class NotificationService {
-    constructor() {
-        this.ablyClient = (0, ably_config_1.getAblyClient)();
-    }
     getStartOfUtcDay(date) {
         return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
     }
@@ -182,6 +179,7 @@ class NotificationService {
             return null;
         const notifications = await db_config_1.prisma.notification.findMany({
             where: { dispatchToken },
+            orderBy: { createdAt: "asc" },
             include: {
                 user: {
                     select: { fcmTokens: true, firstName: true, username: true },
@@ -223,7 +221,8 @@ class NotificationService {
         try {
             const sharedTokensByUser = await this.getSharedFcmTokensByUser(claim.notifications);
             const pushMessages = [];
-            const ablyPublishes = claim.notifications.map(async (notification) => {
+            const realtimeSignals = [];
+            for (const notification of claim.notifications) {
                 const payload = this.toPayload(notification);
                 const sharedTokens = sharedTokensByUser.get(notification.userId) ?? new Set();
                 const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
@@ -240,24 +239,19 @@ class NotificationService {
                         silent: false,
                     });
                 }
-                const channel = this.ablyClient.channels.get(`user:${notification.userId}`);
-                return channel.publish("notification", payload);
-            });
-            const ablyResults = await Promise.allSettled(ablyPublishes);
-            const ablyFailures = ablyResults.filter((result) => result.status === "rejected").length;
-            if (ablyFailures) {
-                logger_util_1.default.warn("Notification realtime batch had failures", {
-                    attempted: ablyResults.length,
-                    failed: ablyFailures,
-                });
+                realtimeSignals.push({ notification, payload });
             }
             if (pushMessages.length) {
                 await push_notification_service_1.pushNotificationService.sendFCMBatchMessages(pushMessages);
             }
             await this.markNotificationsDelivered(claim.dispatchToken);
+            for (const realtimeSignal of realtimeSignals) {
+                notification_realtime_service_1.notificationRealtimePublisher.enqueue(realtimeSignal.notification.userId, realtimeSignal.payload);
+            }
             logger_util_1.default.info("Notification batch delivered", {
                 notifications: claim.notifications.length,
                 pushMessages: pushMessages.length,
+                realtimeSignals: realtimeSignals.length,
             });
             return claim.notifications.length;
         }
