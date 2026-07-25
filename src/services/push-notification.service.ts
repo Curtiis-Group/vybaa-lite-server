@@ -192,7 +192,7 @@ export class PushNotificationService {
         failureCount += resp.failureCount;
         if (resp.failureCount > 0) {
           resp.responses.forEach((r, idx) => {
-            if (!r.success) failedTokens.push(tokens[idx]);
+            if (!r.success) failedTokens.push(tokens[idx]!);
           });
         }
       } catch (error: any) {
@@ -256,7 +256,7 @@ export class PushNotificationService {
         failureCount += resp.failureCount;
         if (resp.failureCount > 0) {
           resp.responses.forEach((r, idx) => {
-            if (!r.success) failedTokens.push(chunk[idx].token);
+            if (!r.success) failedTokens.push(chunk[idx]!?.token);
           });
         }
       } catch (error: any) {

@@ -19,8 +19,8 @@ import {
 } from "@prisma/client";
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import { randomUUID } from "node:crypto";
 import { DateTime } from "luxon";
+import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
@@ -499,21 +499,21 @@ async function persistRewindSession(
 
   const writes: Promise<unknown>[] = [
     prisma.rewindSession.update({
-      where: { id: sessionState.sessionId },
+      where: { id: sessionState!?.sessionId },
       data: {
-        completed: sessionState.completed,
-        completedAt: sessionState.completedAt,
-        checkInAt: sessionState.checkInAt,
-        summary: sessionState.summary,
-        emotionalInsight: sessionState.emotionalInsight,
-        emotionalTags: sessionState.emotionalTags,
-        nextStepNote: sessionState.nextStepNote,
-        comparisonInsight: sessionState.comparisonInsight,
-        journalDraft: sessionState.journalDraft,
-        wellbeingSignals: sessionState.wellbeingSignals,
-        transcriptAvailable: sessionState.transcriptAvailable,
-        journalId: sessionState.journalId,
-        journalSavedAt: sessionState.journalSavedAt,
+        completed: sessionState!?.completed,
+        completedAt: sessionState!?.completedAt,
+        checkInAt: sessionState!?.checkInAt,
+        summary: sessionState!?.summary,
+        emotionalInsight: sessionState!?.emotionalInsight,
+        emotionalTags: sessionState!?.emotionalTags,
+        nextStepNote: sessionState!?.nextStepNote,
+        comparisonInsight: sessionState!?.comparisonInsight,
+        journalDraft: sessionState!?.journalDraft,
+        wellbeingSignals: sessionState!?.wellbeingSignals!,
+        transcriptAvailable: sessionState!?.transcriptAvailable,
+        journalId: sessionState!?.journalId,
+        journalSavedAt: sessionState!?.journalSavedAt,
       },
     }),
   ];
@@ -521,7 +521,7 @@ async function persistRewindSession(
   if (Object.keys(userUpdateData).length) {
     writes.push(
       prisma.user.update({
-        where: { id: sessionState.userId },
+        where: { id: sessionState!?.userId },
         data: userUpdateData,
       }),
     );
@@ -952,7 +952,7 @@ export async function addRewindSessionToJournal(
 
       const dateKey =
         session.sessionDateKey ?? getDateString(session.createdAt);
-      const { end, start } = getDayBounds(dateKey, session.timezone);
+      const { end, start } = getDayBounds(dateKey, session!?.timezone!);
       let journal = await transaction.journal.findFirst({
         where: {
           userId,
@@ -1320,34 +1320,34 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     loadPreviousRewindSessions({
       userId: auth.userId,
       personaId,
-      currentSessionId: sessionState.sessionId,
+      currentSessionId: sessionState!?.sessionId,
     }),
     loadRecentJournalEntries({
       userId: auth.userId,
-      timezone: sessionState.timezone ?? user?.timezone ?? auth.timezone,
+      timezone: sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
     }),
     prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
   ]);
-  const shouldRestore = sessionState.transcriptAvailable;
+  const shouldRestore = sessionState!?.transcriptAvailable;
   const connectionTimezone = normalizeRewindTimezone(
-    sessionState.timezone ?? user?.timezone ?? auth.timezone,
+    sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
   );
   const voiceName = getRewindVoiceName(personaId);
 
   try {
     const hasScheduledWindow = Boolean(
-      sessionState.scheduledFor && sessionState.windowEndsAt,
+      sessionState!?.scheduledFor && sessionState!?.windowEndsAt,
     );
     if (
       hasScheduledWindow &&
-      !sessionState.completed &&
-      (sessionState.windowEndsAt! <= new Date() ||
-        sessionState.status !== RewindSessionStatus.IN_PROGRESS)
+      !sessionState!?.completed &&
+      (sessionState!?.windowEndsAt! <= new Date() ||
+        sessionState!?.status !== RewindSessionStatus.IN_PROGRESS)
     ) {
       ws.send(
         JSON.stringify({
           type: "session_unavailable",
-          sessionId: sessionState.sessionId,
+          sessionId: sessionState!?.sessionId,
           message: "This Rewind window has closed.",
         }),
       );
@@ -1355,13 +1355,13 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       ws.close(1000, "Rewind window closed");
       return;
     }
-    if (sessionState.completed) {
+    if (sessionState!?.completed) {
       ws.send(
         JSON.stringify({
           type: "session_ended",
-          sessionId: sessionState.sessionId,
-          emotionalInsight: sessionState.emotionalInsight,
-          summary: sessionState.summary,
+          sessionId: sessionState!?.sessionId,
+          emotionalInsight: sessionState!?.emotionalInsight,
+          summary: sessionState!?.summary,
         }),
       );
       releaseConnection();
@@ -1374,7 +1374,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     logger.info("Rewind live connection requested", {
       connectionId,
       personaId,
-      sessionId: sessionState.sessionId,
+      sessionId: sessionState!?.sessionId,
       path: req.path,
       ip:
         req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown",
@@ -1402,7 +1402,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     logger.info("Connecting rewind session to Gemini Live", {
       connectionId,
       personaId,
-      sessionId: sessionState.sessionId,
+      sessionId: sessionState!?.sessionId,
       model: GEMINI_LIVE_MODEL,
       voiceName,
       responseModalities: ["AUDIO"],
@@ -1411,7 +1411,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     let pendingUserTranscript = "";
     let pendingPartnerTranscript = "";
     let transcriptTurns = await loadRewindTranscriptTurns(
-      sessionState.sessionId,
+      sessionState!?.sessionId,
     );
     let persistedTranscriptTurnCount = transcriptTurns.length;
     let isSessionFinalized = false;
@@ -1472,7 +1472,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     const persistQueuedTranscriptTurns = async (): Promise<void> => {
       const newTurns = transcriptTurns.slice(persistedTranscriptTurnCount);
       if (newTurns.length === 0) return;
-      await persistRewindTranscriptTurns(sessionState.sessionId, newTurns);
+      await persistRewindTranscriptTurns(sessionState!?.sessionId, newTurns);
       persistedTranscriptTurnCount = transcriptTurns.length;
     };
 
@@ -1506,7 +1506,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             logger.warn("Unable to persist Rewind transcript turn", {
               connectionId,
               personaId,
-              sessionId: sessionState.sessionId,
+              sessionId: sessionState!?.sessionId,
               errorName: error instanceof Error ? error.name : "UnknownError",
             });
           });
@@ -1530,7 +1530,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         if (transcriptFlushTimeout) clearTimeout(transcriptFlushTimeout);
         await flushTranscriptTurn();
         const result = await finalizeRewindSession({
-          sessionId: sessionState.sessionId,
+          sessionId: sessionState!?.sessionId,
           source,
         });
         if (result.status === "needs_more_reflection") {
@@ -1551,7 +1551,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             ws.send(
               JSON.stringify({
                 type: "session_missed",
-                sessionId: sessionState.sessionId,
+                sessionId: sessionState!?.sessionId,
               }),
             );
           }
@@ -1564,7 +1564,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         sessionState.completedAt = completedAt;
         sessionState.checkInAt = completedAt;
         sessionState.status = RewindSessionStatus.COMPLETED;
-        sessionState.summary = result.summary ?? sessionState.summary;
+        sessionState.summary = result.summary ?? sessionState!?.summary;
         sessionState.emotionalInsight = result.emotionalInsight;
         sessionState.wellbeingSignals = result.wellbeingSignals;
 
@@ -1572,9 +1572,9 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           ws.send(
             JSON.stringify({
               type: "session_ended",
-              sessionId: sessionState.sessionId,
-              emotionalInsight: sessionState.emotionalInsight,
-              summary: sessionState.summary,
+              sessionId: sessionState!?.sessionId,
+              emotionalInsight: sessionState!?.emotionalInsight,
+              summary: sessionState!?.summary,
             }),
           );
         }
@@ -1610,10 +1610,10 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       }
     };
 
-    if (sessionState.windowEndsAt) {
+    if (sessionState!?.windowEndsAt) {
       const remainingWindowMs = Math.max(
         0,
-        sessionState.windowEndsAt.getTime() - Date.now(),
+        sessionState!?.windowEndsAt.getTime() - Date.now(),
       );
       windowExpiryTimeout = setTimeout(() => {
         void finalizeSession(RewindCompletionSource.AUTO_TIMEOUT)
@@ -1622,7 +1622,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               connectionId,
               errorName: error instanceof Error ? error.name : "UnknownError",
               personaId,
-              sessionId: sessionState.sessionId,
+              sessionId: sessionState!?.sessionId,
             });
           })
           .finally(() => {
@@ -1667,7 +1667,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         logger.error("Gemini Live reconnection exhausted", {
           connectionId,
           personaId,
-          sessionId: sessionState.sessionId,
+          sessionId: sessionState!.sessionId,
         });
         if (ws.readyState === ws.OPEN) {
           ws.send(
@@ -1694,7 +1694,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           logger.warn("Gemini Live reconnect attempt failed", {
             connectionId,
             personaId,
-            sessionId: sessionState.sessionId,
+            sessionId: sessionState!.sessionId,
             attempt: reconnectAttempts,
             errorName: error instanceof Error ? error.name : "UnknownError",
           });
@@ -1817,14 +1817,14 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             logger.info("Gemini Live session opened", {
               connectionId,
               personaId,
-              sessionId: sessionState.sessionId,
+              sessionId: sessionState!?.sessionId,
             });
           },
           onmessage: async (message: LiveServerMessage) => {
             logger.debug("Gemini Live message received", {
               connectionId,
               personaId,
-              sessionId: sessionState.sessionId,
+              sessionId: sessionState!?.sessionId,
               ...summarizeLiveMessage(message),
             });
 
@@ -1840,7 +1840,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               logger.info("Gemini Live connection rollover announced", {
                 connectionId,
                 personaId,
-                sessionId: sessionState.sessionId,
+                sessionId: sessionState!?.sessionId,
                 timeLeft: message.goAway.timeLeft,
               });
               rolloverRequested = true;
@@ -1880,7 +1880,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                 logger.info("Gemini Live tool call received", {
                   connectionId,
                   personaId,
-                  sessionId: sessionState.sessionId,
+                  sessionId: sessionState!?.sessionId,
                   tool: call.name,
                 });
 
@@ -1900,7 +1900,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                     logger.warn("Rewind session finalization failed", {
                       connectionId,
                       personaId,
-                      sessionId: sessionState.sessionId,
+                      sessionId: sessionState!?.sessionId,
                       errorName:
                         error instanceof Error ? error.name : "UnknownError",
                     });
@@ -1944,7 +1944,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                       ws.send(
                         JSON.stringify({
                           type: "session_paused",
-                          sessionId: sessionState.sessionId,
+                          sessionId: sessionState!?.sessionId,
                         }),
                       );
                       pauseCloseTimeout = setTimeout(() => {
@@ -1958,7 +1958,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                     logger.warn("Rewind session pause failed", {
                       connectionId,
                       personaId,
-                      sessionId: sessionState.sessionId,
+                      sessionId: sessionState!?.sessionId,
                       errorName:
                         error instanceof Error ? error.name : "UnknownError",
                     });
@@ -2051,7 +2051,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                         parts: [
                           {
                             text: buildResumePrompt(
-                              sessionState.summary,
+                              sessionState!?.summary,
                               buildRecentTranscriptContext(transcriptTurns),
                             ),
                           },
@@ -2069,8 +2069,8 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               ws.send(
                 JSON.stringify({
                   type: "ready",
-                  sessionId: sessionState.sessionId,
-                  sessionDateKey: sessionState.sessionDateKey,
+                  sessionId: sessionState!?.sessionId,
+                  sessionDateKey: sessionState!?.sessionDateKey,
                   restored: shouldRestore,
                   previousSession: previousSessions[0] ?? null,
                 }),
@@ -2084,7 +2084,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                       parts: [
                         {
                           text: buildResumePrompt(
-                            sessionState.summary,
+                            sessionState!?.summary,
                             buildRecentTranscriptContext(transcriptTurns),
                           ),
                         },
@@ -2125,7 +2125,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             logger.info("Gemini Live session closed", {
               connectionId,
               personaId,
-              sessionId: sessionState.sessionId,
+              sessionId: sessionState!?.sessionId,
               code: closeReason.code,
               reason: closeReason.reason.slice(0, 160),
               wasClean: closeReason.wasClean,
@@ -2163,7 +2163,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             logger.error("Gemini Live session error", {
               connectionId,
               personaId,
-              sessionId: sessionState.sessionId,
+              sessionId: sessionState!?.sessionId,
               errorName:
                 error.error instanceof Error ? error.error.name : "ErrorEvent",
             });
@@ -2207,7 +2207,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             messageBytes: raw.toString().length,
             maxMessageBytes: securityConfig.rewindMaxMessageBytes,
             personaId,
-            sessionId: sessionState.sessionId,
+            sessionId: sessionState!?.sessionId,
           });
           ws.close(1009, "Message too large");
           return;
@@ -2219,7 +2219,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             messageRateLimit: securityConfig.rewindMessageRateLimit,
             messageRateWindowMs: securityConfig.rewindMessageRateWindowMs,
             personaId,
-            sessionId: sessionState.sessionId,
+            sessionId: sessionState!?.sessionId,
           });
           ws.close(1008, "Message rate exceeded");
           return;
@@ -2234,7 +2234,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           logger.debug("Forwarding rewind realtime audio to Gemini", {
             connectionId,
             personaId,
-            sessionId: sessionState.sessionId,
+            sessionId: sessionState!?.sessionId,
             mimeType: parsed.mimeType,
             dataLength: parsed.data.length,
           });
@@ -2251,7 +2251,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           logger.info("Forwarding rewind text input to Gemini", {
             connectionId,
             personaId,
-            sessionId: sessionState.sessionId,
+            sessionId: sessionState!?.sessionId,
             textLength: parsed.content.length,
           });
           sendRealtimeInput({ text: parsed.content.trim() });
@@ -2288,7 +2288,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         logger.warn("Ignoring unsupported rewind client payload", {
           connectionId,
           personaId,
-          sessionId: sessionState.sessionId,
+          sessionId: sessionState!?.sessionId,
           type: parsed.type || "unknown",
         });
       } catch (error) {
@@ -2296,7 +2296,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         logger.error("Error processing message from rewind client", {
           connectionId,
           personaId,
-          sessionId: sessionState.sessionId,
+          sessionId: sessionState!?.sessionId,
           errorName: error instanceof Error ? error.name : "UnknownError",
         });
         if (ws.readyState === ws.OPEN) {
@@ -2331,7 +2331,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       logger.info("Rewind client WebSocket closed", {
         connectionId,
         personaId,
-        sessionId: sessionState.sessionId,
+        sessionId: sessionState!?.sessionId,
         code,
         reason: reason?.toString() || "",
       });
@@ -2339,7 +2339,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       console.log("Rewind client WebSocket closed", {
         connectionId,
         personaId,
-        sessionId: sessionState.sessionId,
+        sessionId: sessionState!?.sessionId,
         code,
         reason: reason?.toString() || "",
       });
@@ -2359,7 +2359,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         logger.warn("Failed to close Gemini session after client disconnect", {
           connectionId,
           personaId,
-          sessionId: sessionState.sessionId,
+          sessionId: sessionState!?.sessionId,
           errorName: error instanceof Error ? error.name : "UnknownError",
         });
       }
@@ -2369,7 +2369,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       logger.error("Rewind client WebSocket error", {
         connectionId,
         personaId,
-        sessionId: sessionState.sessionId,
+        sessionId: sessionState!?.sessionId,
         errorName: error.name,
       });
     });
