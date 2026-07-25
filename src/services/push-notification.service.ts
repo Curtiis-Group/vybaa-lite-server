@@ -1,4 +1,5 @@
 import { firebaseClient } from "../config/firebase.config";
+import type { ClientApp } from "../types/client-app.type";
 import logger from "../utils/logger.util";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -42,10 +43,11 @@ export function serializePushPayload(
 
 export class PushNotificationService {
   private buildBaseMessage(
+    clientApp: ClientApp,
     title: string,
     body: string,
     payload: Record<string, unknown> = {},
-    silent = false
+    silent = false,
   ) {
     const data = serializePushPayload(payload);
 
@@ -62,7 +64,11 @@ export class PushNotificationService {
       },
       android: {
         notification: {
-          channelId: silent ? "" : "mycove_notifications",
+          channelId: silent
+            ? ""
+            : clientApp === "mycove"
+              ? "mycove_notifications"
+              : "vybaa_notifications",
           sound: silent ? undefined : "default",
         },
       },
@@ -90,19 +96,26 @@ export class PushNotificationService {
     title: string,
     body: string,
     payload: Record<string, unknown> = {},
-    silent = false
+    silent = false,
+    clientApp: ClientApp = "vybaa",
   ) {
     if (!userFcmTokens || userFcmTokens.length === 0) {
       logger.debug("No FCM tokens provided, skipping push notification");
       return [];
     }
 
-    const message = this.buildBaseMessage(title, body, payload, silent);
+    const message = this.buildBaseMessage(
+      clientApp,
+      title,
+      body,
+      payload,
+      silent,
+    );
 
     const results = await Promise.allSettled(
       userFcmTokens.map(async (token: string) => {
         try {
-          const result = await firebaseClient()
+          const result = await firebaseClient(clientApp)
             .messaging()
             .send({
               ...message,
@@ -134,11 +147,11 @@ export class PushNotificationService {
 
           return { success: false, token, error: error.message };
         }
-      })
+      }),
     );
 
     const successful = results.filter(
-      (r) => r.status === "fulfilled" && r.value.success
+      (r) => r.status === "fulfilled" && r.value.success,
     ).length;
     const failed = results.length - successful;
 
@@ -153,7 +166,9 @@ export class PushNotificationService {
     }
 
     return results.map((r) =>
-      r.status === "fulfilled" ? r.value : { success: false, error: "Unknown error" }
+      r.status === "fulfilled"
+        ? r.value
+        : { success: false, error: "Unknown error" },
     );
   }
 
@@ -166,7 +181,8 @@ export class PushNotificationService {
     title: string,
     body: string,
     payload: Record<string, unknown> = {},
-    silent = false
+    silent = false,
+    clientApp: ClientApp = "vybaa",
   ) {
     if (!userFcmTokens?.length) {
       logger.debug("No FCM tokens provided for multicast, skipping");
@@ -174,7 +190,7 @@ export class PushNotificationService {
     }
 
     const chunkSize = 500;
-    const base = this.buildBaseMessage(title, body, payload, silent);
+    const base = this.buildBaseMessage(clientApp, title, body, payload, silent);
     const failedTokens: string[] = [];
     let successCount = 0;
     let failureCount = 0;
@@ -182,7 +198,7 @@ export class PushNotificationService {
     for (let i = 0; i < userFcmTokens.length; i += chunkSize) {
       const tokens = userFcmTokens.slice(i, i + chunkSize);
       try {
-        const resp = await firebaseClient()
+        const resp = await firebaseClient(clientApp)
           .messaging()
           .sendEachForMulticast({
             ...base,
@@ -224,47 +240,62 @@ export class PushNotificationService {
    */
   async sendFCMBatchMessages(
     messages: Array<{
+      clientApp?: ClientApp;
       token: string;
       title: string;
       body: string;
       payload?: Record<string, unknown>;
       silent?: boolean;
-    }>
+    }>,
   ) {
     if (!messages?.length)
       return { successCount: 0, failureCount: 0, failedTokens: [] as string[] };
+
+    const messagesByClientApp = new Map<ClientApp, typeof messages>();
+    for (const message of messages) {
+      const clientApp = message.clientApp ?? "vybaa";
+      const clientMessages = messagesByClientApp.get(clientApp) ?? [];
+      clientMessages.push(message);
+      messagesByClientApp.set(clientApp, clientMessages);
+    }
 
     const chunkSize = 500;
     const failedTokens: string[] = [];
     let successCount = 0;
     let failureCount = 0;
 
-    for (let i = 0; i < messages.length; i += chunkSize) {
-      const chunk = messages.slice(i, i + chunkSize);
-      const built = chunk.map((m) => ({
-        ...this.buildBaseMessage(
-          m.title,
-          m.body,
-          m.payload || {},
-          m.silent || false
-        ),
-        token: m.token,
-      })) as any;
-      try {
-        const resp = await firebaseClient().messaging().sendEach(built);
-        successCount += resp.successCount;
-        failureCount += resp.failureCount;
-        if (resp.failureCount > 0) {
-          resp.responses.forEach((r, idx) => {
-            if (!r.success) failedTokens.push(chunk[idx]!?.token);
+    for (const [clientApp, clientMessages] of messagesByClientApp) {
+      for (let i = 0; i < clientMessages.length; i += chunkSize) {
+        const chunk = clientMessages.slice(i, i + chunkSize);
+        const built = chunk.map((message) => ({
+          ...this.buildBaseMessage(
+            clientApp,
+            message.title,
+            message.body,
+            message.payload ?? {},
+            message.silent ?? false,
+          ),
+          token: message.token,
+        })) as any;
+        try {
+          const response = await firebaseClient(clientApp)
+            .messaging()
+            .sendEach(built);
+          successCount += response.successCount;
+          failureCount += response.failureCount;
+          if (response.failureCount) {
+            response.responses.forEach((result, index) => {
+              if (!result.success) failedTokens.push(chunk[index]!.token);
+            });
+          }
+        } catch (error: unknown) {
+          logger.error("Batch sendEach failed for chunk", {
+            clientApp,
+            error: error instanceof Error ? error.message : "Unknown error",
           });
+          failureCount += chunk.length;
+          failedTokens.push(...chunk.map((message) => message.token));
         }
-      } catch (error: any) {
-        logger.error("Batch sendEach failed for chunk", {
-          error: error?.message,
-        });
-        failureCount += chunk.length;
-        failedTokens.push(...chunk.map((m) => m.token));
       }
     }
 

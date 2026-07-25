@@ -24,9 +24,7 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
-import {
-  type RewindWellbeingSignals,
-} from "../services/rewind-reflection.service";
+import { type RewindWellbeingSignals } from "../services/rewind-reflection.service";
 import {
   RewindRoutineAvailabilityError,
   getRewindIntentLabel,
@@ -544,7 +542,9 @@ function getDayBounds(
   const parsedDate = DateTime.fromFormat(dateKey, "yyyy-LL-dd", { zone });
   const fallbackDate = DateTime.fromJSDate(new Date(dateKey), { zone });
   const start = (parsedDate.isValid ? parsedDate : fallbackDate).startOf("day");
-  const safeStart = start.isValid ? start : DateTime.now().setZone(zone).startOf("day");
+  const safeStart = start.isValid
+    ? start
+    : DateTime.now().setZone(zone).startOf("day");
   return {
     end: safeStart.plus({ days: 1 }).toUTC().toJSDate(),
     start: safeStart.toUTC().toJSDate(),
@@ -1182,7 +1182,7 @@ export async function createLiveToken(req: AuthRequest, res: Response) {
       msg: "Rewind live token created",
       data: {
         token,
-        wsUrl: `/api/v1/rewind/live?token=${encodeURIComponent(token)}`,
+        wsUrl: `/${req.clientApp === "mycove" ? "mycove" : "api"}/v1/rewind/live?token=${encodeURIComponent(token)}`,
         personaId,
         sessionId: occurrence.id,
         sessionDateKey: occurrence.sessionDateKey,
@@ -2348,9 +2348,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         if (transcriptFlushTimeout) clearTimeout(transcriptFlushTimeout);
         void flushTranscriptTurn()
           .then(() =>
-            isSessionFinalized
-              ? undefined
-              : persistRewindSession(sessionState),
+            isSessionFinalized ? undefined : persistRewindSession(sessionState),
           )
           .catch(() => undefined);
         session?.close();

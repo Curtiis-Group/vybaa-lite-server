@@ -54,7 +54,9 @@ export async function login(req: Request, res: Response) {
 
     await userMoodService.refreshCurrentMoodIfNeeded(user.id);
 
-    const refreshedUser = await prisma.user.findUnique({ where: { id: user.id } });
+    const refreshedUser = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
     if (!refreshedUser) {
       return res.status(404).json({ msg: "User not found" });
     }
@@ -97,7 +99,7 @@ export async function register(req: Request, res: Response) {
     const hashedPassword = await hashPassword(password);
 
     // Generate unique username from first name or email
-    const baseName = firstName || email.split('@')[0];
+    const baseName = firstName || email.split("@")[0];
     const username = await generateUniqueUsername(baseName);
 
     const user = await prisma.user.create({
@@ -143,7 +145,7 @@ export async function googleAuth(req: Request, res: Response) {
     const { token } = req.body;
 
     // Verify Google token
-    const googleUser = await verifyGoogleToken(token);
+    const googleUser = await verifyGoogleToken(token, req.clientApp);
     if (!googleUser) {
       return res.status(401).json({ msg: "Invalid Google token" });
     }
@@ -160,7 +162,7 @@ export async function googleAuth(req: Request, res: Response) {
       const lastName = nameParts.slice(1).join(" ") || "";
 
       // Generate unique username
-      const baseName = firstName || googleUser.email.split('@')[0];
+      const baseName = firstName || googleUser.email.split("@")[0];
       const username = await generateUniqueUsername(baseName);
 
       // Upload Google avatar to Cloudinary (async, non-blocking)
@@ -170,14 +172,17 @@ export async function googleAuth(req: Request, res: Response) {
           const uploadedUrl = await uploadImageFromUrl(
             googleUser.picture,
             googleUser.sub, // Use Google ID as temp ID
-            'google-avatars'
+            "google-avatars",
           );
           cloudinaryAvatarUrl = uploadedUrl || undefined;
         } catch (error) {
-          logger.warn('Failed to upload Google avatar to Cloudinary, using Google URL', {
-            email: googleUser.email,
-            error,
-          });
+          logger.warn(
+            "Failed to upload Google avatar to Cloudinary, using Google URL",
+            {
+              email: googleUser.email,
+              error,
+            },
+          );
           cloudinaryAvatarUrl = googleUser.picture || undefined;
         }
       }
@@ -209,15 +214,17 @@ export async function googleAuth(req: Request, res: Response) {
             const uploadedUrl = await uploadImageFromUrl(
               googleUser.picture,
               user.id,
-              'google-avatars'
+              "google-avatars",
             );
-            cloudinaryAvatarUrl = uploadedUrl || googleUser.picture || undefined;
+            cloudinaryAvatarUrl =
+              uploadedUrl || googleUser.picture || undefined;
           } catch (error) {
-            logger.warn('Failed to upload Google avatar to Cloudinary', {
+            logger.warn("Failed to upload Google avatar to Cloudinary", {
               userId: user.id,
               error,
             });
-            cloudinaryAvatarUrl = googleUser.picture || user.avatarUrl || undefined;
+            cloudinaryAvatarUrl =
+              googleUser.picture || user.avatarUrl || undefined;
           }
         }
 
@@ -237,7 +244,7 @@ export async function googleAuth(req: Request, res: Response) {
             const uploadedUrl = await uploadImageFromUrl(
               googleUser.picture,
               user.id,
-              'google-avatars'
+              "google-avatars",
             );
             const cloudinaryAvatarUrl = uploadedUrl || googleUser.picture;
 
@@ -248,7 +255,7 @@ export async function googleAuth(req: Request, res: Response) {
               },
             });
           } catch (error) {
-            logger.warn('Failed to upload Google avatar to Cloudinary', {
+            logger.warn("Failed to upload Google avatar to Cloudinary", {
               userId: user.id,
               error,
             });
@@ -267,7 +274,9 @@ export async function googleAuth(req: Request, res: Response) {
     // Generate tokens
     await userMoodService.refreshCurrentMoodIfNeeded(user.id);
 
-    const refreshedUser = await prisma.user.findUnique({ where: { id: user.id } });
+    const refreshedUser = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
     if (!refreshedUser) {
       return res.status(404).json({ msg: "User not found" });
     }
@@ -328,7 +337,9 @@ export async function refreshToken(req: Request, res: Response) {
       return res.status(401).json({ msg: "Invalid refresh token" });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+    });
 
     if (!user || user.refreshToken !== refreshToken) {
       return res.status(401).json({ msg: "Invalid refresh token" });
@@ -437,7 +448,10 @@ export async function verifyRecoveryCode(req: Request, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Verify recovery code error:", { error, email: req.body.email });
+    logger.error("Verify recovery code error:", {
+      error,
+      email: req.body.email,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -519,7 +533,10 @@ export async function requestConfirmation(req: Request, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Request confirmation error:", { error, email: req.body.email });
+    logger.error("Request confirmation error:", {
+      error,
+      email: req.body.email,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -554,7 +571,10 @@ export async function accountConfirmation(req: Request, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Account confirmation error:", { error, email: req.body.email });
+    logger.error("Account confirmation error:", {
+      error,
+      email: req.body.email,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -563,7 +583,9 @@ export async function checkEmail(req: Request, res: Response) {
   try {
     const { email } = req.params;
 
-    const user = await prisma.user.findUnique({ where: { email: String(email) } });
+    const user = await prisma.user.findUnique({
+      where: { email: String(email) },
+    });
 
     res.json({
       msg: "Email check completed",
@@ -588,7 +610,10 @@ export async function changePassword(req: AuthRequest, res: Response) {
       return res.status(404).json({ msg: "User not found or no password set" });
     }
 
-    const isPasswordValid = await comparePassword(currentPassword, user.password);
+    const isPasswordValid = await comparePassword(
+      currentPassword,
+      user.password,
+    );
     if (!isPasswordValid) {
       return res.status(401).json({ msg: "Current password is incorrect" });
     }

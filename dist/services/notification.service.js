@@ -8,6 +8,7 @@ const node_crypto_1 = require("node:crypto");
 const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
 const points_config_1 = require("../config/points.config");
+const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const notification_dedupe_util_1 = require("../utils/notification-dedupe.util");
 const cache_service_1 = require("./cache.service");
@@ -64,48 +65,95 @@ class NotificationService {
         const day = luxon_1.DateTime.fromFormat(params.dayKey, "yyyy-LL-dd", {
             zone: params.timezone,
         }).startOf("day");
-        const hour = 11 + Math.floor(this.getDeterministicRatio(`${params.userId}:${params.dayKey}:hour`) * 8);
-        const minute = Math.floor(this.getDeterministicRatio(`${params.userId}:${params.dayKey}:minute`) * 60);
-        const templateIndex = Math.min(FLEXX_TEMPLATES.length - 1, Math.floor(this.getDeterministicRatio(`${params.userId}:${params.dayKey}:template`) *
-            FLEXX_TEMPLATES.length));
+        const hour = 11 +
+            Math.floor(this.getDeterministicRatio(`${params.userId}:${params.dayKey}:hour`) *
+                8);
+        const minute = Math.floor(this.getDeterministicRatio(`${params.userId}:${params.dayKey}:minute`) *
+            60);
+        const templateIndex = Math.min(FLEXX_TEMPLATES.length - 1, Math.floor(this.getDeterministicRatio(`${params.userId}:${params.dayKey}:template`) * FLEXX_TEMPLATES.length));
         return {
             scheduledFor: day.set({ hour, minute }).toUTC().toJSDate(),
             templateIndex,
         };
     }
-    async getSharedFcmTokensByUser(notifications) {
-        const allTokens = new Set();
+    getFcmTargetKey(target) {
+        return `${target.clientApp}:${target.token}`;
+    }
+    getFcmTargets(user) {
+        const targets = new Map();
+        for (const token of user.fcmTokens) {
+            if (!token)
+                continue;
+            const target = { clientApp: "vybaa", token };
+            targets.set(this.getFcmTargetKey(target), target);
+        }
+        for (const device of user.fcmDevices) {
+            if (!device.token)
+                continue;
+            const target = {
+                clientApp: (0, client_app_type_1.fromPrismaClientApp)(device.clientApp),
+                token: device.token,
+            };
+            targets.set(this.getFcmTargetKey(target), target);
+        }
+        return [...targets.values()];
+    }
+    async getSharedFcmTargetsByUser(notifications) {
+        const allTargetKeys = new Set();
         for (const notification of notifications) {
-            for (const token of notification.user.fcmTokens) {
-                if (token)
-                    allTokens.add(token);
+            for (const target of this.getFcmTargets(notification.user)) {
+                allTargetKeys.add(this.getFcmTargetKey(target));
             }
         }
-        if (!allTokens.size)
+        if (!allTargetKeys.size)
             return new Map();
         const users = await db_config_1.prisma.user.findMany({
-            where: { fcmTokens: { hasSome: [...allTokens] } },
-            select: { id: true, fcmTokens: true },
+            where: {
+                OR: [
+                    {
+                        fcmTokens: {
+                            hasSome: notifications.flatMap((notification) => notification.user.fcmTokens),
+                        },
+                    },
+                    {
+                        fcmDevices: {
+                            some: {
+                                token: {
+                                    in: notifications.flatMap((notification) => notification.user.fcmDevices.map((device) => device.token)),
+                                },
+                            },
+                        },
+                    },
+                ],
+            },
+            select: {
+                fcmDevices: { select: { clientApp: true, token: true } },
+                fcmTokens: true,
+                id: true,
+            },
         });
-        const tokenOwnerIds = new Map();
+        const targetOwnerIds = new Map();
         for (const user of users) {
-            for (const token of new Set(user.fcmTokens)) {
-                if (!allTokens.has(token))
+            const targets = this.getFcmTargets(user);
+            for (const target of targets) {
+                const key = this.getFcmTargetKey(target);
+                if (!allTargetKeys.has(key))
                     continue;
-                const ownerIds = tokenOwnerIds.get(token) ?? new Set();
+                const ownerIds = targetOwnerIds.get(key) ?? new Set();
                 ownerIds.add(user.id);
-                tokenOwnerIds.set(token, ownerIds);
+                targetOwnerIds.set(key, ownerIds);
             }
         }
         const sharedByUser = new Map();
         for (const notification of notifications) {
-            const sharedTokens = new Set();
-            for (const token of new Set(notification.user.fcmTokens)) {
-                if ((tokenOwnerIds.get(token)?.size ?? 0) > 1) {
-                    sharedTokens.add(token);
+            const sharedTargetKeys = new Set();
+            for (const target of this.getFcmTargets(notification.user)) {
+                const key = this.getFcmTargetKey(target);
+                if ((targetOwnerIds.get(key)?.size ?? 0) > 1) {
+                    sharedTargetKeys.add(key);
                 }
             }
-            sharedByUser.set(notification.userId, sharedTokens);
+            sharedByUser.set(notification.userId, sharedTargetKeys);
         }
         return sharedByUser;
     }
@@ -182,7 +230,12 @@ class NotificationService {
             orderBy: { createdAt: "asc" },
             include: {
                 user: {
-                    select: { fcmTokens: true, firstName: true, username: true },
+                    select: {
+                        fcmDevices: { select: { clientApp: true, token: true } },
+                        fcmTokens: true,
+                        firstName: true,
+                        username: true,
+                    },
                 },
             },
         });
@@ -219,19 +272,19 @@ class NotificationService {
         if (!claim?.notifications.length)
             return 0;
         try {
-            const sharedTokensByUser = await this.getSharedFcmTokensByUser(claim.notifications);
+            const sharedTargetsByUser = await this.getSharedFcmTargetsByUser(claim.notifications);
             const pushMessages = [];
             const realtimeSignals = [];
             for (const notification of claim.notifications) {
                 const payload = this.toPayload(notification);
-                const sharedTokens = sharedTokensByUser.get(notification.userId) ?? new Set();
+                const sharedTargetKeys = sharedTargetsByUser.get(notification.userId) ?? new Set();
                 const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
-                for (const token of new Set(notification.user.fcmTokens)) {
-                    if (!token)
-                        continue;
+                for (const target of this.getFcmTargets(notification.user)) {
+                    const targetKey = this.getFcmTargetKey(target);
                     pushMessages.push({
-                        token,
-                        title: sharedTokens.has(token)
+                        clientApp: target.clientApp,
+                        token: target.token,
+                        title: sharedTargetKeys.has(targetKey)
                             ? `${titlePrefix} ${notification.title}`
                             : notification.title,
                         body: notification.message,
@@ -466,7 +519,9 @@ class NotificationService {
                     const timezone = luxon_1.DateTime.now().setZone(user.timezone).isValid
                         ? user.timezone
                         : "UTC";
-                    const localDayKey = luxon_1.DateTime.fromJSDate(now, { zone: timezone }).toFormat("yyyy-LL-dd");
+                    const localDayKey = luxon_1.DateTime.fromJSDate(now, {
+                        zone: timezone,
+                    }).toFormat("yyyy-LL-dd");
                     const shouldSendFlexx = this.getDeterministicRatio(`${user.id}:${localDayKey}:flexx-decision`) < FLEXX_DAILY_SEND_CHANCE;
                     const flexxSchedule = this.getLocalFlexxSchedule({
                         dayKey: localDayKey,

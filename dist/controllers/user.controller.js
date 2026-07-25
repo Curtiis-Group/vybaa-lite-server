@@ -11,6 +11,7 @@ exports.registerFCMToken = registerFCMToken;
 exports.removeFCMToken = removeFCMToken;
 exports.checkUsernameAvailability = checkUsernameAvailability;
 const db_config_1 = require("../config/db.config");
+const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const username_util_1 = require("../utils/username.util");
 const rewind_routine_service_1 = require("../services/rewind-routine.service");
@@ -69,7 +70,9 @@ async function updateProfile(req, res) {
             updateData.rewindPersona = rewindPersona;
         if (timezone !== undefined) {
             if (typeof timezone !== "string" || !(0, rewind_routine_service_1.isValidRewindTimezone)(timezone)) {
-                return res.status(400).json({ msg: "A valid IANA timezone is required" });
+                return res
+                    .status(400)
+                    .json({ msg: "A valid IANA timezone is required" });
             }
             updateData.timezone = timezone;
         }
@@ -222,31 +225,16 @@ async function registerFCMToken(req, res) {
         if (!fcmToken || typeof fcmToken !== "string") {
             return res.status(400).json({ msg: "Valid FCM token is required" });
         }
-        // Get current user
-        const user = await db_config_1.prisma.user.findUnique({
-            where: { id: userId },
-            select: { fcmTokens: true },
+        const clientApp = (0, client_app_type_1.toPrismaClientApp)(req.clientApp);
+        await db_config_1.prisma.fcmDevice.upsert({
+            where: { clientApp_token: { clientApp, token: fcmToken } },
+            create: { clientApp, token: fcmToken, userId },
+            update: { userId },
         });
-        if (!user) {
-            return res.status(404).json({ msg: "User not found" });
-        }
-        // Add token if it doesn't exist
-        const tokens = user.fcmTokens || [];
-        if (!tokens.includes(fcmToken)) {
-            await db_config_1.prisma.user.update({
-                where: { id: userId },
-                data: {
-                    fcmTokens: [...tokens, fcmToken],
-                },
-            });
-            logger_util_1.default.info("FCM token registered", {
-                userId,
-                token: fcmToken.substring(0, 20) + "...",
-            });
-        }
-        else {
-            logger_util_1.default.debug("FCM token already registered", { userId });
-        }
+        logger_util_1.default.info("FCM token registered", {
+            clientApp: req.clientApp,
+            userId,
+        });
         res.json({
             msg: "FCM token registered successfully",
         });
@@ -266,26 +254,27 @@ async function removeFCMToken(req, res) {
         if (!fcmToken || typeof fcmToken !== "string") {
             return res.status(400).json({ msg: "Valid FCM token is required" });
         }
-        // Get current user
-        const user = await db_config_1.prisma.user.findUnique({
-            where: { id: userId },
-            select: { fcmTokens: true },
+        const clientApp = (0, client_app_type_1.toPrismaClientApp)(req.clientApp);
+        await db_config_1.prisma.fcmDevice.deleteMany({
+            where: { clientApp, token: fcmToken, userId },
         });
-        if (!user) {
-            return res.status(404).json({ msg: "User not found" });
+        if (req.clientApp === "vybaa") {
+            const user = await db_config_1.prisma.user.findUnique({
+                where: { id: userId },
+                select: { fcmTokens: true },
+            });
+            if (user) {
+                await db_config_1.prisma.user.update({
+                    where: { id: userId },
+                    data: {
+                        fcmTokens: user.fcmTokens.filter((token) => token !== fcmToken),
+                    },
+                });
+            }
         }
-        // Remove token
-        const tokens = user.fcmTokens || [];
-        const updatedTokens = tokens.filter((t) => t !== fcmToken);
-        await db_config_1.prisma.user.update({
-            where: { id: userId },
-            data: {
-                fcmTokens: updatedTokens,
-            },
-        });
         logger_util_1.default.info("FCM token removed", {
+            clientApp: req.clientApp,
             userId,
-            token: fcmToken.substring(0, 20) + "...",
         });
         res.json({
             msg: "FCM token removed successfully",

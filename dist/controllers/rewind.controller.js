@@ -21,8 +21,8 @@ exports.handleLiveConnection = handleLiveConnection;
 const genai_1 = require("@google/genai");
 const client_1 = require("@prisma/client");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const node_crypto_1 = require("node:crypto");
 const luxon_1 = require("luxon");
+const node_crypto_1 = require("node:crypto");
 const db_config_1 = require("../config/db.config");
 const rewind_routine_service_1 = require("../services/rewind-routine.service");
 const rewind_session_finalization_service_1 = require("../services/rewind-session-finalization.service");
@@ -304,27 +304,27 @@ async function persistRewindSession(sessionState, userInfo = null) {
     }
     const writes = [
         db_config_1.prisma.rewindSession.update({
-            where: { id: sessionState.sessionId },
+            where: { id: sessionState?.sessionId },
             data: {
-                completed: sessionState.completed,
-                completedAt: sessionState.completedAt,
-                checkInAt: sessionState.checkInAt,
-                summary: sessionState.summary,
-                emotionalInsight: sessionState.emotionalInsight,
-                emotionalTags: sessionState.emotionalTags,
-                nextStepNote: sessionState.nextStepNote,
-                comparisonInsight: sessionState.comparisonInsight,
-                journalDraft: sessionState.journalDraft,
-                wellbeingSignals: sessionState.wellbeingSignals,
-                transcriptAvailable: sessionState.transcriptAvailable,
-                journalId: sessionState.journalId,
-                journalSavedAt: sessionState.journalSavedAt,
+                completed: sessionState?.completed,
+                completedAt: sessionState?.completedAt,
+                checkInAt: sessionState?.checkInAt,
+                summary: sessionState?.summary,
+                emotionalInsight: sessionState?.emotionalInsight,
+                emotionalTags: sessionState?.emotionalTags,
+                nextStepNote: sessionState?.nextStepNote,
+                comparisonInsight: sessionState?.comparisonInsight,
+                journalDraft: sessionState?.journalDraft,
+                wellbeingSignals: sessionState?.wellbeingSignals,
+                transcriptAvailable: sessionState?.transcriptAvailable,
+                journalId: sessionState?.journalId,
+                journalSavedAt: sessionState?.journalSavedAt,
             },
         }),
     ];
     if (Object.keys(userUpdateData).length) {
         writes.push(db_config_1.prisma.user.update({
-            where: { id: sessionState.userId },
+            where: { id: sessionState?.userId },
             data: userUpdateData,
         }));
     }
@@ -340,7 +340,9 @@ function getDayBounds(dateKey, timezone) {
     const parsedDate = luxon_1.DateTime.fromFormat(dateKey, "yyyy-LL-dd", { zone });
     const fallbackDate = luxon_1.DateTime.fromJSDate(new Date(dateKey), { zone });
     const start = (parsedDate.isValid ? parsedDate : fallbackDate).startOf("day");
-    const safeStart = start.isValid ? start : luxon_1.DateTime.now().setZone(zone).startOf("day");
+    const safeStart = start.isValid
+        ? start
+        : luxon_1.DateTime.now().setZone(zone).startOf("day");
     return {
         end: safeStart.plus({ days: 1 }).toUTC().toJSDate(),
         start: safeStart.toUTC().toJSDate(),
@@ -681,7 +683,7 @@ async function addRewindSessionToJournal(req, res) {
             if (!journalDraft)
                 return { status: "no-draft" };
             const dateKey = session.sessionDateKey ?? getDateString(session.createdAt);
-            const { end, start } = getDayBounds(dateKey, session.timezone);
+            const { end, start } = getDayBounds(dateKey, session?.timezone);
             let journal = await transaction.journal.findFirst({
                 where: {
                     userId,
@@ -856,7 +858,7 @@ async function createLiveToken(req, res) {
             msg: "Rewind live token created",
             data: {
                 token,
-                wsUrl: `/api/v1/rewind/live?token=${encodeURIComponent(token)}`,
+                wsUrl: `/${req.clientApp === "mycove" ? "mycove" : "api"}/v1/rewind/live?token=${encodeURIComponent(token)}`,
                 personaId,
                 sessionId: occurrence.id,
                 sessionDateKey: occurrence.sessionDateKey,
@@ -980,38 +982,38 @@ async function handleLiveConnection(ws, req) {
         loadPreviousRewindSessions({
             userId: auth.userId,
             personaId,
-            currentSessionId: sessionState.sessionId,
+            currentSessionId: sessionState?.sessionId,
         }),
         loadRecentJournalEntries({
             userId: auth.userId,
-            timezone: sessionState.timezone ?? user?.timezone ?? auth.timezone,
+            timezone: sessionState?.timezone ?? user?.timezone ?? auth.timezone,
         }),
         db_config_1.prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
     ]);
-    const shouldRestore = sessionState.transcriptAvailable;
-    const connectionTimezone = normalizeRewindTimezone(sessionState.timezone ?? user?.timezone ?? auth.timezone);
+    const shouldRestore = sessionState?.transcriptAvailable;
+    const connectionTimezone = normalizeRewindTimezone(sessionState?.timezone ?? user?.timezone ?? auth.timezone);
     const voiceName = getRewindVoiceName(personaId);
     try {
-        const hasScheduledWindow = Boolean(sessionState.scheduledFor && sessionState.windowEndsAt);
+        const hasScheduledWindow = Boolean(sessionState?.scheduledFor && sessionState?.windowEndsAt);
         if (hasScheduledWindow &&
-            !sessionState.completed &&
-            (sessionState.windowEndsAt <= new Date() ||
-                sessionState.status !== client_1.RewindSessionStatus.IN_PROGRESS)) {
+            !sessionState?.completed &&
+            (sessionState?.windowEndsAt <= new Date() ||
+                sessionState?.status !== client_1.RewindSessionStatus.IN_PROGRESS)) {
             ws.send(JSON.stringify({
                 type: "session_unavailable",
-                sessionId: sessionState.sessionId,
+                sessionId: sessionState?.sessionId,
                 message: "This Rewind window has closed.",
             }));
             releaseConnection();
             ws.close(1000, "Rewind window closed");
             return;
         }
-        if (sessionState.completed) {
+        if (sessionState?.completed) {
             ws.send(JSON.stringify({
                 type: "session_ended",
-                sessionId: sessionState.sessionId,
-                emotionalInsight: sessionState.emotionalInsight,
-                summary: sessionState.summary,
+                sessionId: sessionState?.sessionId,
+                emotionalInsight: sessionState?.emotionalInsight,
+                summary: sessionState?.summary,
             }));
             releaseConnection();
             ws.close(1000, "Rewind already completed");
@@ -1021,7 +1023,7 @@ async function handleLiveConnection(ws, req) {
         logger_util_1.default.info("Rewind live connection requested", {
             connectionId,
             personaId,
-            sessionId: sessionState.sessionId,
+            sessionId: sessionState?.sessionId,
             path: req.path,
             ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown",
             userAgent: req.headers["user-agent"] || "unknown",
@@ -1043,14 +1045,14 @@ async function handleLiveConnection(ws, req) {
         logger_util_1.default.info("Connecting rewind session to Gemini Live", {
             connectionId,
             personaId,
-            sessionId: sessionState.sessionId,
+            sessionId: sessionState?.sessionId,
             model: GEMINI_LIVE_MODEL,
             voiceName,
             responseModalities: ["AUDIO"],
         });
         let pendingUserTranscript = "";
         let pendingPartnerTranscript = "";
-        let transcriptTurns = await loadRewindTranscriptTurns(sessionState.sessionId);
+        let transcriptTurns = await loadRewindTranscriptTurns(sessionState?.sessionId);
         let persistedTranscriptTurnCount = transcriptTurns.length;
         let isSessionFinalized = false;
         let isSessionFinalizing = false;
@@ -1103,7 +1105,7 @@ async function handleLiveConnection(ws, req) {
             const newTurns = transcriptTurns.slice(persistedTranscriptTurnCount);
             if (newTurns.length === 0)
                 return;
-            await persistRewindTranscriptTurns(sessionState.sessionId, newTurns);
+            await persistRewindTranscriptTurns(sessionState?.sessionId, newTurns);
             persistedTranscriptTurnCount = transcriptTurns.length;
         };
         const flushTranscriptTurn = async () => {
@@ -1133,7 +1135,7 @@ async function handleLiveConnection(ws, req) {
                     logger_util_1.default.warn("Unable to persist Rewind transcript turn", {
                         connectionId,
                         personaId,
-                        sessionId: sessionState.sessionId,
+                        sessionId: sessionState?.sessionId,
                         errorName: error instanceof Error ? error.name : "UnknownError",
                     });
                 });
@@ -1153,7 +1155,7 @@ async function handleLiveConnection(ws, req) {
                     clearTimeout(transcriptFlushTimeout);
                 await flushTranscriptTurn();
                 const result = await (0, rewind_session_finalization_service_1.finalizeRewindSession)({
-                    sessionId: sessionState.sessionId,
+                    sessionId: sessionState?.sessionId,
                     source,
                 });
                 if (result.status === "needs_more_reflection") {
@@ -1171,7 +1173,7 @@ async function handleLiveConnection(ws, req) {
                     if (ws.readyState === ws.OPEN) {
                         ws.send(JSON.stringify({
                             type: "session_missed",
-                            sessionId: sessionState.sessionId,
+                            sessionId: sessionState?.sessionId,
                         }));
                     }
                     return "missed";
@@ -1182,15 +1184,15 @@ async function handleLiveConnection(ws, req) {
                 sessionState.completedAt = completedAt;
                 sessionState.checkInAt = completedAt;
                 sessionState.status = client_1.RewindSessionStatus.COMPLETED;
-                sessionState.summary = result.summary ?? sessionState.summary;
+                sessionState.summary = result.summary ?? sessionState?.summary;
                 sessionState.emotionalInsight = result.emotionalInsight;
                 sessionState.wellbeingSignals = result.wellbeingSignals;
                 if (ws.readyState === ws.OPEN) {
                     ws.send(JSON.stringify({
                         type: "session_ended",
-                        sessionId: sessionState.sessionId,
-                        emotionalInsight: sessionState.emotionalInsight,
-                        summary: sessionState.summary,
+                        sessionId: sessionState?.sessionId,
+                        emotionalInsight: sessionState?.emotionalInsight,
+                        summary: sessionState?.summary,
                     }));
                 }
                 return "completed";
@@ -1224,8 +1226,8 @@ async function handleLiveConnection(ws, req) {
                 throw error;
             }
         };
-        if (sessionState.windowEndsAt) {
-            const remainingWindowMs = Math.max(0, sessionState.windowEndsAt.getTime() - Date.now());
+        if (sessionState?.windowEndsAt) {
+            const remainingWindowMs = Math.max(0, sessionState?.windowEndsAt.getTime() - Date.now());
             windowExpiryTimeout = setTimeout(() => {
                 void finalizeSession(client_1.RewindCompletionSource.AUTO_TIMEOUT)
                     .catch((error) => {
@@ -1233,7 +1235,7 @@ async function handleLiveConnection(ws, req) {
                         connectionId,
                         errorName: error instanceof Error ? error.name : "UnknownError",
                         personaId,
-                        sessionId: sessionState.sessionId,
+                        sessionId: sessionState?.sessionId,
                     });
                 })
                     .finally(() => {
@@ -1395,14 +1397,14 @@ async function handleLiveConnection(ws, req) {
                         logger_util_1.default.info("Gemini Live session opened", {
                             connectionId,
                             personaId,
-                            sessionId: sessionState.sessionId,
+                            sessionId: sessionState?.sessionId,
                         });
                     },
                     onmessage: async (message) => {
                         logger_util_1.default.debug("Gemini Live message received", {
                             connectionId,
                             personaId,
-                            sessionId: sessionState.sessionId,
+                            sessionId: sessionState?.sessionId,
                             ...summarizeLiveMessage(message),
                         });
                         if (message.sessionResumptionUpdate?.resumable &&
@@ -1414,7 +1416,7 @@ async function handleLiveConnection(ws, req) {
                             logger_util_1.default.info("Gemini Live connection rollover announced", {
                                 connectionId,
                                 personaId,
-                                sessionId: sessionState.sessionId,
+                                sessionId: sessionState?.sessionId,
                                 timeLeft: message.goAway.timeLeft,
                             });
                             rolloverRequested = true;
@@ -1445,7 +1447,7 @@ async function handleLiveConnection(ws, req) {
                                 logger_util_1.default.info("Gemini Live tool call received", {
                                     connectionId,
                                     personaId,
-                                    sessionId: sessionState.sessionId,
+                                    sessionId: sessionState?.sessionId,
                                     tool: call.name,
                                 });
                                 if (call.name === "end_session") {
@@ -1465,7 +1467,7 @@ async function handleLiveConnection(ws, req) {
                                         logger_util_1.default.warn("Rewind session finalization failed", {
                                             connectionId,
                                             personaId,
-                                            sessionId: sessionState.sessionId,
+                                            sessionId: sessionState?.sessionId,
                                             errorName: error instanceof Error ? error.name : "UnknownError",
                                         });
                                         session?.sendToolResponse({
@@ -1503,7 +1505,7 @@ async function handleLiveConnection(ws, req) {
                                         if (ws.readyState === ws.OPEN) {
                                             ws.send(JSON.stringify({
                                                 type: "session_paused",
-                                                sessionId: sessionState.sessionId,
+                                                sessionId: sessionState?.sessionId,
                                             }));
                                             pauseCloseTimeout = setTimeout(() => {
                                                 pauseCloseTimeout = undefined;
@@ -1517,7 +1519,7 @@ async function handleLiveConnection(ws, req) {
                                         logger_util_1.default.warn("Rewind session pause failed", {
                                             connectionId,
                                             personaId,
-                                            sessionId: sessionState.sessionId,
+                                            sessionId: sessionState?.sessionId,
                                             errorName: error instanceof Error ? error.name : "UnknownError",
                                         });
                                         session?.sendToolResponse({
@@ -1594,7 +1596,7 @@ async function handleLiveConnection(ws, req) {
                                                 role: "user",
                                                 parts: [
                                                     {
-                                                        text: buildResumePrompt(sessionState.summary, buildRecentTranscriptContext(transcriptTurns)),
+                                                        text: buildResumePrompt(sessionState?.summary, buildRecentTranscriptContext(transcriptTurns)),
                                                     },
                                                 ],
                                             },
@@ -1608,8 +1610,8 @@ async function handleLiveConnection(ws, req) {
                             hasInitializedClient = true;
                             ws.send(JSON.stringify({
                                 type: "ready",
-                                sessionId: sessionState.sessionId,
-                                sessionDateKey: sessionState.sessionDateKey,
+                                sessionId: sessionState?.sessionId,
+                                sessionDateKey: sessionState?.sessionDateKey,
                                 restored: shouldRestore,
                                 previousSession: previousSessions[0] ?? null,
                             }));
@@ -1620,7 +1622,7 @@ async function handleLiveConnection(ws, req) {
                                             role: "user",
                                             parts: [
                                                 {
-                                                    text: buildResumePrompt(sessionState.summary, buildRecentTranscriptContext(transcriptTurns)),
+                                                    text: buildResumePrompt(sessionState?.summary, buildRecentTranscriptContext(transcriptTurns)),
                                                 },
                                             ],
                                         },
@@ -1656,7 +1658,7 @@ async function handleLiveConnection(ws, req) {
                         logger_util_1.default.info("Gemini Live session closed", {
                             connectionId,
                             personaId,
-                            sessionId: sessionState.sessionId,
+                            sessionId: sessionState?.sessionId,
                             code: closeReason.code,
                             reason: closeReason.reason.slice(0, 160),
                             wasClean: closeReason.wasClean,
@@ -1687,7 +1689,7 @@ async function handleLiveConnection(ws, req) {
                         logger_util_1.default.error("Gemini Live session error", {
                             connectionId,
                             personaId,
-                            sessionId: sessionState.sessionId,
+                            sessionId: sessionState?.sessionId,
                             errorName: error.error instanceof Error ? error.error.name : "ErrorEvent",
                         });
                     },
@@ -1724,7 +1726,7 @@ async function handleLiveConnection(ws, req) {
                         messageBytes: raw.toString().length,
                         maxMessageBytes: security_config_util_1.securityConfig.rewindMaxMessageBytes,
                         personaId,
-                        sessionId: sessionState.sessionId,
+                        sessionId: sessionState?.sessionId,
                     });
                     ws.close(1009, "Message too large");
                     return;
@@ -1736,7 +1738,7 @@ async function handleLiveConnection(ws, req) {
                         messageRateLimit: security_config_util_1.securityConfig.rewindMessageRateLimit,
                         messageRateWindowMs: security_config_util_1.securityConfig.rewindMessageRateWindowMs,
                         personaId,
-                        sessionId: sessionState.sessionId,
+                        sessionId: sessionState?.sessionId,
                     });
                     ws.close(1008, "Message rate exceeded");
                     return;
@@ -1748,7 +1750,7 @@ async function handleLiveConnection(ws, req) {
                     logger_util_1.default.debug("Forwarding rewind realtime audio to Gemini", {
                         connectionId,
                         personaId,
-                        sessionId: sessionState.sessionId,
+                        sessionId: sessionState?.sessionId,
                         mimeType: parsed.mimeType,
                         dataLength: parsed.data.length,
                     });
@@ -1764,7 +1766,7 @@ async function handleLiveConnection(ws, req) {
                     logger_util_1.default.info("Forwarding rewind text input to Gemini", {
                         connectionId,
                         personaId,
-                        sessionId: sessionState.sessionId,
+                        sessionId: sessionState?.sessionId,
                         textLength: parsed.content.length,
                     });
                     sendRealtimeInput({ text: parsed.content.trim() });
@@ -1796,7 +1798,7 @@ async function handleLiveConnection(ws, req) {
                 logger_util_1.default.warn("Ignoring unsupported rewind client payload", {
                     connectionId,
                     personaId,
-                    sessionId: sessionState.sessionId,
+                    sessionId: sessionState?.sessionId,
                     type: parsed.type || "unknown",
                 });
             }
@@ -1805,7 +1807,7 @@ async function handleLiveConnection(ws, req) {
                 logger_util_1.default.error("Error processing message from rewind client", {
                     connectionId,
                     personaId,
-                    sessionId: sessionState.sessionId,
+                    sessionId: sessionState?.sessionId,
                     errorName: error instanceof Error ? error.name : "UnknownError",
                 });
                 if (ws.readyState === ws.OPEN) {
@@ -1837,14 +1839,14 @@ async function handleLiveConnection(ws, req) {
             logger_util_1.default.info("Rewind client WebSocket closed", {
                 connectionId,
                 personaId,
-                sessionId: sessionState.sessionId,
+                sessionId: sessionState?.sessionId,
                 code,
                 reason: reason?.toString() || "",
             });
             console.log("Rewind client WebSocket closed", {
                 connectionId,
                 personaId,
-                sessionId: sessionState.sessionId,
+                sessionId: sessionState?.sessionId,
                 code,
                 reason: reason?.toString() || "",
             });
@@ -1854,9 +1856,7 @@ async function handleLiveConnection(ws, req) {
                 if (transcriptFlushTimeout)
                     clearTimeout(transcriptFlushTimeout);
                 void flushTranscriptTurn()
-                    .then(() => isSessionFinalized
-                    ? undefined
-                    : persistRewindSession(sessionState))
+                    .then(() => isSessionFinalized ? undefined : persistRewindSession(sessionState))
                     .catch(() => undefined);
                 session?.close();
                 session = undefined;
@@ -1865,7 +1865,7 @@ async function handleLiveConnection(ws, req) {
                 logger_util_1.default.warn("Failed to close Gemini session after client disconnect", {
                     connectionId,
                     personaId,
-                    sessionId: sessionState.sessionId,
+                    sessionId: sessionState?.sessionId,
                     errorName: error instanceof Error ? error.name : "UnknownError",
                 });
             }
@@ -1874,7 +1874,7 @@ async function handleLiveConnection(ws, req) {
             logger_util_1.default.error("Rewind client WebSocket error", {
                 connectionId,
                 personaId,
-                sessionId: sessionState.sessionId,
+                sessionId: sessionState?.sessionId,
                 errorName: error.name,
             });
         });

@@ -57,7 +57,9 @@ async function login(req, res) {
             return res.status(401).json({ msg: "Invalid credentials" });
         }
         await user_mood_service_1.userMoodService.refreshCurrentMoodIfNeeded(user.id);
-        const refreshedUser = await db_config_1.prisma.user.findUnique({ where: { id: user.id } });
+        const refreshedUser = await db_config_1.prisma.user.findUnique({
+            where: { id: user.id },
+        });
         if (!refreshedUser) {
             return res.status(404).json({ msg: "User not found" });
         }
@@ -94,7 +96,7 @@ async function register(req, res) {
         }
         const hashedPassword = await (0, auth_util_1.hashPassword)(password);
         // Generate unique username from first name or email
-        const baseName = firstName || email.split('@')[0];
+        const baseName = firstName || email.split("@")[0];
         const username = await (0, username_util_1.generateUniqueUsername)(baseName);
         const user = await db_config_1.prisma.user.create({
             data: {
@@ -135,7 +137,7 @@ async function googleAuth(req, res) {
     try {
         const { token } = req.body;
         // Verify Google token
-        const googleUser = await (0, auth_util_1.verifyGoogleToken)(token);
+        const googleUser = await (0, auth_util_1.verifyGoogleToken)(token, req.clientApp);
         if (!googleUser) {
             return res.status(401).json({ msg: "Invalid Google token" });
         }
@@ -149,18 +151,18 @@ async function googleAuth(req, res) {
             const firstName = nameParts[0] || "";
             const lastName = nameParts.slice(1).join(" ") || "";
             // Generate unique username
-            const baseName = firstName || googleUser.email.split('@')[0];
+            const baseName = firstName || googleUser.email.split("@")[0];
             const username = await (0, username_util_1.generateUniqueUsername)(baseName);
             // Upload Google avatar to Cloudinary (async, non-blocking)
             let cloudinaryAvatarUrl = undefined;
             if (googleUser.picture) {
                 try {
                     const uploadedUrl = await (0, cloudinary_util_1.uploadImageFromUrl)(googleUser.picture, googleUser.sub, // Use Google ID as temp ID
-                    'google-avatars');
+                    "google-avatars");
                     cloudinaryAvatarUrl = uploadedUrl || undefined;
                 }
                 catch (error) {
-                    logger_util_1.default.warn('Failed to upload Google avatar to Cloudinary, using Google URL', {
+                    logger_util_1.default.warn("Failed to upload Google avatar to Cloudinary, using Google URL", {
                         email: googleUser.email,
                         error,
                     });
@@ -191,15 +193,17 @@ async function googleAuth(req, res) {
                 let cloudinaryAvatarUrl = user.avatarUrl;
                 if (googleUser.picture && !user.avatarUrl) {
                     try {
-                        const uploadedUrl = await (0, cloudinary_util_1.uploadImageFromUrl)(googleUser.picture, user.id, 'google-avatars');
-                        cloudinaryAvatarUrl = uploadedUrl || googleUser.picture || undefined;
+                        const uploadedUrl = await (0, cloudinary_util_1.uploadImageFromUrl)(googleUser.picture, user.id, "google-avatars");
+                        cloudinaryAvatarUrl =
+                            uploadedUrl || googleUser.picture || undefined;
                     }
                     catch (error) {
-                        logger_util_1.default.warn('Failed to upload Google avatar to Cloudinary', {
+                        logger_util_1.default.warn("Failed to upload Google avatar to Cloudinary", {
                             userId: user.id,
                             error,
                         });
-                        cloudinaryAvatarUrl = googleUser.picture || user.avatarUrl || undefined;
+                        cloudinaryAvatarUrl =
+                            googleUser.picture || user.avatarUrl || undefined;
                     }
                 }
                 user = await db_config_1.prisma.user.update({
@@ -216,7 +220,7 @@ async function googleAuth(req, res) {
                 // Update avatar if available and not already set
                 if (googleUser.picture && !user.avatarUrl) {
                     try {
-                        const uploadedUrl = await (0, cloudinary_util_1.uploadImageFromUrl)(googleUser.picture, user.id, 'google-avatars');
+                        const uploadedUrl = await (0, cloudinary_util_1.uploadImageFromUrl)(googleUser.picture, user.id, "google-avatars");
                         const cloudinaryAvatarUrl = uploadedUrl || googleUser.picture;
                         user = await db_config_1.prisma.user.update({
                             where: { id: user.id },
@@ -226,7 +230,7 @@ async function googleAuth(req, res) {
                         });
                     }
                     catch (error) {
-                        logger_util_1.default.warn('Failed to upload Google avatar to Cloudinary', {
+                        logger_util_1.default.warn("Failed to upload Google avatar to Cloudinary", {
                             userId: user.id,
                             error,
                         });
@@ -243,7 +247,9 @@ async function googleAuth(req, res) {
         }
         // Generate tokens
         await user_mood_service_1.userMoodService.refreshCurrentMoodIfNeeded(user.id);
-        const refreshedUser = await db_config_1.prisma.user.findUnique({ where: { id: user.id } });
+        const refreshedUser = await db_config_1.prisma.user.findUnique({
+            where: { id: user.id },
+        });
         if (!refreshedUser) {
             return res.status(404).json({ msg: "User not found" });
         }
@@ -295,7 +301,9 @@ async function refreshToken(req, res) {
         if (!decoded) {
             return res.status(401).json({ msg: "Invalid refresh token" });
         }
-        const user = await db_config_1.prisma.user.findUnique({ where: { id: decoded.userId } });
+        const user = await db_config_1.prisma.user.findUnique({
+            where: { id: decoded.userId },
+        });
         if (!user || user.refreshToken !== refreshToken) {
             return res.status(401).json({ msg: "Invalid refresh token" });
         }
@@ -389,7 +397,10 @@ async function verifyRecoveryCode(req, res) {
         });
     }
     catch (error) {
-        logger_util_1.default.error("Verify recovery code error:", { error, email: req.body.email });
+        logger_util_1.default.error("Verify recovery code error:", {
+            error,
+            email: req.body.email,
+        });
         res.status(500).json({ msg: "Internal server error" });
     }
 }
@@ -459,7 +470,10 @@ async function requestConfirmation(req, res) {
         });
     }
     catch (error) {
-        logger_util_1.default.error("Request confirmation error:", { error, email: req.body.email });
+        logger_util_1.default.error("Request confirmation error:", {
+            error,
+            email: req.body.email,
+        });
         res.status(500).json({ msg: "Internal server error" });
     }
 }
@@ -489,14 +503,19 @@ async function accountConfirmation(req, res) {
         });
     }
     catch (error) {
-        logger_util_1.default.error("Account confirmation error:", { error, email: req.body.email });
+        logger_util_1.default.error("Account confirmation error:", {
+            error,
+            email: req.body.email,
+        });
         res.status(500).json({ msg: "Internal server error" });
     }
 }
 async function checkEmail(req, res) {
     try {
         const { email } = req.params;
-        const user = await db_config_1.prisma.user.findUnique({ where: { email: String(email) } });
+        const user = await db_config_1.prisma.user.findUnique({
+            where: { email: String(email) },
+        });
         res.json({
             msg: "Email check completed",
             data: {

@@ -1,26 +1,64 @@
 import firebase from "firebase-admin";
+import type { ClientApp } from "../types/client-app.type";
 import { Env } from "../utils/env.util";
 
-let firebaseApp: firebase.app.App | null = null;
+type FirebaseCredentials = {
+  clientEmail?: string;
+  privateKey?: string;
+  projectId?: string;
+};
 
-export const firebaseClient = () => {
-  if (!firebaseApp) {
-    const projectId = Env.FIREBASE_PROJECT_ID || "streekapp-1";
-    const privateKey = Env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-    const clientEmail = Env.FIREBASE_CLIENT_EMAIL || "firebase-adminsdk-1dtb8@streekapp-1.iam.gserviceaccount.com";
+const firebaseApps = new Map<ClientApp, firebase.app.App>();
 
-    if (!privateKey) {
-      throw new Error("FIREBASE_PRIVATE_KEY is not configured");
-    }
-
-    firebaseApp = firebase.initializeApp({
-      credential: firebase.credential.cert({
-        projectId,
-        privateKey,
-        clientEmail,
-      }),
-    }, `firebase-${Date.now()}`);
+function getFirebaseCredentials(clientApp: ClientApp): FirebaseCredentials {
+  if (clientApp === "mycove") {
+    return {
+      clientEmail: Env.MYCOVE_FIREBASE_CLIENT_EMAIL,
+      privateKey: Env.MYCOVE_FIREBASE_PRIVATE_KEY,
+      projectId: Env.MYCOVE_FIREBASE_PROJECT_ID,
+    };
   }
 
-  return firebaseApp;
-};
+  return {
+    clientEmail: Env.FIREBASE_CLIENT_EMAIL,
+    privateKey: Env.FIREBASE_PRIVATE_KEY,
+    projectId: Env.FIREBASE_PROJECT_ID,
+  };
+}
+
+function requireFirebaseCredentials(
+  clientApp: ClientApp,
+): Required<FirebaseCredentials> {
+  const credentials = getFirebaseCredentials(clientApp);
+  const prefix = clientApp === "mycove" ? "MYCOVE_" : "";
+  if (!credentials.projectId?.trim()) {
+    throw new Error(`${prefix}FIREBASE_PROJECT_ID is not configured`);
+  }
+  if (!credentials.privateKey?.trim()) {
+    throw new Error(`${prefix}FIREBASE_PRIVATE_KEY is not configured`);
+  }
+  if (!credentials.clientEmail?.trim()) {
+    throw new Error(`${prefix}FIREBASE_CLIENT_EMAIL is not configured`);
+  }
+
+  return {
+    clientEmail: credentials.clientEmail,
+    privateKey: credentials.privateKey.replace(/\\n/g, "\n"),
+    projectId: credentials.projectId,
+  };
+}
+
+export function firebaseClient(
+  clientApp: ClientApp = "vybaa",
+): firebase.app.App {
+  const existingApp = firebaseApps.get(clientApp);
+  if (existingApp) return existingApp;
+
+  const credentials = requireFirebaseCredentials(clientApp);
+  const app = firebase.initializeApp(
+    { credential: firebase.credential.cert(credentials) },
+    `firebase-${clientApp}`,
+  );
+  firebaseApps.set(clientApp, app);
+  return app;
+}

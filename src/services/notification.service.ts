@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { DateTime } from "luxon";
 import { prisma } from "../config/db.config";
 import { getStreakMilestonePoints } from "../config/points.config";
+import { fromPrismaClientApp, type ClientApp } from "../types/client-app.type";
 import logger from "../utils/logger.util";
 import { isNotificationDedupeConflict } from "../utils/notification-dedupe.util";
 import { cacheService } from "./cache.service";
@@ -38,11 +39,22 @@ type DeliverableNotification = {
   data: string | null;
   createdAt: Date;
   user: {
+    fcmDevices: Array<{ clientApp: "VYBAA" | "MYCOVE"; token: string }>;
     fcmTokens: string[];
     firstName: string | null;
     username: string | null;
   };
 };
+
+type FcmTarget = {
+  clientApp: ClientApp;
+  token: string;
+};
+
+type FcmTargetUser = Pick<
+  DeliverableNotification["user"],
+  "fcmDevices" | "fcmTokens"
+>;
 
 type NotificationClaim = {
   dispatchToken: string;
@@ -53,15 +65,18 @@ const NOTIFICATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
 const FLEXX_DAILY_SEND_CHANCE = 0.55;
 const FLEXX_TEMPLATES = [
   {
-    message: "Yo ${name}, aren't you flexxing today? Share ${goal} and show them who's boss.",
+    message:
+      "Yo ${name}, aren't you flexxing today? Share ${goal} and show them who's boss.",
     title: "Let today show",
   },
   {
-    message: "${name}, ${goal} deserves a little spotlight today. Flexx your progress with the people rooting for you.",
+    message:
+      "${name}, ${goal} deserves a little spotlight today. Flexx your progress with the people rooting for you.",
     title: "Make your progress visible",
   },
   {
-    message: "A small win still counts, ${name}. Give ${goal} its moment on Flexx today.",
+    message:
+      "A small win still counts, ${name}. Give ${goal} its moment on Flexx today.",
     title: "Your win belongs out loud",
   },
 ] as const;
@@ -116,17 +131,22 @@ class NotificationService {
     const day = DateTime.fromFormat(params.dayKey, "yyyy-LL-dd", {
       zone: params.timezone,
     }).startOf("day");
-    const hour = 11 + Math.floor(
-      this.getDeterministicRatio(`${params.userId}:${params.dayKey}:hour`) * 8,
-    );
+    const hour =
+      11 +
+      Math.floor(
+        this.getDeterministicRatio(`${params.userId}:${params.dayKey}:hour`) *
+          8,
+      );
     const minute = Math.floor(
-      this.getDeterministicRatio(`${params.userId}:${params.dayKey}:minute`) * 60,
+      this.getDeterministicRatio(`${params.userId}:${params.dayKey}:minute`) *
+        60,
     );
     const templateIndex = Math.min(
       FLEXX_TEMPLATES.length - 1,
       Math.floor(
-        this.getDeterministicRatio(`${params.userId}:${params.dayKey}:template`) *
-          FLEXX_TEMPLATES.length,
+        this.getDeterministicRatio(
+          `${params.userId}:${params.dayKey}:template`,
+        ) * FLEXX_TEMPLATES.length,
       ),
     );
     return {
@@ -135,40 +155,90 @@ class NotificationService {
     };
   }
 
-  private async getSharedFcmTokensByUser(
+  private getFcmTargetKey(target: FcmTarget): string {
+    return `${target.clientApp}:${target.token}`;
+  }
+
+  private getFcmTargets(user: FcmTargetUser): FcmTarget[] {
+    const targets = new Map<string, FcmTarget>();
+    for (const token of user.fcmTokens) {
+      if (!token) continue;
+      const target = { clientApp: "vybaa" as const, token };
+      targets.set(this.getFcmTargetKey(target), target);
+    }
+    for (const device of user.fcmDevices) {
+      if (!device.token) continue;
+      const target = {
+        clientApp: fromPrismaClientApp(device.clientApp),
+        token: device.token,
+      };
+      targets.set(this.getFcmTargetKey(target), target);
+    }
+    return [...targets.values()];
+  }
+
+  private async getSharedFcmTargetsByUser(
     notifications: DeliverableNotification[],
   ): Promise<Map<string, Set<string>>> {
-    const allTokens = new Set<string>();
+    const allTargetKeys = new Set<string>();
     for (const notification of notifications) {
-      for (const token of notification.user.fcmTokens) {
-        if (token) allTokens.add(token);
+      for (const target of this.getFcmTargets(notification.user)) {
+        allTargetKeys.add(this.getFcmTargetKey(target));
       }
     }
-    if (!allTokens.size) return new Map();
+    if (!allTargetKeys.size) return new Map();
 
     const users = await prisma.user.findMany({
-      where: { fcmTokens: { hasSome: [...allTokens] } },
-      select: { id: true, fcmTokens: true },
+      where: {
+        OR: [
+          {
+            fcmTokens: {
+              hasSome: notifications.flatMap(
+                (notification) => notification.user.fcmTokens,
+              ),
+            },
+          },
+          {
+            fcmDevices: {
+              some: {
+                token: {
+                  in: notifications.flatMap((notification) =>
+                    notification.user.fcmDevices.map((device) => device.token),
+                  ),
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        fcmDevices: { select: { clientApp: true, token: true } },
+        fcmTokens: true,
+        id: true,
+      },
     });
-    const tokenOwnerIds = new Map<string, Set<string>>();
+    const targetOwnerIds = new Map<string, Set<string>>();
     for (const user of users) {
-      for (const token of new Set(user.fcmTokens)) {
-        if (!allTokens.has(token)) continue;
-        const ownerIds = tokenOwnerIds.get(token) ?? new Set<string>();
+      const targets = this.getFcmTargets(user);
+      for (const target of targets) {
+        const key = this.getFcmTargetKey(target);
+        if (!allTargetKeys.has(key)) continue;
+        const ownerIds = targetOwnerIds.get(key) ?? new Set<string>();
         ownerIds.add(user.id);
-        tokenOwnerIds.set(token, ownerIds);
+        targetOwnerIds.set(key, ownerIds);
       }
     }
 
     const sharedByUser = new Map<string, Set<string>>();
     for (const notification of notifications) {
-      const sharedTokens = new Set<string>();
-      for (const token of new Set(notification.user.fcmTokens)) {
-        if ((tokenOwnerIds.get(token)?.size ?? 0) > 1) {
-          sharedTokens.add(token);
+      const sharedTargetKeys = new Set<string>();
+      for (const target of this.getFcmTargets(notification.user)) {
+        const key = this.getFcmTargetKey(target);
+        if ((targetOwnerIds.get(key)?.size ?? 0) > 1) {
+          sharedTargetKeys.add(key);
         }
       }
-      sharedByUser.set(notification.userId, sharedTokens);
+      sharedByUser.set(notification.userId, sharedTargetKeys);
     }
     return sharedByUser;
   }
@@ -261,7 +331,12 @@ class NotificationService {
       orderBy: { createdAt: "asc" },
       include: {
         user: {
-          select: { fcmTokens: true, firstName: true, username: true },
+          select: {
+            fcmDevices: { select: { clientApp: true, token: true } },
+            fcmTokens: true,
+            firstName: true,
+            username: true,
+          },
         },
       },
     });
@@ -308,10 +383,11 @@ class NotificationService {
     if (!claim?.notifications.length) return 0;
 
     try {
-      const sharedTokensByUser = await this.getSharedFcmTokensByUser(
+      const sharedTargetsByUser = await this.getSharedFcmTargetsByUser(
         claim.notifications,
       );
       const pushMessages: Array<{
+        clientApp: ClientApp;
         token: string;
         title: string;
         body: string;
@@ -324,15 +400,16 @@ class NotificationService {
       }> = [];
       for (const notification of claim.notifications) {
         const payload = this.toPayload(notification);
-        const sharedTokens =
-          sharedTokensByUser.get(notification.userId) ?? new Set<string>();
+        const sharedTargetKeys =
+          sharedTargetsByUser.get(notification.userId) ?? new Set<string>();
         const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
 
-        for (const token of new Set(notification.user.fcmTokens)) {
-          if (!token) continue;
+        for (const target of this.getFcmTargets(notification.user)) {
+          const targetKey = this.getFcmTargetKey(target);
           pushMessages.push({
-            token,
-            title: sharedTokens.has(token)
+            clientApp: target.clientApp,
+            token: target.token,
+            title: sharedTargetKeys.has(targetKey)
               ? `${titlePrefix} ${notification.title}`
               : notification.title,
             body: notification.message,
@@ -607,9 +684,9 @@ class NotificationService {
           const timezone = DateTime.now().setZone(user.timezone).isValid
             ? user.timezone
             : "UTC";
-          const localDayKey = DateTime.fromJSDate(now, { zone: timezone }).toFormat(
-            "yyyy-LL-dd",
-          );
+          const localDayKey = DateTime.fromJSDate(now, {
+            zone: timezone,
+          }).toFormat("yyyy-LL-dd");
           const shouldSendFlexx =
             this.getDeterministicRatio(
               `${user.id}:${localDayKey}:flexx-decision`,

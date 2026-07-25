@@ -43,7 +43,7 @@ model User {
   realPointsBalance Int @default(0) @map("real_points_balance")
 
   refreshToken String?  @map("refresh_token")
-  fcmTokens    String[] @default([]) @map("fcm_tokens") // Array of FCM device tokens
+  fcmTokens    String[] @default([]) @map("fcm_tokens") // Legacy Vybaa device tokens
 
   role String @default("USER") // USER, ADMIN
 
@@ -57,6 +57,7 @@ model User {
   achievements  Achievement[]
   chillSessions ChillSession[]
   journals      Journal[]
+  fcmDevices    FcmDevice[]
 
   // Community relations
   ownedCommunities     Community[]         @relation("CommunityOwner")
@@ -81,6 +82,25 @@ model User {
 
   sentTransactions     Transaction[] @relation("TransactionSender")
   receivedTransactions Transaction[] @relation("TransactionRecipient")
+}
+
+enum ClientApp {
+  VYBAA
+  MYCOVE
+}
+
+model FcmDevice {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String
+  clientApp ClientApp @map("client_app")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([clientApp, token])
+  @@index([userId, clientApp])
+  @@map("fcm_devices")
 }
 
 model RewindSession {

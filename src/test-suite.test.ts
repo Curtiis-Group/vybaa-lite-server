@@ -1,4 +1,5 @@
 import "./controllers/rewind.controller.test";
+import "./middleware/client-app.middleware.test";
 import "./services/milestone.service.test";
 import "./services/notification-realtime.service.test";
 import "./services/push-notification.service.test";
