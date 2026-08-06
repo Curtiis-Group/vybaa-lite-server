@@ -33,6 +33,7 @@ import {
 } from "../services/rewind-routine.service";
 import { finalizeRewindSession } from "../services/rewind-session-finalization.service";
 import {
+  assertSubscriptionStateCurrent,
   assertCanUseRewindInsightsRange,
   handleSubscriptionAccessError,
 } from "../services/subscription-access.service";
@@ -1169,6 +1170,7 @@ export function buildResumePrompt(
 export async function createLiveToken(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
+    await assertSubscriptionStateCurrent(userId, req.clientApp);
     const requestedSessionId =
       typeof req.body?.sessionId === "string" && req.body.sessionId.trim()
         ? req.body.sessionId.trim()
@@ -1201,6 +1203,7 @@ export async function createLiveToken(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
+    if (handleSubscriptionAccessError(error, res)) return;
     if (error instanceof RewindRoutineAvailabilityError) {
       const overview = await getRewindRoutineOverview({ userId: req.userId! });
       res.status(409).json({

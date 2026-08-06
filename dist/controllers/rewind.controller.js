@@ -847,6 +847,7 @@ function buildResumePrompt(currentSummary, recentTranscript) {
 async function createLiveToken(req, res) {
     try {
         const userId = req.userId;
+        await (0, subscription_access_service_1.assertSubscriptionStateCurrent)(userId, req.clientApp);
         const requestedSessionId = typeof req.body?.sessionId === "string" && req.body.sessionId.trim()
             ? req.body.sessionId.trim()
             : undefined;
@@ -872,6 +873,8 @@ async function createLiveToken(req, res) {
         });
     }
     catch (error) {
+        if ((0, subscription_access_service_1.handleSubscriptionAccessError)(error, res))
+            return;
         if (error instanceof rewind_routine_service_1.RewindRoutineAvailabilityError) {
             const overview = await (0, rewind_routine_service_1.getRewindRoutineOverview)({ userId: req.userId });
             res.status(409).json({

@@ -59,6 +59,13 @@ async function getVybaaAccess(userId: string, clientApp: ClientApp) {
   }
 }
 
+export async function assertSubscriptionStateCurrent(
+  userId: string,
+  clientApp: ClientApp,
+): Promise<void> {
+  await getVybaaAccess(userId, clientApp);
+}
+
 export async function assertCanCreateGoal(
   userId: string,
   clientApp: ClientApp,

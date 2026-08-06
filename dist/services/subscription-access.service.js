@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SubscriptionAccessError = void 0;
 exports.requiresProForRewindFrequency = requiresProForRewindFrequency;
 exports.requiresProForInsightsRange = requiresProForInsightsRange;
+exports.assertSubscriptionStateCurrent = assertSubscriptionStateCurrent;
 exports.assertCanCreateGoal = assertCanCreateGoal;
 exports.assertCanCreateCommunity = assertCanCreateCommunity;
 exports.assertCanUseRewindFrequency = assertCanUseRewindFrequency;
@@ -36,6 +37,9 @@ async function getVybaaAccess(userId, clientApp) {
     catch {
         throw new SubscriptionAccessError("SUBSCRIPTION_UNAVAILABLE", "Subscription status is temporarily unavailable", 503);
     }
+}
+async function assertSubscriptionStateCurrent(userId, clientApp) {
+    await getVybaaAccess(userId, clientApp);
 }
 async function assertCanCreateGoal(userId, clientApp) {
     const access = await getVybaaAccess(userId, clientApp);
