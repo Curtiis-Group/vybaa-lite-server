@@ -26,6 +26,7 @@ const node_crypto_1 = require("node:crypto");
 const db_config_1 = require("../config/db.config");
 const rewind_routine_service_1 = require("../services/rewind-routine.service");
 const rewind_session_finalization_service_1 = require("../services/rewind-session-finalization.service");
+const subscription_access_service_1 = require("../services/subscription-access.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const security_config_util_1 = require("../utils/security-config.util");
 const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "models/gemini-3.1-flash-live-preview";
@@ -550,7 +551,7 @@ const REWIND_INSIGHT_RANGES = {
     "90d": 90,
 };
 function getRewindInsightsRange(value) {
-    return value === "7d" || value === "90d" || value === "30d" ? value : "30d";
+    return value === "7d" || value === "90d" || value === "30d" ? value : "7d";
 }
 function getRangeStartDateKey(days, timezone) {
     return luxon_1.DateTime.now()
@@ -581,6 +582,7 @@ function averageSignals(sessions) {
 async function getRewindInsights(req, res) {
     try {
         const range = getRewindInsightsRange(getSingleQueryParam(req.query.range));
+        await (0, subscription_access_service_1.assertCanUseRewindInsightsRange)(req.userId, req.clientApp, range);
         const days = REWIND_INSIGHT_RANGES[range];
         const userId = req.userId;
         const user = await db_config_1.prisma.user.findUnique({
@@ -654,6 +656,8 @@ async function getRewindInsights(req, res) {
         });
     }
     catch (error) {
+        if ((0, subscription_access_service_1.handleSubscriptionAccessError)(error, res))
+            return;
         logger_util_1.default.error("Get Rewind insights error", {
             errorName: error instanceof Error ? error.name : "UnknownError",
             userId: req.userId,

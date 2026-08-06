@@ -6,6 +6,10 @@ import { achievementService } from "../services/achievement.service";
 import { communityActivityService } from "../services/community-activity.service";
 import { milestoneService } from "../services/milestone.service";
 import { notificationService } from "../services/notification.service";
+import {
+  assertCanCreateGoal,
+  handleSubscriptionAccessError,
+} from "../services/subscription-access.service";
 import logger from "../utils/logger.util";
 
 // Helper function to get date string in user's timezone (YYYY-MM-DD)
@@ -432,6 +436,8 @@ export async function createGoal(req: AuthRequest, res: Response) {
     const userId = req.userId!;
     const { goalText, targetDays, reminderTime } = req.body;
 
+    await assertCanCreateGoal(userId, req.clientApp);
+
     const goal = await prisma.goal.create({
       data: {
         goalText,
@@ -478,6 +484,7 @@ export async function createGoal(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
+    if (handleSubscriptionAccessError(error, res)) return;
     logger.error("Create goal error:", { error, userId: req.userId });
     res.status(500).json({ msg: "Internal server error" });
   }

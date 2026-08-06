@@ -35,6 +35,7 @@ const db_config_1 = require("../config/db.config");
 const community_activity_service_1 = require("../services/community-activity.service");
 const email_service_1 = require("../services/email.service");
 const notification_service_1 = require("../services/notification.service");
+const subscription_access_service_1 = require("../services/subscription-access.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 function getDiscoveryScore(community, isJoined) {
     const memberScore = Math.min(community._count.members, 500) * 2;
@@ -95,6 +96,7 @@ async function createCommunity(req, res) {
     try {
         const userId = req.userId;
         const { name, description, coverImage, isPublic, category } = req.body;
+        await (0, subscription_access_service_1.assertCanCreateCommunity)(userId, req.clientApp);
         const community = await db_config_1.prisma.community.create({
             data: {
                 name,
@@ -138,6 +140,8 @@ async function createCommunity(req, res) {
         });
     }
     catch (error) {
+        if ((0, subscription_access_service_1.handleSubscriptionAccessError)(error, res))
+            return;
         logger_util_1.default.error("Create community error:", { error, userId: req.userId });
         res.status(500).json({ msg: "Internal server error" });
     }
@@ -1064,6 +1068,7 @@ async function startGoalFromTemplate(req, res) {
         const userId = req.userId;
         const { templateId } = req.params;
         const { reminderTime } = req.body;
+        await (0, subscription_access_service_1.assertCanCreateGoal)(userId, req.clientApp);
         const template = await db_config_1.prisma.goalTemplate.findUnique({
             where: { id: templateId },
             include: {
@@ -1117,6 +1122,8 @@ async function startGoalFromTemplate(req, res) {
         });
     }
     catch (error) {
+        if ((0, subscription_access_service_1.handleSubscriptionAccessError)(error, res))
+            return;
         logger_util_1.default.error("Start goal from template error:", { error, userId: req.userId, templateId: req.params.templateId });
         res.status(500).json({ msg: "Internal server error" });
     }

@@ -70,6 +70,7 @@ model User {
   receivedInvites      CommunityInvite[]   @relation("InviteRecipient")
   rewindSessions       RewindSession[]
   rewindRoutine        RewindRoutine?
+  subscriptionSnapshots SubscriptionSnapshot[]
 
   // Summary caching
   lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
@@ -101,6 +102,30 @@ model FcmDevice {
   @@unique([clientApp, token])
   @@index([userId, clientApp])
   @@map("fcm_devices")
+}
+
+model SubscriptionSnapshot {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  clientApp         ClientApp @map("client_app")
+  entitlementId     String    @map("entitlement_id")
+  isPro             Boolean   @default(false) @map("is_pro")
+  productIdentifier String?   @map("product_identifier")
+  periodType        String?   @map("period_type")
+  environment       String?
+  expiresAt         DateTime? @map("expires_at")
+  managementUrl     String?   @map("management_url")
+  verifiedAt        DateTime  @map("verified_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, clientApp])
+  @@index([clientApp, isPro, expiresAt])
+  @@map("subscription_snapshots")
 }
 
 model RewindSession {

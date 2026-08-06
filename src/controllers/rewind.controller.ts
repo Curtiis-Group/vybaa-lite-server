@@ -32,6 +32,10 @@ import {
   startOrResumeRewindOccurrence,
 } from "../services/rewind-routine.service";
 import { finalizeRewindSession } from "../services/rewind-session-finalization.service";
+import {
+  assertCanUseRewindInsightsRange,
+  handleSubscriptionAccessError,
+} from "../services/subscription-access.service";
 import logger from "../utils/logger.util";
 import { getJwtSecret, securityConfig } from "../utils/security-config.util";
 
@@ -795,7 +799,7 @@ const REWIND_INSIGHT_RANGES: Record<RewindInsightsRange, number> = {
 };
 
 function getRewindInsightsRange(value: unknown): RewindInsightsRange {
-  return value === "7d" || value === "90d" || value === "30d" ? value : "30d";
+  return value === "7d" || value === "90d" || value === "30d" ? value : "7d";
 }
 
 function getRangeStartDateKey(days: number, timezone?: string): string {
@@ -834,6 +838,11 @@ function averageSignals(
 export async function getRewindInsights(req: AuthRequest, res: Response) {
   try {
     const range = getRewindInsightsRange(getSingleQueryParam(req.query.range));
+    await assertCanUseRewindInsightsRange(
+      req.userId!,
+      req.clientApp,
+      range,
+    );
     const days = REWIND_INSIGHT_RANGES[range];
     const userId = req.userId!;
     const user = await prisma.user.findUnique({
@@ -917,6 +926,7 @@ export async function getRewindInsights(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
+    if (handleSubscriptionAccessError(error, res)) return;
     logger.error("Get Rewind insights error", {
       errorName: error instanceof Error ? error.name : "UnknownError",
       userId: req.userId,

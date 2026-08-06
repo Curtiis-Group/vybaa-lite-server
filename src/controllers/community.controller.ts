@@ -5,6 +5,11 @@ import { AuthRequest } from "../middleware/auth.middleware";
 import { communityActivityService } from "../services/community-activity.service";
 import { emailService } from "../services/email.service";
 import { notificationService } from "../services/notification.service";
+import {
+  assertCanCreateCommunity,
+  assertCanCreateGoal,
+  handleSubscriptionAccessError,
+} from "../services/subscription-access.service";
 import logger from "../utils/logger.util";
 
 interface CommunityDiscoveryCounts {
@@ -102,6 +107,8 @@ export async function createCommunity(req: AuthRequest, res: Response) {
     const userId = req.userId!;
     const { name, description, coverImage, isPublic, category } = req.body;
 
+    await assertCanCreateCommunity(userId, req.clientApp);
+
     const community = await prisma.community.create({
       data: {
         name,
@@ -145,6 +152,7 @@ export async function createCommunity(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
+    if (handleSubscriptionAccessError(error, res)) return;
     logger.error("Create community error:", { error, userId: req.userId });
     res.status(500).json({ msg: "Internal server error" });
   }
@@ -1193,6 +1201,8 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
     const { templateId } = req.params   as { templateId: string};
     const { reminderTime } = req.body;
 
+    await assertCanCreateGoal(userId, req.clientApp);
+
     const template = await prisma.goalTemplate.findUnique({
       where: { id: templateId },
       include: {
@@ -1257,6 +1267,7 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
+    if (handleSubscriptionAccessError(error, res)) return;
     logger.error("Start goal from template error:", { error, userId: req.userId, templateId: req.params.templateId });
     res.status(500).json({ msg: "Internal server error" });
   }

@@ -8,6 +8,7 @@ exports.updateRewindRoutine = updateRewindRoutine;
 const client_1 = require("@prisma/client");
 const rewind_routine_service_1 = require("../services/rewind-routine.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const subscription_access_service_1 = require("../services/subscription-access.service");
 function isRecord(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -68,6 +69,7 @@ async function updateRewindRoutine(req, res) {
             typeof timezone !== "string") {
             return res.status(400).json({ msg: "Invalid Rewind routine" });
         }
+        await (0, subscription_access_service_1.assertCanUseRewindFrequency)(req.userId, req.clientApp, frequency);
         const routine = await (0, rewind_routine_service_1.saveRewindRoutine)({
             userId: req.userId,
             input: {
@@ -91,6 +93,8 @@ async function updateRewindRoutine(req, res) {
         });
     }
     catch (error) {
+        if ((0, subscription_access_service_1.handleSubscriptionAccessError)(error, res))
+            return res;
         const message = error instanceof Error ? error.message : "Invalid Rewind routine";
         if (message === "A valid IANA timezone is required" ||
             message.includes("Custom Rewind") ||

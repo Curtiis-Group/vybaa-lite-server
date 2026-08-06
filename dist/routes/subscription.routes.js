@@ -6,4 +6,5 @@ const auth_middleware_1 = require("../middleware/auth.middleware");
 const router = (0, express_1.Router)();
 router.get("/config", subscription_controller_1.getSubscriptionConfig);
 router.get("/status", auth_middleware_1.authMiddleware, subscription_controller_1.getSubscriptionStatus);
+router.post("/sync", auth_middleware_1.authMiddleware, subscription_controller_1.syncSubscriptionStatus);
 exports.default = router;

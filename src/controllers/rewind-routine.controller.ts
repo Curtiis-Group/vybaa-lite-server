@@ -6,6 +6,10 @@ import {
   saveRewindRoutine,
 } from "../services/rewind-routine.service";
 import logger from "../utils/logger.util";
+import {
+  assertCanUseRewindFrequency,
+  handleSubscriptionAccessError,
+} from "../services/subscription-access.service";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -83,6 +87,12 @@ export async function updateRewindRoutine(req: AuthRequest, res: Response) {
       return res.status(400).json({ msg: "Invalid Rewind routine" });
     }
 
+    await assertCanUseRewindFrequency(
+      req.userId!,
+      req.clientApp,
+      frequency,
+    );
+
     const routine = await saveRewindRoutine({
       userId: req.userId!,
       input: {
@@ -106,6 +116,7 @@ export async function updateRewindRoutine(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
+    if (handleSubscriptionAccessError(error, res)) return res;
     const message = error instanceof Error ? error.message : "Invalid Rewind routine";
     if (
       message === "A valid IANA timezone is required" ||

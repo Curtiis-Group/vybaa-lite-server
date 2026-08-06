@@ -18,6 +18,7 @@ const achievement_service_1 = require("../services/achievement.service");
 const community_activity_service_1 = require("../services/community-activity.service");
 const milestone_service_1 = require("../services/milestone.service");
 const notification_service_1 = require("../services/notification.service");
+const subscription_access_service_1 = require("../services/subscription-access.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 // Helper function to get date string in user's timezone (YYYY-MM-DD)
 // Uses date-only comparison as specified in the plan
@@ -372,6 +373,7 @@ async function createGoal(req, res) {
     try {
         const userId = req.userId;
         const { goalText, targetDays, reminderTime } = req.body;
+        await (0, subscription_access_service_1.assertCanCreateGoal)(userId, req.clientApp);
         const goal = await db_config_1.prisma.goal.create({
             data: {
                 goalText,
@@ -416,6 +418,8 @@ async function createGoal(req, res) {
         });
     }
     catch (error) {
+        if ((0, subscription_access_service_1.handleSubscriptionAccessError)(error, res))
+            return;
         logger_util_1.default.error("Create goal error:", { error, userId: req.userId });
         res.status(500).json({ msg: "Internal server error" });
     }
