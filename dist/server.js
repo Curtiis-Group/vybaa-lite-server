@@ -42,6 +42,7 @@ const dotenv_1 = __importDefault(require("dotenv"));
 const express_1 = __importDefault(require("express"));
 const express_ws_1 = __importDefault(require("express-ws"));
 const rewindController = __importStar(require("./controllers/rewind.controller"));
+const revenuecat_webhook_controller_1 = require("./controllers/revenuecat-webhook.controller");
 const webhook_controller_1 = require("./controllers/webhook.controller");
 const client_app_middleware_1 = require("./middleware/client-app.middleware");
 const request_logger_middleware_1 = require("./middleware/request-logger.middleware");
@@ -76,6 +77,8 @@ exports.app.use(client_app_middleware_1.clientAppMiddleware);
 // Paystack webhook needs raw body for signature verification
 exports.app.post("/api/v1/webhooks/paystack", express_1.default.raw({ type: "application/json" }), webhook_controller_1.handlePaystackWebhook);
 exports.app.post("/mycove/v1/webhooks/paystack", express_1.default.raw({ type: "application/json" }), webhook_controller_1.handlePaystackWebhook);
+exports.app.post("/api/v1/webhooks/revenuecat", security_middleware_1.revenueCatWebhookRateLimit, express_1.default.raw({ limit: "512kb", type: "application/json" }), revenuecat_webhook_controller_1.handleRevenueCatWebhook);
+exports.app.post("/mycove/v1/webhooks/revenuecat", security_middleware_1.revenueCatWebhookRateLimit, express_1.default.raw({ limit: "512kb", type: "application/json" }), revenuecat_webhook_controller_1.handleRevenueCatWebhook);
 exports.app.use("/api/v1/upload", express_1.default.json({ limit: security_config_util_1.securityConfig.uploadBodyLimit }));
 exports.app.use("/mycove/v1/upload", express_1.default.json({ limit: security_config_util_1.securityConfig.uploadBodyLimit }));
 exports.app.use(express_1.default.json({ limit: security_config_util_1.securityConfig.apiBodyLimit }));

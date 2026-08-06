@@ -1,4 +1,5 @@
 import { notificationService } from "./notification.service";
+import { processPendingRevenueCatWebhooks } from "./revenuecat-webhook.service";
 import { runRewindRoutineLifecycle } from "./rewind-routine.service";
 import logger from "../utils/logger.util";
 
@@ -29,8 +30,10 @@ class SchedulerService {
 
     // Process pending notifications every minute
     this.processPendingNotifications();
+    this.processRevenueCatWebhooks();
     this.intervalId = setInterval(() => {
       this.processPendingNotifications();
+      this.processRevenueCatWebhooks();
     }, 60 * 1000); // Every minute
 
     // Rewind slots are account-local, so their lifecycle must be evaluated
@@ -97,6 +100,19 @@ class SchedulerService {
       await notificationService.processPendingNotifications();
     } catch (error) {
       logger.error("Error in processPendingNotifications:", error);
+    }
+  }
+
+  private async processRevenueCatWebhooks(): Promise<void> {
+    try {
+      const processedCount = await processPendingRevenueCatWebhooks();
+      if (processedCount) {
+        logger.info("Processed RevenueCat webhooks", { processedCount });
+      }
+    } catch (error) {
+      logger.error("Error processing RevenueCat webhooks", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
     }
   }
 

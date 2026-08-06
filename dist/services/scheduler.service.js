@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.schedulerService = void 0;
 const notification_service_1 = require("./notification.service");
+const revenuecat_webhook_service_1 = require("./revenuecat-webhook.service");
 const rewind_routine_service_1 = require("./rewind-routine.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 class SchedulerService {
@@ -32,8 +33,10 @@ class SchedulerService {
         }, 60 * 60 * 1000); // Every hour
         // Process pending notifications every minute
         this.processPendingNotifications();
+        this.processRevenueCatWebhooks();
         this.intervalId = setInterval(() => {
             this.processPendingNotifications();
+            this.processRevenueCatWebhooks();
         }, 60 * 1000); // Every minute
         // Rewind slots are account-local, so their lifecycle must be evaluated
         // every minute instead of against a server-wide UTC day.
@@ -94,6 +97,19 @@ class SchedulerService {
         }
         catch (error) {
             logger_util_1.default.error("Error in processPendingNotifications:", error);
+        }
+    }
+    async processRevenueCatWebhooks() {
+        try {
+            const processedCount = await (0, revenuecat_webhook_service_1.processPendingRevenueCatWebhooks)();
+            if (processedCount) {
+                logger_util_1.default.info("Processed RevenueCat webhooks", { processedCount });
+            }
+        }
+        catch (error) {
+            logger_util_1.default.error("Error processing RevenueCat webhooks", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+            });
         }
     }
     async processRewindRoutineLifecycle() {

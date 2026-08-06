@@ -2,6 +2,7 @@ import { RewindFrequency } from "@prisma/client";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { Env } from "../utils/env.util";
 import {
   FREE_SUBSCRIPTION_LIMITS,
   PRO_SUBSCRIPTION_LIMITS,
@@ -26,10 +27,13 @@ test("Vybaa uses its own entitlement and store products", () => {
 });
 
 test("My Cove subscription configuration remains isolated", () => {
+  const previousEntitlement = Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID;
+  Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID = "mycove_pro";
   const config = getRevenueCatConfig("mycove");
 
-  assert.equal(config.entitlementId, "My Cove Pro");
+  assert.equal(config.entitlementId, "mycove_pro");
   assert.deepEqual(config.products, { annual: "yearly", monthly: "monthly" });
+  Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID = previousEntitlement;
 });
 
 test("subscription limits reflect the selected tier", () => {

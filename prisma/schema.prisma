@@ -90,6 +90,13 @@ enum ClientApp {
   MYCOVE
 }
 
+enum RevenueCatWebhookStatus {
+  RECEIVED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model FcmDevice {
   id        String    @id @default(cuid())
   userId    String    @map("user_id")
@@ -126,6 +133,28 @@ model SubscriptionSnapshot {
   @@unique([userId, clientApp])
   @@index([clientApp, isPro, expiresAt])
   @@map("subscription_snapshots")
+}
+
+model RevenueCatWebhookEvent {
+  id String @id @default(cuid())
+
+  externalEventId String                  @map("external_event_id")
+  clientApp       ClientApp               @map("client_app")
+  eventType       String                  @map("event_type")
+  appUserId       String?                 @map("app_user_id")
+  rawPayload      String                  @map("raw_payload") @db.Text
+  status          RevenueCatWebhookStatus @default(RECEIVED)
+  attemptCount    Int                     @default(0) @map("attempt_count")
+  lastError       String?                 @map("last_error")
+  nextAttemptAt   DateTime?               @map("next_attempt_at")
+  processedAt     DateTime?               @map("processed_at")
+  receivedAt      DateTime                @default(now()) @map("received_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([clientApp, externalEventId])
+  @@index([status, nextAttemptAt])
+  @@map("revenuecat_webhook_events")
 }
 
 model RewindSession {

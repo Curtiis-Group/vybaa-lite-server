@@ -4,6 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import expressWs from "express-ws";
 import * as rewindController from "./controllers/rewind.controller";
+import { handleRevenueCatWebhook } from "./controllers/revenuecat-webhook.controller";
 import { handlePaystackWebhook } from "./controllers/webhook.controller";
 import {
   clientAppMiddleware,
@@ -12,6 +13,7 @@ import {
 import { requestLogger } from "./middleware/request-logger.middleware";
 import {
   apiRateLimit,
+  revenueCatWebhookRateLimit,
   securityHeaders,
 } from "./middleware/security.middleware";
 import routes from "./routes";
@@ -63,6 +65,18 @@ app.post(
   "/mycove/v1/webhooks/paystack",
   express.raw({ type: "application/json" }),
   handlePaystackWebhook,
+);
+app.post(
+  "/api/v1/webhooks/revenuecat",
+  revenueCatWebhookRateLimit,
+  express.raw({ limit: "512kb", type: "application/json" }),
+  handleRevenueCatWebhook,
+);
+app.post(
+  "/mycove/v1/webhooks/revenuecat",
+  revenueCatWebhookRateLimit,
+  express.raw({ limit: "512kb", type: "application/json" }),
+  handleRevenueCatWebhook,
 );
 
 app.use(
