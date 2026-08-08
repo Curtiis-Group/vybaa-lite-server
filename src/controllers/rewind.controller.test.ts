@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import jwt from "jsonwebtoken";
 import {
+  averageRewindSignals,
   buildDraftSessionSummary,
   buildOpeningPrompt,
   buildResumePrompt,
@@ -14,6 +15,32 @@ import {
 } from "./rewind.controller";
 
 process.env.JWT_SECRET = "test-secret-that-is-not-a-production-default";
+
+test("Rewind insights are available from the first valid reflection", () => {
+  const signals = averageRewindSignals([
+    {
+      wellbeingSignals: {
+        agency: 64,
+        clarity: 72,
+        connection: 58,
+        emotionalSteadiness: 61,
+        energy: 49,
+      },
+    },
+  ]);
+
+  assert.deepEqual(signals, {
+    agency: 64,
+    clarity: 72,
+    connection: 58,
+    emotionalSteadiness: 61,
+    energy: 49,
+  });
+  assert.equal(
+    averageRewindSignals([{ wellbeingSignals: null }]),
+    null,
+  );
+});
 
 test("opening is relaxed and does not require a scripted question", () => {
   const prompt = buildOpeningPrompt("ella", { shouldIntroduce: true });

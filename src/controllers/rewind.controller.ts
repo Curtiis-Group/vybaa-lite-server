@@ -810,7 +810,7 @@ function getRangeStartDateKey(days: number, timezone?: string): string {
     .toFormat("yyyy-LL-dd");
 }
 
-function averageSignals(
+export function averageRewindSignals(
   sessions: Array<{ wellbeingSignals: unknown }>,
 ): RewindWellbeingSignals | null {
   const validSignals = sessions
@@ -828,10 +828,11 @@ function averageSignals(
   ] as const;
   const average = {} as RewindWellbeingSignals;
   for (const key of keys) {
-    average[key] = Math.round(
-      validSignals.reduce((total, signals) => total + signals[key], 0) /
-        validSignals.length,
-    );
+    let total = 0;
+    for (const signals of validSignals) {
+      total += signals[key];
+    }
+    average[key] = Math.round(total / validSignals.length);
   }
   return average;
 }
@@ -877,14 +878,14 @@ export async function getRewindInsights(req: AuthRequest, res: Response) {
         dateKey < rangeStartDateKey && dateKey >= previousRangeStartDateKey
       );
     });
-    const signals = averageSignals(currentSessions);
-    const previousSignals = averageSignals(previousSessions);
+    const signals = averageRewindSignals(currentSessions);
+    const previousSignals = averageRewindSignals(previousSessions);
     const completedDays = new Set(
       currentSessions
         .map((session) => session.sessionDateKey)
         .filter((value): value is string => Boolean(value)),
     ).size;
-    const hasSufficientData = currentSessions.length >= 3 && Boolean(signals);
+    const hasSufficientData = Boolean(signals);
     const latestSession = currentSessions[0];
     const headline =
       latestSession?.comparisonInsight ||
@@ -902,7 +903,7 @@ export async function getRewindInsights(req: AuthRequest, res: Response) {
           days,
         },
         hasSufficientData,
-        signals: hasSufficientData ? signals : null,
+        signals,
         deltas:
           hasSufficientData && previousSignals && signals
             ? {

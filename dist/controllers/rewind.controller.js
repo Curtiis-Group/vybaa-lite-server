@@ -11,6 +11,7 @@ exports.createRewindWsToken = createRewindWsToken;
 exports.verifyRewindWsToken = verifyRewindWsToken;
 exports.getPaginatedRewindSessions = getPaginatedRewindSessions;
 exports.getRewindSession = getRewindSession;
+exports.averageRewindSignals = averageRewindSignals;
 exports.getRewindInsights = getRewindInsights;
 exports.addRewindSessionToJournal = addRewindSessionToJournal;
 exports.getRewindSystemInstruction = getRewindSystemInstruction;
@@ -559,7 +560,7 @@ function getRangeStartDateKey(days, timezone) {
         .minus({ days: days - 1 })
         .toFormat("yyyy-LL-dd");
 }
-function averageSignals(sessions) {
+function averageRewindSignals(sessions) {
     const validSignals = sessions
         .map((session) => normalizeWellbeingSignals(session.wellbeingSignals))
         .filter((signals) => Boolean(signals));
@@ -574,8 +575,11 @@ function averageSignals(sessions) {
     ];
     const average = {};
     for (const key of keys) {
-        average[key] = Math.round(validSignals.reduce((total, signals) => total + signals[key], 0) /
-            validSignals.length);
+        let total = 0;
+        for (const signals of validSignals) {
+            total += signals[key];
+        }
+        average[key] = Math.round(total / validSignals.length);
     }
     return average;
 }
@@ -612,12 +616,12 @@ async function getRewindInsights(req, res) {
             const dateKey = session.sessionDateKey ?? "";
             return (dateKey < rangeStartDateKey && dateKey >= previousRangeStartDateKey);
         });
-        const signals = averageSignals(currentSessions);
-        const previousSignals = averageSignals(previousSessions);
+        const signals = averageRewindSignals(currentSessions);
+        const previousSignals = averageRewindSignals(previousSessions);
         const completedDays = new Set(currentSessions
             .map((session) => session.sessionDateKey)
             .filter((value) => Boolean(value))).size;
-        const hasSufficientData = currentSessions.length >= 3 && Boolean(signals);
+        const hasSufficientData = Boolean(signals);
         const latestSession = currentSessions[0];
         const headline = latestSession?.comparisonInsight ||
             latestSession?.nextStepNote ||
@@ -633,7 +637,7 @@ async function getRewindInsights(req, res) {
                     days,
                 },
                 hasSufficientData,
-                signals: hasSufficientData ? signals : null,
+                signals,
                 deltas: hasSufficientData && previousSignals && signals
                     ? {
                         agency: signals.agency - previousSignals.agency,
