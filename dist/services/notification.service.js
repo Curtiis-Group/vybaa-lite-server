@@ -10,6 +10,7 @@ const db_config_1 = require("../config/db.config");
 const points_config_1 = require("../config/points.config");
 const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const goal_reminder_util_1 = require("../utils/goal-reminder.util");
 const notification_dedupe_util_1 = require("../utils/notification-dedupe.util");
 const cache_service_1 = require("./cache.service");
 const metrics_service_1 = require("./metrics.service");
@@ -403,72 +404,72 @@ class NotificationService {
      */
     async scheduleGoalReminders() {
         try {
-            // Ensure we only run the heavy scheduling logic once per UTC day.
             const now = new Date();
-            const todayKey = now.toISOString().split("T")[0]; // YYYY-MM-DD (UTC)
-            const cacheKey = "scheduler:goalReminders:lastRunDate";
+            const hourKey = now.toISOString().slice(0, 13);
+            const cacheKey = "scheduler:goalReminders:lastRunHour";
             const lastRun = await cache_service_1.cacheService.get(cacheKey);
-            if (lastRun === todayKey) {
-                // Already scheduled for today; skip DB work.
+            if (lastRun === hourKey)
                 return;
-            }
             const goals = await db_config_1.prisma.goal.findMany({
                 where: {
                     reminderTime: { not: null },
                 },
-                include: {
-                    user: true,
+                select: {
+                    currentDay: true,
+                    goalText: true,
+                    id: true,
+                    reminderTime: true,
+                    targetDays: true,
+                    user: {
+                        select: {
+                            firstName: true,
+                            timezone: true,
+                            username: true,
+                        },
+                    },
+                    userId: true,
                 },
             });
-            // Use UTC date to avoid timezone issues
-            const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
             let scheduledCount = 0;
             for (const goal of goals) {
-                if (!goal.reminderTime)
+                if (!goal.reminderTime || goal.currentDay >= goal.targetDays)
                     continue;
-                // Parse reminder time (format: "HH:MM")
-                const [hours, minutes] = goal.reminderTime.split(":").map(Number);
-                // Calculate scheduled time for today using UTC
-                const scheduledTime = new Date(today);
-                scheduledTime.setUTCHours(hours || 0, minutes, 0, 0);
-                // If the time has already passed today, schedule for tomorrow
-                if (scheduledTime <= now) {
-                    scheduledTime.setUTCDate(scheduledTime.getUTCDate() + 1);
-                }
-                // Check if there's already a scheduled reminder for this goal at this time
-                const existingReminder = await db_config_1.prisma.notification.findFirst({
-                    where: {
-                        userId: goal.userId,
-                        goalId: goal.id,
-                        type: "goal_reminder",
-                        scheduledFor: scheduledTime,
-                        sentAt: null,
-                    },
+                const occurrence = (0, goal_reminder_util_1.getNextGoalReminderOccurrence)({
+                    now,
+                    reminderTime: goal.reminderTime,
+                    timezone: goal.user.timezone,
                 });
-                if (!existingReminder) {
-                    // Create the reminder
-                    await this.createNotification({
-                        userId: goal.userId,
+                if (!occurrence)
+                    continue;
+                const copy = (0, goal_reminder_util_1.buildGoalReminderCopy)({
+                    goalTitle: goal.goalText,
+                    preferredName: goal.user.firstName || goal.user.username,
+                    seed: `${goal.id}:${occurrence.dayKey}`,
+                });
+                const notification = await this.createNotification({
+                    userId: goal.userId,
+                    goalId: goal.id,
+                    type: "goal_reminder",
+                    title: copy.title,
+                    message: copy.message,
+                    data: {
+                        dayKey: occurrence.dayKey,
                         goalId: goal.id,
-                        type: "goal_reminder",
-                        title: "Goal Reminder",
-                        message: `Time to check in on your goal: ${goal.goalText}`,
-                        data: {
-                            goalId: goal.id,
-                            goalText: goal.goalText,
-                        },
-                        scheduledFor: scheduledTime,
-                    });
-                    scheduledCount++;
-                    logger_util_1.default.info(`Scheduled reminder for goal ${goal.id} at ${scheduledTime.toISOString()}`);
+                        goalText: goal.goalText,
+                        route: `/app/goal?goalId=${encodeURIComponent(goal.id)}`,
+                    },
+                    dedupeKey: `goal_reminder:${goal.id}:${occurrence.dayKey}`,
+                    scheduledFor: occurrence.scheduledFor,
+                });
+                if (notification) {
+                    scheduledCount += 1;
+                    logger_util_1.default.info(`Scheduled reminder for goal ${goal.id} at ${occurrence.scheduledFor.toISOString()}`);
                 }
             }
-            // Mark this day's scheduling as completed; TTL slightly over 24h for safety.
-            await cache_service_1.cacheService.set(cacheKey, todayKey, 26 * 60 * 60);
-            // Record metrics (fire-and-forget)
+            await cache_service_1.cacheService.set(cacheKey, hourKey, 2 * 60 * 60);
             metrics_service_1.metricsService
                 .record("scheduler_goal_reminders_scheduled", scheduledCount, {
-                day: todayKey,
+                hour: hourKey,
             })
                 .catch(() => { });
         }
@@ -634,6 +635,7 @@ class NotificationService {
                     id: true,
                     type: true,
                     goalId: true,
+                    scheduledFor: true,
                 },
                 orderBy: { scheduledFor: "asc" },
                 take: 500,
@@ -651,18 +653,23 @@ class NotificationService {
             if (goalIds.length > 0) {
                 const goals = await db_config_1.prisma.goal.findMany({
                     where: { id: { in: goalIds } },
-                    select: { id: true, lastCheckInDate: true },
+                    select: {
+                        id: true,
+                        lastCheckInDate: true,
+                        user: { select: { timezone: true } },
+                    },
                 });
                 for (const goal of goals) {
                     goalsById[goal.id] = {
                         lastCheckInDate: goal.lastCheckInDate,
+                        timezone: goal.user.timezone,
                     };
                 }
             }
-            const isSameUtcDate = (a, b) => {
-                return (a.getUTCFullYear() === b.getUTCFullYear() &&
-                    a.getUTCMonth() === b.getUTCMonth() &&
-                    a.getUTCDate() === b.getUTCDate());
+            const isSameLocalDate = (a, b, timezone) => {
+                const first = luxon_1.DateTime.fromJSDate(a, { zone: timezone });
+                const second = luxon_1.DateTime.fromJSDate(b, { zone: timezone });
+                return first.isValid && second.isValid && first.toISODate() === second.toISODate();
             };
             const skippedNotificationIds = [];
             const deliverableNotificationIds = [];
@@ -672,7 +679,7 @@ class NotificationService {
                 if (notification.type === "goal_reminder" && notification.goalId) {
                     const goal = goalsById[notification.goalId];
                     if (goal?.lastCheckInDate &&
-                        isSameUtcDate(goal.lastCheckInDate, now)) {
+                        isSameLocalDate(goal.lastCheckInDate, notification.scheduledFor ?? now, goal.timezone)) {
                         skippedNotificationIds.push(notification.id);
                         continue;
                     }
@@ -723,7 +730,12 @@ class NotificationService {
             type: "goal_completed",
             title,
             message,
-            data: { goalId, goalText, communityName },
+            data: {
+                goalId,
+                goalText,
+                communityName,
+                route: `/app/goal?goalId=${encodeURIComponent(goalId)}`,
+            },
         });
     }
     /**
@@ -741,7 +753,14 @@ class NotificationService {
             type: "streak_milestone",
             title: `${days}-Day Streak!${pointsText}`,
             message,
-            data: { goalId, goalText, days, communityName, points },
+            data: {
+                goalId,
+                goalText,
+                days,
+                communityName,
+                points,
+                route: `/app/goal?goalId=${encodeURIComponent(goalId)}`,
+            },
         });
     }
     /**
@@ -763,6 +782,7 @@ class NotificationService {
                 previousDays,
                 resetReason: "missed_checkin",
                 communityName,
+                route: `/app/goal?goalId=${encodeURIComponent(goalId)}`,
             },
         });
     }
@@ -784,7 +804,12 @@ class NotificationService {
             type: "system",
             title: "New Member Joined",
             message: `${newMemberName} joined ${communityName}`,
-            data: { communityId, newMemberId, communityName },
+            data: {
+                communityId,
+                newMemberId,
+                communityName,
+                route: `/app/community/${communityId}#members`,
+            },
         }));
         await Promise.all(notifications);
     }
@@ -806,7 +831,12 @@ class NotificationService {
             type: "system",
             title: "Member Left",
             message: `${leftMemberName} left ${communityName}`,
-            data: { communityId, leftMemberId, communityName },
+            data: {
+                communityId,
+                leftMemberId,
+                communityName,
+                route: `/app/community/${communityId}#members`,
+            },
         }));
         await Promise.all(notifications);
     }
@@ -829,27 +859,39 @@ class NotificationService {
             type: "system",
             title: "New Goal Template",
             message: `${creatorName} created a new goal template in ${communityName}: ${templateGoalText}`,
-            data: { communityId, templateId, templateGoalText, communityName },
+            data: {
+                communityId,
+                templateId,
+                templateGoalText,
+                communityName,
+                route: `/app/community/${communityId}`,
+            },
         }));
         await Promise.all(notifications);
     }
     /**
      * Send notification when someone starts a goal from your template
      */
-    async sendGoalStartedFromTemplateNotification(templateCreatorId, starterName, templateGoalText, communityName, goalId) {
+    async sendGoalStartedFromTemplateNotification(templateCreatorId, starterName, templateGoalText, communityName, communityId, goalId) {
         return this.createNotification({
             userId: templateCreatorId,
             goalId,
             type: "system",
             title: "Someone Started Your Template",
             message: `${starterName} started a goal from your template "${templateGoalText}" in ${communityName}`,
-            data: { goalId, templateGoalText, communityName, starterName },
+            data: {
+                goalId,
+                templateGoalText,
+                communityName,
+                starterName,
+                route: `/app/community/${communityId}`,
+            },
         });
     }
     /**
      * Send notification when someone reacts to your activity
      */
-    async sendActivityReactionNotification(activityOwnerId, reactorName, activityType, communityName, activityId) {
+    async sendActivityReactionNotification(activityOwnerId, reactorName, activityType, communityName, communityId, activityId) {
         // Don't notify if user reacted to their own activity
         if (!activityOwnerId)
             return;
@@ -858,13 +900,19 @@ class NotificationService {
             type: "system",
             title: "New Reaction",
             message: `${reactorName} reacted to your activity in ${communityName}`,
-            data: { activityId, activityType, communityName, reactorName },
+            data: {
+                activityId,
+                activityType,
+                communityName,
+                reactorName,
+                route: `/app/community/${communityId}#activity`,
+            },
         });
     }
     /**
      * Send notification when someone comments on your activity
      */
-    async sendActivityCommentNotification(activityOwnerId, commenterName, commentText, communityName, activityId) {
+    async sendActivityCommentNotification(activityOwnerId, commenterName, commentText, communityName, communityId, activityId) {
         // Don't notify if user commented on their own activity
         if (!activityOwnerId)
             return;
@@ -876,20 +924,32 @@ class NotificationService {
             type: "system",
             title: "New Comment",
             message: `${commenterName} commented on your activity in ${communityName}: "${truncatedComment}"`,
-            data: { activityId, commentText, communityName, commenterName },
+            data: {
+                activityId,
+                commentText,
+                communityName,
+                commenterName,
+                route: `/app/community/${communityId}#activity`,
+            },
         });
     }
     /**
      * Send notification when user's role is changed
      */
-    async sendRoleChangedNotification(userId, newRole, communityName, changedBy) {
+    async sendRoleChangedNotification(userId, newRole, communityName, communityId, changedBy) {
         const roleLabel = newRole === "MOD" ? "moderator" : "member";
         return this.createNotification({
             userId,
             type: "system",
             title: "Role Updated",
             message: `${changedBy} changed your role to ${roleLabel} in ${communityName}`,
-            data: { communityId: "", newRole, communityName, changedBy },
+            data: {
+                communityId,
+                newRole,
+                communityName,
+                changedBy,
+                route: `/app/community/${communityId}#members`,
+            },
         });
     }
     /**
@@ -905,14 +965,14 @@ class NotificationService {
             type: "system",
             title: "Community Deleted",
             message: `The community "${communityName}" has been deleted`,
-            data: { communityId, communityName },
+            data: { communityId, communityName, route: "/app/communities" },
         }));
         await Promise.all(notifications);
     }
     /**
      * Send notification when a template is deleted (notify users who started goals from it)
      */
-    async sendTemplateDeletedNotification(templateId, templateGoalText, communityName) {
+    async sendTemplateDeletedNotification(templateId, templateGoalText, communityName, communityId) {
         // Find all goals started from this template
         const goals = await db_config_1.prisma.goal.findMany({
             where: { templateId },
@@ -925,7 +985,13 @@ class NotificationService {
             type: "system",
             title: "Template Deleted",
             message: `The goal template "${templateGoalText}" in ${communityName} has been deleted`,
-            data: { templateId, templateGoalText, communityName, goalId: goal.id },
+            data: {
+                templateId,
+                templateGoalText,
+                communityName,
+                goalId: goal.id,
+                route: `/app/community/${communityId}`,
+            },
         }));
         await Promise.all(notifications);
     }
@@ -942,7 +1008,14 @@ class NotificationService {
             type: "system",
             title: "Milestone Reached! 🎯",
             message,
-            data: { goalId, milestoneName, points, goalText, communityName },
+            data: {
+                goalId,
+                milestoneName,
+                points,
+                goalText,
+                communityName,
+                route: `/app/goal?goalId=${encodeURIComponent(goalId)}`,
+            },
         });
     }
 }

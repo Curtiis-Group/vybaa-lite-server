@@ -672,6 +672,7 @@ export async function updateMemberRole(req: AuthRequest, res: Response) {
       targetUserId,
       role,
       member.community.name,
+      communityId,
       changerName
     ).catch((err) => logger.error("Error sending role changed notification:", err));
 
@@ -1181,7 +1182,8 @@ export async function deleteTemplate(req: AuthRequest, res: Response) {
       notificationService.sendTemplateDeletedNotification(
         templateId,
         templateWithCommunity.goalText || "",
-        templateWithCommunity.community.name
+        templateWithCommunity.community.name,
+        template.communityId
       ).catch((err) => logger.error("Error sending template deleted notification:", err));
     }
 
@@ -1246,6 +1248,7 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
         starterName,
         template.goalText || "",
         template.community.name,
+        template.communityId,
         goal.id
       ).catch((err) => logger.error("Error sending goal started notification:", err));
     }
@@ -1443,6 +1446,7 @@ export async function reactToActivity(req: AuthRequest, res: Response) {
         reactorName,
         activity.type,
         activity.community.name,
+        activity.communityId,
         activityId
       ).catch((err) => logger.error("Error sending reaction notification:", err));
     }
@@ -1506,6 +1510,7 @@ export async function createComment(req: AuthRequest, res: Response) {
         commenterName,
         text,
         activity.community.name,
+        activity.communityId,
         activityId
       ).catch((err) => logger.error("Error sending comment notification:", err));
     }
@@ -1915,10 +1920,17 @@ export async function createInvite(req: AuthRequest, res: Response) {
     if (inviteeUserId) {
       notificationService.createNotification({
         userId: inviteeUserId,
-        type: "system" as any,
+        type: "system",
         title: `${inviterName} invited you`,
         message: `${inviterName} invited you to join ${community.name}.`,
-        data: { communityId, communityName: community.name, code, link, type: "community_invite" },
+        data: {
+          communityId,
+          communityName: community.name,
+          code,
+          link,
+          route: `/app/invite/${code}`,
+          type: "community_invite",
+        },
       }).catch((err) => logger.error("Error sending invite notification:", err));
     }
 

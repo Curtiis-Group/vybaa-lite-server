@@ -65,6 +65,7 @@ class AchievementService {
                     badgeIcon: badgeDef.badgeIcon,
                     type,
                     milestone,
+                    route: "/achievements",
                 },
             });
             // Create community activity for achievement

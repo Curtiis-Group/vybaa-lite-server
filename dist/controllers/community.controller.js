@@ -593,7 +593,7 @@ async function updateMemberRole(req, res) {
             select: { username: true, firstName: true },
         });
         const changerName = changer?.username || changer?.firstName || "Admin";
-        notification_service_1.notificationService.sendRoleChangedNotification(targetUserId, role, member.community.name, changerName).catch((err) => logger_util_1.default.error("Error sending role changed notification:", err));
+        notification_service_1.notificationService.sendRoleChangedNotification(targetUserId, role, member.community.name, communityId, changerName).catch((err) => logger_util_1.default.error("Error sending role changed notification:", err));
         res.json({
             msg: "Member role updated successfully",
             data: {
@@ -1051,7 +1051,7 @@ async function deleteTemplate(req, res) {
         });
         // Notify users who started goals from this template
         if (templateWithCommunity) {
-            notification_service_1.notificationService.sendTemplateDeletedNotification(templateId, templateWithCommunity.goalText || "", templateWithCommunity.community.name).catch((err) => logger_util_1.default.error("Error sending template deleted notification:", err));
+            notification_service_1.notificationService.sendTemplateDeletedNotification(templateId, templateWithCommunity.goalText || "", templateWithCommunity.community.name, template.communityId).catch((err) => logger_util_1.default.error("Error sending template deleted notification:", err));
         }
         res.json({
             msg: "Template deleted successfully",
@@ -1102,7 +1102,7 @@ async function startGoalFromTemplate(req, res) {
         // Notify template creator (if not the same user)
         if (template.createdBy !== userId) {
             const starterName = user?.username || user?.firstName || "Someone";
-            notification_service_1.notificationService.sendGoalStartedFromTemplateNotification(template.createdBy, starterName, template.goalText || "", template.community.name, goal.id).catch((err) => logger_util_1.default.error("Error sending goal started notification:", err));
+            notification_service_1.notificationService.sendGoalStartedFromTemplateNotification(template.createdBy, starterName, template.goalText || "", template.community.name, template.communityId, goal.id).catch((err) => logger_util_1.default.error("Error sending goal started notification:", err));
         }
         res.json({
             msg: "Goal started from template successfully",
@@ -1263,7 +1263,7 @@ async function reactToActivity(req, res) {
                 select: { username: true, firstName: true },
             });
             const reactorName = reactor?.username || reactor?.firstName || "Someone";
-            notification_service_1.notificationService.sendActivityReactionNotification(activity.userId, reactorName, activity.type, activity.community.name, activityId).catch((err) => logger_util_1.default.error("Error sending reaction notification:", err));
+            notification_service_1.notificationService.sendActivityReactionNotification(activity.userId, reactorName, activity.type, activity.community.name, activity.communityId, activityId).catch((err) => logger_util_1.default.error("Error sending reaction notification:", err));
         }
         res.json({
             msg: "Reaction added successfully",
@@ -1314,7 +1314,7 @@ async function createComment(req, res) {
         // Notify activity owner (if not the same user)
         if (activity.userId !== userId) {
             const commenterName = comment.user.username || comment.user.firstName || "Someone";
-            notification_service_1.notificationService.sendActivityCommentNotification(activity.userId, commenterName, text, activity.community.name, activityId).catch((err) => logger_util_1.default.error("Error sending comment notification:", err));
+            notification_service_1.notificationService.sendActivityCommentNotification(activity.userId, commenterName, text, activity.community.name, activity.communityId, activityId).catch((err) => logger_util_1.default.error("Error sending comment notification:", err));
         }
         res.json({
             msg: "Comment created successfully",
@@ -1678,7 +1678,14 @@ async function createInvite(req, res) {
                 type: "system",
                 title: `${inviterName} invited you`,
                 message: `${inviterName} invited you to join ${community.name}.`,
-                data: { communityId, communityName: community.name, code, link, type: "community_invite" },
+                data: {
+                    communityId,
+                    communityName: community.name,
+                    code,
+                    link,
+                    route: `/app/invite/${code}`,
+                    type: "community_invite",
+                },
             }).catch((err) => logger_util_1.default.error("Error sending invite notification:", err));
         }
         if (normalizedEmail) {

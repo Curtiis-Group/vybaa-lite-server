@@ -11,6 +11,7 @@ const logger_util_1 = __importDefault(require("../utils/logger.util"));
 class SchedulerService {
     constructor() {
         this.intervalId = null;
+        this.schedulingIntervalId = null;
         this.rewindLifecycleIntervalId = null;
         this.isRunning = false;
     }
@@ -27,7 +28,7 @@ class SchedulerService {
         // Schedule goal reminders every hour
         this.scheduleGoalReminders();
         this.scheduleEngagementNotifications();
-        setInterval(() => {
+        this.schedulingIntervalId = setInterval(() => {
             this.scheduleGoalReminders();
             this.scheduleEngagementNotifications();
         }, 60 * 60 * 1000); // Every hour
@@ -58,6 +59,10 @@ class SchedulerService {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = null;
+        }
+        if (this.schedulingIntervalId) {
+            clearInterval(this.schedulingIntervalId);
+            this.schedulingIntervalId = null;
         }
         if (this.rewindLifecycleIntervalId) {
             clearInterval(this.rewindLifecycleIntervalId);
