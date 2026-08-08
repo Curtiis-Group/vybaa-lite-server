@@ -223,6 +223,7 @@ async function finalizeRewindSession(params) {
                 wellbeingSignals: null,
             };
         }
+        params.onStage?.("noticing_patterns");
         const reflection = await (0, rewind_reflection_service_1.generateRewindReflection)({
             intent: context.intent,
             journalEntries: context.journalEntries,
@@ -233,6 +234,7 @@ async function finalizeRewindSession(params) {
                 role: turn.role === client_1.RewindTurnRole.USER ? "user" : "partner",
             })),
         });
+        params.onStage?.("saving_reflection");
         const completedAt = new Date();
         await db_config_1.prisma.$transaction([
             db_config_1.prisma.rewindSession.update({

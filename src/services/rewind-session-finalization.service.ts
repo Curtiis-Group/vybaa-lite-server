@@ -28,6 +28,10 @@ export type RewindFinalizationResult = {
   wellbeingSignals: RewindWellbeingSignals | null;
 };
 
+export type RewindFinalizationStage =
+  | "noticing_patterns"
+  | "saving_reflection";
+
 function isRewindPersonaId(value: string): value is RewindPersonaId {
   return value === "ella" || value === "lyra" || value === "jake" || value === "ariel";
 }
@@ -169,6 +173,7 @@ async function markMissed(sessionId: string): Promise<RewindFinalizationResult> 
  * lock: a WebSocket, scheduler, and retry cannot all generate a reflection.
  */
 export async function finalizeRewindSession(params: {
+  onStage?: (stage: RewindFinalizationStage) => void;
   sessionId: string;
   source: RewindCompletionSource;
 }): Promise<RewindFinalizationResult> {
@@ -272,6 +277,7 @@ export async function finalizeRewindSession(params: {
       };
     }
 
+    params.onStage?.("noticing_patterns");
     const reflection = await generateRewindReflection({
       intent: context.intent,
       journalEntries: context.journalEntries,
@@ -282,6 +288,7 @@ export async function finalizeRewindSession(params: {
         role: turn.role === RewindTurnRole.USER ? "user" : "partner",
       })),
     });
+    params.onStage?.("saving_reflection");
     const completedAt = new Date();
     await prisma.$transaction([
       prisma.rewindSession.update({
