@@ -11,8 +11,14 @@ import {
   getLimitsForAccess,
   getRevenueCatConfig,
   isEntitlementActive,
+  matchesRevenueCatEntitlementIdentifier,
+  parseRevenueCatV2Subscription,
 } from "./revenuecat.service";
 import {
+  assertCanCreateCommunity,
+  assertCanCreateGoal,
+  assertCanUseRewindFrequency,
+  assertCanUseRewindInsightsRange,
   requiresProForInsightsRange,
   requiresProForRewindFrequency,
 } from "./subscription-access.service";
@@ -56,6 +62,58 @@ test("expired RevenueCat entitlements are inactive", () => {
   assert.equal(isEntitlementActive(null, now), false);
 });
 
+test("RevenueCat v2 subscriptions map active Vybaa Pro access", () => {
+  const now = new Date("2026-08-06T12:00:00.000Z");
+  const expiresAt = new Date("2026-09-06T12:00:00.000Z");
+  const verification = parseRevenueCatV2Subscription(
+    {
+      items: [
+        {
+          current_period_ends_at: expiresAt.getTime(),
+          entitlements: {
+            items: [
+              {
+                id: "entitlement-resource-id",
+                lookup_key: "Vybaa Pro",
+                products: {
+                  items: [
+                    {
+                      id: "product-resource-id",
+                      store_identifier: "com.vybaa.app.pro.monthly",
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          environment: "sandbox",
+          gives_access: true,
+          product_id: "product-resource-id",
+          status: "trialing",
+        },
+      ],
+    },
+    VYBAA_ENTITLEMENT_ID,
+    now,
+  );
+
+  assert.equal(verification.isPro, true);
+  assert.equal(verification.expiresAt?.toISOString(), expiresAt.toISOString());
+  assert.equal(verification.environment, "SANDBOX");
+  assert.equal(verification.periodType, "trialing");
+  assert.equal(
+    verification.productIdentifier,
+    "com.vybaa.app.pro.monthly",
+  );
+  assert.equal(
+    matchesRevenueCatEntitlementIdentifier(
+      { lookup_key: "Vybaa Pro" },
+      "vybaa_pro",
+    ),
+    true,
+  );
+});
+
 test("only advanced Rewind controls require Pro", () => {
   assert.equal(
     requiresProForRewindFrequency(RewindFrequency.JUST_MORNINGS),
@@ -73,6 +131,77 @@ test("only advanced Rewind controls require Pro", () => {
   assert.equal(requiresProForInsightsRange("7d"), false);
   assert.equal(requiresProForInsightsRange("30d"), true);
   assert.equal(requiresProForInsightsRange("90d"), true);
+});
+
+test("free Rewind capabilities do not depend on RevenueCat availability", async () => {
+  const unavailableSubscription = async (): Promise<never> => {
+    throw new Error("RevenueCat unavailable");
+  };
+
+  await assert.doesNotReject(() =>
+    assertCanUseRewindInsightsRange(
+      "user-free",
+      "vybaa",
+      "7d",
+      unavailableSubscription,
+    ),
+  );
+  await assert.doesNotReject(() =>
+    assertCanUseRewindFrequency(
+      "user-free",
+      "vybaa",
+      RewindFrequency.JUST_EVENINGS,
+      unavailableSubscription,
+    ),
+  );
+});
+
+test("free goal and community slots do not depend on RevenueCat", async () => {
+  let verificationAttempts = 0;
+  const unavailableSubscription = async (): Promise<never> => {
+    verificationAttempts += 1;
+    throw new Error("RevenueCat unavailable");
+  };
+
+  await assert.doesNotReject(() =>
+    assertCanCreateGoal("user-free", "vybaa", {
+      countActiveGoals: async () => FREE_SUBSCRIPTION_LIMITS.activeGoals - 1,
+      loadAccess: unavailableSubscription,
+    }),
+  );
+  await assert.doesNotReject(() =>
+    assertCanCreateCommunity("user-free", "vybaa", {
+      countOwnedCommunities: async () =>
+        FREE_SUBSCRIPTION_LIMITS.ownedCommunities - 1,
+      loadAccess: unavailableSubscription,
+    }),
+  );
+
+  assert.equal(verificationAttempts, 0);
+});
+
+test("actions beyond free limits still require subscription verification", async () => {
+  const unavailableSubscription = async (): Promise<never> => {
+    throw new Error("RevenueCat unavailable");
+  };
+
+  await assert.rejects(
+    () =>
+      assertCanCreateGoal("user-at-limit", "vybaa", {
+        countActiveGoals: async () => FREE_SUBSCRIPTION_LIMITS.activeGoals,
+        loadAccess: unavailableSubscription,
+      }),
+    /RevenueCat unavailable/,
+  );
+  await assert.rejects(
+    () =>
+      assertCanCreateCommunity("user-at-limit", "vybaa", {
+        countOwnedCommunities: async () =>
+          FREE_SUBSCRIPTION_LIMITS.ownedCommunities,
+        loadAccess: unavailableSubscription,
+      }),
+    /RevenueCat unavailable/,
+  );
 });
 
 test("downgrades dual Rewind routines to a single suitable preset", () => {

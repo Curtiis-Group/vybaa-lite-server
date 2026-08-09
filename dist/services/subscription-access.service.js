@@ -3,7 +3,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SubscriptionAccessError = void 0;
 exports.requiresProForRewindFrequency = requiresProForRewindFrequency;
 exports.requiresProForInsightsRange = requiresProForInsightsRange;
-exports.assertSubscriptionStateCurrent = assertSubscriptionStateCurrent;
 exports.assertCanCreateGoal = assertCanCreateGoal;
 exports.assertCanCreateCommunity = assertCanCreateCommunity;
 exports.assertCanUseRewindFrequency = assertCanUseRewindFrequency;
@@ -38,50 +37,55 @@ async function getVybaaAccess(userId, clientApp) {
         throw new SubscriptionAccessError("SUBSCRIPTION_UNAVAILABLE", "Subscription status is temporarily unavailable", 503);
     }
 }
-async function assertSubscriptionStateCurrent(userId, clientApp) {
-    await getVybaaAccess(userId, clientApp);
-}
-async function assertCanCreateGoal(userId, clientApp) {
-    const access = await getVybaaAccess(userId, clientApp);
-    if (!access)
-        return;
-    const limit = (0, revenuecat_service_1.getLimitsForAccess)(access).activeGoals;
-    if (limit === null)
-        return;
+async function countActiveGoals(userId) {
     const goals = await db_config_1.prisma.goal.findMany({
         where: { userId },
         select: { currentDay: true, targetDays: true },
     });
-    const activeGoalCount = goals.filter((goal) => goal.currentDay < goal.targetDays).length;
-    if (activeGoalCount >= limit) {
-        throw new SubscriptionAccessError("FREE_LIMIT_REACHED", `Free accounts can have up to ${limit} active goals`);
-    }
+    return goals.filter((goal) => goal.currentDay < goal.targetDays).length;
 }
-async function assertCanCreateCommunity(userId, clientApp) {
-    const access = await getVybaaAccess(userId, clientApp);
-    if (!access)
+async function countOwnedCommunities(userId) {
+    return db_config_1.prisma.community.count({ where: { ownerId: userId } });
+}
+async function assertCanCreateGoal(userId, clientApp, dependencies = {}) {
+    if (clientApp !== "vybaa")
         return;
-    const limit = (0, revenuecat_service_1.getLimitsForAccess)(access).ownedCommunities;
-    const ownedCommunityCount = await db_config_1.prisma.community.count({
-        where: { ownerId: userId },
-    });
-    if (ownedCommunityCount >= limit) {
-        throw new SubscriptionAccessError(access.isPro ? "PLAN_LIMIT_REACHED" : "FREE_LIMIT_REACHED", access.isPro
-            ? `Vybaa Pro supports up to ${limit} owned communities`
-            : "Upgrade to Vybaa Pro to create another community");
-    }
+    const activeGoalCount = await (dependencies.countActiveGoals ?? countActiveGoals)(userId);
+    if (activeGoalCount < revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.activeGoals)
+        return;
+    const access = await (dependencies.loadAccess ?? getVybaaAccess)(userId, clientApp);
+    if (access?.isPro)
+        return;
+    throw new SubscriptionAccessError("FREE_LIMIT_REACHED", `Free accounts can have up to ${revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.activeGoals} active goals`);
 }
-async function assertCanUseRewindFrequency(userId, clientApp, frequency) {
-    const access = await getVybaaAccess(userId, clientApp);
+async function assertCanCreateCommunity(userId, clientApp, dependencies = {}) {
+    if (clientApp !== "vybaa")
+        return;
+    const ownedCommunityCount = await (dependencies.countOwnedCommunities ?? countOwnedCommunities)(userId);
+    if (ownedCommunityCount < revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.ownedCommunities)
+        return;
+    const access = await (dependencies.loadAccess ?? getVybaaAccess)(userId, clientApp);
+    if (!access?.isPro) {
+        throw new SubscriptionAccessError("FREE_LIMIT_REACHED", "Upgrade to Vybaa Pro to create another community");
+    }
+    const limit = (0, revenuecat_service_1.getLimitsForAccess)(access).ownedCommunities;
+    if (ownedCommunityCount < limit)
+        return;
+    throw new SubscriptionAccessError("PLAN_LIMIT_REACHED", `Vybaa Pro supports up to ${limit} owned communities`);
+}
+async function assertCanUseRewindFrequency(userId, clientApp, frequency, loadAccess = getVybaaAccess) {
+    if (!requiresProForRewindFrequency(frequency))
+        return;
+    const access = await loadAccess(userId, clientApp);
     if (!access || access.isPro)
         return;
-    if (requiresProForRewindFrequency(frequency)) {
-        throw new SubscriptionAccessError("PRO_REQUIRED", "Morning and evening or custom Rewind routines require Vybaa Pro");
-    }
+    throw new SubscriptionAccessError("PRO_REQUIRED", "Morning and evening or custom Rewind routines require Vybaa Pro");
 }
-async function assertCanUseRewindInsightsRange(userId, clientApp, range) {
-    const access = await getVybaaAccess(userId, clientApp);
-    if (!access || access.isPro || !requiresProForInsightsRange(range))
+async function assertCanUseRewindInsightsRange(userId, clientApp, range, loadAccess = getVybaaAccess) {
+    if (!requiresProForInsightsRange(range))
+        return;
+    const access = await loadAccess(userId, clientApp);
+    if (!access || access.isPro)
         return;
     throw new SubscriptionAccessError("PRO_REQUIRED", `${range === "30d" ? "30-day" : "90-day"} Rewind insights require Vybaa Pro`);
 }

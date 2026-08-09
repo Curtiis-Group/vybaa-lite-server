@@ -862,7 +862,13 @@ function buildResumePrompt(currentSummary, recentTranscript) {
 async function createLiveToken(req, res) {
     try {
         const userId = req.userId;
-        await (0, subscription_access_service_1.assertSubscriptionStateCurrent)(userId, req.clientApp);
+        const routine = await db_config_1.prisma.rewindRoutine.findUnique({
+            where: { userId },
+            select: { frequency: true },
+        });
+        if (routine) {
+            await (0, subscription_access_service_1.assertCanUseRewindFrequency)(userId, req.clientApp, routine.frequency);
+        }
         const requestedSessionId = typeof req.body?.sessionId === "string" && req.body.sessionId.trim()
             ? req.body.sessionId.trim()
             : undefined;

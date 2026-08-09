@@ -37,7 +37,7 @@ import {
   type RewindFinalizationStage,
 } from "../services/rewind-session-finalization.service";
 import {
-  assertSubscriptionStateCurrent,
+  assertCanUseRewindFrequency,
   assertCanUseRewindInsightsRange,
   handleSubscriptionAccessError,
 } from "../services/subscription-access.service";
@@ -1202,7 +1202,17 @@ export function buildResumePrompt(
 export async function createLiveToken(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    await assertSubscriptionStateCurrent(userId, req.clientApp);
+    const routine = await prisma.rewindRoutine.findUnique({
+      where: { userId },
+      select: { frequency: true },
+    });
+    if (routine) {
+      await assertCanUseRewindFrequency(
+        userId,
+        req.clientApp,
+        routine.frequency,
+      );
+    }
     const requestedSessionId =
       typeof req.body?.sessionId === "string" && req.body.sessionId.trim()
         ? req.body.sessionId.trim()

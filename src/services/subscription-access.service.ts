@@ -4,8 +4,10 @@ import type { Response } from "express";
 import { prisma } from "../config/db.config";
 import type { ClientApp } from "../types/client-app.type";
 import {
+  FREE_SUBSCRIPTION_LIMITS,
   getLimitsForAccess,
   getRevenueCatSubscriptionStatus,
+  type SubscriptionAccess,
 } from "./revenuecat.service";
 
 export type SubscriptionErrorCode =
@@ -28,6 +30,19 @@ export class SubscriptionAccessError extends Error {
     this.code = code;
     this.statusCode = statusCode;
   }
+}
+
+export type SubscriptionAccessLoader = (
+  userId: string,
+  clientApp: ClientApp,
+) => Promise<SubscriptionAccess | null>;
+
+export type SubscriptionUsageLoader = (userId: string) => Promise<number>;
+
+export interface SubscriptionGateDependencies {
+  countActiveGoals?: SubscriptionUsageLoader;
+  countOwnedCommunities?: SubscriptionUsageLoader;
+  loadAccess?: SubscriptionAccessLoader;
 }
 
 export function requiresProForRewindFrequency(
@@ -59,84 +74,101 @@ async function getVybaaAccess(userId: string, clientApp: ClientApp) {
   }
 }
 
-export async function assertSubscriptionStateCurrent(
-  userId: string,
-  clientApp: ClientApp,
-): Promise<void> {
-  await getVybaaAccess(userId, clientApp);
+async function countActiveGoals(userId: string): Promise<number> {
+  const goals = await prisma.goal.findMany({
+    where: { userId },
+    select: { currentDay: true, targetDays: true },
+  });
+  return goals.filter((goal) => goal.currentDay < goal.targetDays).length;
+}
+
+async function countOwnedCommunities(userId: string): Promise<number> {
+  return prisma.community.count({ where: { ownerId: userId } });
 }
 
 export async function assertCanCreateGoal(
   userId: string,
   clientApp: ClientApp,
+  dependencies: SubscriptionGateDependencies = {},
 ): Promise<void> {
-  const access = await getVybaaAccess(userId, clientApp);
-  if (!access) return;
+  if (clientApp !== "vybaa") return;
 
-  const limit = getLimitsForAccess(access).activeGoals;
-  if (limit === null) return;
+  const activeGoalCount = await (
+    dependencies.countActiveGoals ?? countActiveGoals
+  )(userId);
+  if (activeGoalCount < FREE_SUBSCRIPTION_LIMITS.activeGoals) return;
 
-  const goals = await prisma.goal.findMany({
-    where: { userId },
-    select: { currentDay: true, targetDays: true },
-  });
-  const activeGoalCount = goals.filter(
-    (goal) => goal.currentDay < goal.targetDays,
-  ).length;
+  const access = await (dependencies.loadAccess ?? getVybaaAccess)(
+    userId,
+    clientApp,
+  );
+  if (access?.isPro) return;
 
-  if (activeGoalCount >= limit) {
-    throw new SubscriptionAccessError(
-      "FREE_LIMIT_REACHED",
-      `Free accounts can have up to ${limit} active goals`,
-    );
-  }
+  throw new SubscriptionAccessError(
+    "FREE_LIMIT_REACHED",
+    `Free accounts can have up to ${FREE_SUBSCRIPTION_LIMITS.activeGoals} active goals`,
+  );
 }
 
 export async function assertCanCreateCommunity(
   userId: string,
   clientApp: ClientApp,
+  dependencies: SubscriptionGateDependencies = {},
 ): Promise<void> {
-  const access = await getVybaaAccess(userId, clientApp);
-  if (!access) return;
+  if (clientApp !== "vybaa") return;
 
-  const limit = getLimitsForAccess(access).ownedCommunities;
-  const ownedCommunityCount = await prisma.community.count({
-    where: { ownerId: userId },
-  });
+  const ownedCommunityCount = await (
+    dependencies.countOwnedCommunities ?? countOwnedCommunities
+  )(userId);
+  if (ownedCommunityCount < FREE_SUBSCRIPTION_LIMITS.ownedCommunities) return;
 
-  if (ownedCommunityCount >= limit) {
+  const access = await (dependencies.loadAccess ?? getVybaaAccess)(
+    userId,
+    clientApp,
+  );
+  if (!access?.isPro) {
     throw new SubscriptionAccessError(
-      access.isPro ? "PLAN_LIMIT_REACHED" : "FREE_LIMIT_REACHED",
-      access.isPro
-        ? `Vybaa Pro supports up to ${limit} owned communities`
-        : "Upgrade to Vybaa Pro to create another community",
+      "FREE_LIMIT_REACHED",
+      "Upgrade to Vybaa Pro to create another community",
     );
   }
+
+  const limit = getLimitsForAccess(access).ownedCommunities;
+  if (ownedCommunityCount < limit) return;
+
+  throw new SubscriptionAccessError(
+    "PLAN_LIMIT_REACHED",
+    `Vybaa Pro supports up to ${limit} owned communities`,
+  );
 }
 
 export async function assertCanUseRewindFrequency(
   userId: string,
   clientApp: ClientApp,
   frequency: RewindFrequency,
+  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
 ): Promise<void> {
-  const access = await getVybaaAccess(userId, clientApp);
+  if (!requiresProForRewindFrequency(frequency)) return;
+
+  const access = await loadAccess(userId, clientApp);
   if (!access || access.isPro) return;
 
-  if (requiresProForRewindFrequency(frequency)) {
-    throw new SubscriptionAccessError(
-      "PRO_REQUIRED",
-      "Morning and evening or custom Rewind routines require Vybaa Pro",
-    );
-  }
+  throw new SubscriptionAccessError(
+    "PRO_REQUIRED",
+    "Morning and evening or custom Rewind routines require Vybaa Pro",
+  );
 }
 
 export async function assertCanUseRewindInsightsRange(
   userId: string,
   clientApp: ClientApp,
   range: "7d" | "30d" | "90d",
+  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
 ): Promise<void> {
-  const access = await getVybaaAccess(userId, clientApp);
-  if (!access || access.isPro || !requiresProForInsightsRange(range)) return;
+  if (!requiresProForInsightsRange(range)) return;
+
+  const access = await loadAccess(userId, clientApp);
+  if (!access || access.isPro) return;
 
   throw new SubscriptionAccessError(
     "PRO_REQUIRED",

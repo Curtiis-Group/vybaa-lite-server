@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PRO_SUBSCRIPTION_LIMITS = exports.FREE_SUBSCRIPTION_LIMITS = exports.VYBAA_PRODUCT_IDS = exports.VYBAA_OFFERING_ID = exports.VYBAA_ENTITLEMENT_ID = exports.SUBSCRIPTION_SNAPSHOT_TTL_MS = void 0;
 exports.getRevenueCatConfig = getRevenueCatConfig;
 exports.isEntitlementActive = isEntitlementActive;
+exports.matchesRevenueCatEntitlementIdentifier = matchesRevenueCatEntitlementIdentifier;
+exports.parseRevenueCatV2Subscription = parseRevenueCatV2Subscription;
 exports.refreshRevenueCatSubscription = refreshRevenueCatSubscription;
 exports.getRevenueCatSubscriptionStatus = getRevenueCatSubscriptionStatus;
 exports.getLimitsForAccess = getLimitsForAccess;
@@ -35,6 +37,7 @@ function getRevenueCatClientConfig(clientApp) {
             entitlementId: env_util_1.Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID?.trim() || "My Cove Pro",
             offeringId: "default",
             products: { annual: "yearly", monthly: "monthly" },
+            projectId: env_util_1.Env.MYCOVE_REVENUECAT_PROJECT_ID,
             restApiKey: env_util_1.Env.MYCOVE_REVENUECAT_REST_API_KEY,
         };
     }
@@ -42,6 +45,7 @@ function getRevenueCatClientConfig(clientApp) {
         entitlementId: env_util_1.Env.REVENUECAT_ENTITLEMENT_ID?.trim() || exports.VYBAA_ENTITLEMENT_ID,
         offeringId: exports.VYBAA_OFFERING_ID,
         products: exports.VYBAA_PRODUCT_IDS,
+        projectId: env_util_1.Env.REVENUECAT_PROJECT_ID,
         restApiKey: env_util_1.Env.REVENUECAT_REST_API_KEY,
     };
 }
@@ -72,11 +76,73 @@ function snapshotToAccess(snapshot, clientApp, isConfigured, now) {
         expiresAt: snapshot.expiresAt?.toISOString() ?? null,
         isConfigured,
         isPro,
-        isTrial: isPro && snapshot.periodType?.toLowerCase() === "trial",
+        isTrial: isPro && Boolean(snapshot.periodType?.toLowerCase().includes("trial")),
         managementURL: snapshot.managementUrl,
         productIdentifier: snapshot.productIdentifier,
         tier: isPro ? "pro" : "free",
         verifiedAt: snapshot.verifiedAt.toISOString(),
+    };
+}
+function normalizeEntitlementIdentifier(identifier) {
+    return identifier
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+}
+function matchesRevenueCatEntitlementIdentifier(entitlement, configuredIdentifier) {
+    if (entitlement.id === configuredIdentifier ||
+        entitlement.lookup_key === configuredIdentifier) {
+        return true;
+    }
+    const normalizedIdentifier = normalizeEntitlementIdentifier(configuredIdentifier);
+    return (normalizeEntitlementIdentifier(entitlement.lookup_key ?? "") ===
+        normalizedIdentifier);
+}
+function parseRevenueCatTimestamp(value) {
+    if (typeof value !== "number" || !Number.isFinite(value))
+        return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+function getSubscriptionEndTime(subscription) {
+    return (subscription.current_period_ends_at ?? subscription.ends_at ?? 0);
+}
+function parseRevenueCatV2Subscription(payload, entitlementId, now) {
+    const candidates = (payload.items ?? []).flatMap((subscription) => {
+        const entitlement = subscription.entitlements?.items?.find((item) => matchesRevenueCatEntitlementIdentifier(item, entitlementId));
+        return entitlement ? [{ entitlement, subscription }] : [];
+    });
+    candidates.sort((left, right) => {
+        const accessDifference = Number(Boolean(right.subscription.gives_access)) -
+            Number(Boolean(left.subscription.gives_access));
+        if (accessDifference !== 0)
+            return accessDifference;
+        return (getSubscriptionEndTime(right.subscription) -
+            getSubscriptionEndTime(left.subscription));
+    });
+    const match = candidates[0];
+    if (!match) {
+        return {
+            environment: null,
+            expiresAt: null,
+            isPro: false,
+            managementURL: null,
+            periodType: null,
+            productIdentifier: null,
+        };
+    }
+    const expiresAt = parseRevenueCatTimestamp(match.subscription.current_period_ends_at ?? match.subscription.ends_at);
+    const isPro = Boolean(match.subscription.gives_access) &&
+        (!expiresAt || expiresAt.getTime() > now.getTime());
+    const product = match.entitlement.products?.items?.find((item) => item.id === match.subscription.product_id);
+    return {
+        environment: match.subscription.environment?.toUpperCase() ?? null,
+        expiresAt,
+        isPro,
+        managementURL: null,
+        periodType: match.subscription.status ?? null,
+        productIdentifier: product?.store_identifier ?? match.subscription.product_id ?? null,
     };
 }
 function createFreeAccess(clientApp, isConfigured, now) {
@@ -106,20 +172,47 @@ async function fetchRevenueCatSubscriber(appUserId, restApiKey) {
     }
     return (await response.json());
 }
+async function fetchRevenueCatV2Subscriptions(appUserId, projectId, restApiKey) {
+    const response = await fetch(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/customers/${encodeURIComponent(appUserId)}/subscriptions?limit=100`, {
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${restApiKey}`,
+        },
+    });
+    if (response.status === 404)
+        return { items: [] };
+    if (!response.ok) {
+        throw new Error(`RevenueCat API v2 verification failed with status ${response.status}`);
+    }
+    return (await response.json());
+}
 async function refreshRevenueCatSubscription(appUserId, clientApp, now = new Date()) {
     const config = getRevenueCatClientConfig(clientApp);
     if (!config.restApiKey) {
         return createFreeAccess(clientApp, false, now);
     }
-    const payload = await fetchRevenueCatSubscriber(appUserId, config.restApiKey);
-    const entitlement = payload.subscriber?.entitlements?.[config.entitlementId] ?? null;
-    const productIdentifier = entitlement?.product_identifier ?? null;
-    const subscription = productIdentifier
-        ? payload.subscriber?.subscriptions?.[productIdentifier]
-        : undefined;
-    const expiresAtValue = entitlement?.expires_date ?? subscription?.expires_date ?? null;
-    const expiresAt = expiresAtValue ? new Date(expiresAtValue) : null;
-    const isPro = isEntitlementActive(entitlement, now);
+    let verification;
+    if (config.projectId?.trim()) {
+        const payload = await fetchRevenueCatV2Subscriptions(appUserId, config.projectId.trim(), config.restApiKey);
+        verification = parseRevenueCatV2Subscription(payload, config.entitlementId, now);
+    }
+    else {
+        const payload = await fetchRevenueCatSubscriber(appUserId, config.restApiKey);
+        const entitlement = payload.subscriber?.entitlements?.[config.entitlementId] ?? null;
+        const productIdentifier = entitlement?.product_identifier ?? null;
+        const subscription = productIdentifier
+            ? payload.subscriber?.subscriptions?.[productIdentifier]
+            : undefined;
+        const expiresAtValue = entitlement?.expires_date ?? subscription?.expires_date ?? null;
+        verification = {
+            environment: subscription?.is_sandbox ? "SANDBOX" : "PRODUCTION",
+            expiresAt: expiresAtValue ? new Date(expiresAtValue) : null,
+            isPro: isEntitlementActive(entitlement, now),
+            managementURL: payload.subscriber?.management_url ?? null,
+            periodType: subscription?.period_type ?? null,
+            productIdentifier,
+        };
+    }
     const previousSnapshot = await db_config_1.prisma.subscriptionSnapshot.findUnique({
         where: {
             userId_clientApp: {
@@ -138,27 +231,29 @@ async function refreshRevenueCatSubscription(appUserId, clientApp, now = new Dat
         create: {
             clientApp: (0, client_app_type_1.toPrismaClientApp)(clientApp),
             entitlementId: config.entitlementId,
-            environment: subscription?.is_sandbox ? "SANDBOX" : "PRODUCTION",
-            expiresAt,
-            isPro,
-            managementUrl: payload.subscriber?.management_url ?? null,
-            periodType: subscription?.period_type ?? null,
-            productIdentifier,
+            environment: verification.environment,
+            expiresAt: verification.expiresAt,
+            isPro: verification.isPro,
+            managementUrl: verification.managementURL,
+            periodType: verification.periodType,
+            productIdentifier: verification.productIdentifier,
             userId: appUserId,
             verifiedAt: now,
         },
         update: {
             entitlementId: config.entitlementId,
-            environment: subscription?.is_sandbox ? "SANDBOX" : "PRODUCTION",
-            expiresAt,
-            isPro,
-            managementUrl: payload.subscriber?.management_url ?? null,
-            periodType: subscription?.period_type ?? null,
-            productIdentifier,
+            environment: verification.environment,
+            expiresAt: verification.expiresAt,
+            isPro: verification.isPro,
+            managementUrl: verification.managementURL,
+            periodType: verification.periodType,
+            productIdentifier: verification.productIdentifier,
             verifiedAt: now,
         },
     });
-    if (clientApp === "vybaa" && previousSnapshot?.isPro && !isPro) {
+    if (clientApp === "vybaa" &&
+        previousSnapshot?.isPro &&
+        !verification.isPro) {
         await (0, subscription_downgrade_service_1.downgradeRewindRoutineToFreeTier)(appUserId);
     }
     return snapshotToAccess(snapshot, clientApp, true, now);
