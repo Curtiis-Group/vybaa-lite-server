@@ -123,7 +123,7 @@ function getRevenueCatClientConfig(clientApp: ClientApp): RevenueCatClientConfig
   if (clientApp === "mycove") {
     return {
       entitlementId:
-        Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID?.trim() || "My Cove Pro",
+        Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID?.trim() || "vybaa_pro",
       offeringId: "default",
       products: { annual: "yearly", monthly: "monthly" },
       projectId: Env.MYCOVE_REVENUECAT_PROJECT_ID,

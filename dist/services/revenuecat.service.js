@@ -34,7 +34,7 @@ exports.PRO_SUBSCRIPTION_LIMITS = {
 function getRevenueCatClientConfig(clientApp) {
     if (clientApp === "mycove") {
         return {
-            entitlementId: env_util_1.Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID?.trim() || "My Cove Pro",
+            entitlementId: env_util_1.Env.MYCOVE_REVENUECAT_ENTITLEMENT_ID?.trim() || "vybaa_pro",
             offeringId: "default",
             products: { annual: "yearly", monthly: "monthly" },
             projectId: env_util_1.Env.MYCOVE_REVENUECAT_PROJECT_ID,
