@@ -4,7 +4,7 @@ exports.PRO_SUBSCRIPTION_LIMITS = exports.FREE_SUBSCRIPTION_LIMITS = exports.VYB
 exports.getRevenueCatConfig = getRevenueCatConfig;
 exports.isEntitlementActive = isEntitlementActive;
 exports.matchesRevenueCatEntitlementIdentifier = matchesRevenueCatEntitlementIdentifier;
-exports.parseRevenueCatV2Subscription = parseRevenueCatV2Subscription;
+exports.parseRevenueCatV2Access = parseRevenueCatV2Access;
 exports.refreshRevenueCatSubscription = refreshRevenueCatSubscription;
 exports.getRevenueCatSubscriptionStatus = getRevenueCatSubscriptionStatus;
 exports.getLimitsForAccess = getLimitsForAccess;
@@ -108,21 +108,12 @@ function parseRevenueCatTimestamp(value) {
 function getSubscriptionEndTime(subscription) {
     return (subscription.current_period_ends_at ?? subscription.ends_at ?? 0);
 }
-function parseRevenueCatV2Subscription(payload, entitlementId, now) {
-    const candidates = (payload.items ?? []).flatMap((subscription) => {
-        const entitlement = subscription.entitlements?.items?.find((item) => matchesRevenueCatEntitlementIdentifier(item, entitlementId));
-        return entitlement ? [{ entitlement, subscription }] : [];
-    });
-    candidates.sort((left, right) => {
-        const accessDifference = Number(Boolean(right.subscription.gives_access)) -
-            Number(Boolean(left.subscription.gives_access));
-        if (accessDifference !== 0)
-            return accessDifference;
-        return (getSubscriptionEndTime(right.subscription) -
-            getSubscriptionEndTime(left.subscription));
-    });
-    const match = candidates[0];
-    if (!match) {
+function parseRevenueCatV2Access(payload, now) {
+    const activeEntitlement = (payload.activeEntitlements.items ?? []).find((item) => item.entitlement_id === payload.entitlement.id);
+    const entitlementExpiresAt = parseRevenueCatTimestamp(activeEntitlement?.expires_at);
+    const hasActiveEntitlement = Boolean(activeEntitlement) &&
+        (!entitlementExpiresAt || entitlementExpiresAt.getTime() > now.getTime());
+    if (!hasActiveEntitlement) {
         return {
             environment: null,
             expiresAt: null,
@@ -132,17 +123,27 @@ function parseRevenueCatV2Subscription(payload, entitlementId, now) {
             productIdentifier: null,
         };
     }
-    const expiresAt = parseRevenueCatTimestamp(match.subscription.current_period_ends_at ?? match.subscription.ends_at);
-    const isPro = Boolean(match.subscription.gives_access) &&
-        (!expiresAt || expiresAt.getTime() > now.getTime());
-    const product = match.entitlement.products?.items?.find((item) => item.id === match.subscription.product_id);
+    const productsById = new Map((payload.products.items ?? []).flatMap((product) => product.id ? [[product.id, product]] : []));
+    const candidates = (payload.subscriptions.items ?? []).filter((subscription) => Boolean(subscription.product_id) &&
+        productsById.has(subscription.product_id ?? ""));
+    candidates.sort((left, right) => {
+        const accessDifference = Number(Boolean(right.gives_access)) - Number(Boolean(left.gives_access));
+        if (accessDifference !== 0)
+            return accessDifference;
+        return getSubscriptionEndTime(right) - getSubscriptionEndTime(left);
+    });
+    const match = candidates[0];
+    const subscriptionExpiresAt = parseRevenueCatTimestamp(match?.current_period_ends_at ?? match?.ends_at);
+    const product = match?.product_id
+        ? productsById.get(match.product_id)
+        : undefined;
     return {
-        environment: match.subscription.environment?.toUpperCase() ?? null,
-        expiresAt,
-        isPro,
+        environment: match?.environment?.toUpperCase() ?? null,
+        expiresAt: entitlementExpiresAt ?? subscriptionExpiresAt,
+        isPro: true,
         managementURL: null,
-        periodType: match.subscription.status ?? null,
-        productIdentifier: product?.store_identifier ?? match.subscription.product_id ?? null,
+        periodType: match?.status ?? null,
+        productIdentifier: product?.store_identifier ?? match?.product_id ?? null,
     };
 }
 function createFreeAccess(clientApp, isConfigured, now) {
@@ -186,6 +187,44 @@ async function fetchRevenueCatV2Subscriptions(appUserId, projectId, restApiKey) 
     }
     return (await response.json());
 }
+async function fetchRevenueCatV2Entitlements(projectId, restApiKey) {
+    const response = await fetch(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/entitlements?limit=100`, {
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${restApiKey}`,
+        },
+    });
+    if (!response.ok) {
+        throw new Error(`RevenueCat API v2 entitlement lookup failed with status ${response.status}`);
+    }
+    return (await response.json());
+}
+async function fetchRevenueCatV2EntitlementProducts(projectId, entitlementId, restApiKey) {
+    const response = await fetch(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/entitlements/${encodeURIComponent(entitlementId)}/products?limit=100`, {
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${restApiKey}`,
+        },
+    });
+    if (!response.ok) {
+        throw new Error(`RevenueCat API v2 entitlement product lookup failed with status ${response.status}`);
+    }
+    return (await response.json());
+}
+async function fetchRevenueCatV2ActiveEntitlements(appUserId, projectId, restApiKey) {
+    const response = await fetch(`https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/customers/${encodeURIComponent(appUserId)}/active_entitlements?limit=100`, {
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${restApiKey}`,
+        },
+    });
+    if (response.status === 404)
+        return { items: [] };
+    if (!response.ok) {
+        throw new Error(`RevenueCat API v2 active entitlement lookup failed with status ${response.status}`);
+    }
+    return (await response.json());
+}
 async function refreshRevenueCatSubscription(appUserId, clientApp, now = new Date()) {
     const config = getRevenueCatClientConfig(clientApp);
     if (!config.restApiKey) {
@@ -193,8 +232,18 @@ async function refreshRevenueCatSubscription(appUserId, clientApp, now = new Dat
     }
     let verification;
     if (config.projectId?.trim()) {
-        const payload = await fetchRevenueCatV2Subscriptions(appUserId, config.projectId.trim(), config.restApiKey);
-        verification = parseRevenueCatV2Subscription(payload, config.entitlementId, now);
+        const projectId = config.projectId.trim();
+        const [entitlements, activeEntitlements, subscriptions] = await Promise.all([
+            fetchRevenueCatV2Entitlements(projectId, config.restApiKey),
+            fetchRevenueCatV2ActiveEntitlements(appUserId, projectId, config.restApiKey),
+            fetchRevenueCatV2Subscriptions(appUserId, projectId, config.restApiKey),
+        ]);
+        const entitlement = (entitlements.items ?? []).find((item) => matchesRevenueCatEntitlementIdentifier(item, config.entitlementId));
+        if (!entitlement?.id) {
+            throw new Error(`RevenueCat entitlement ${config.entitlementId} is not configured for project ${projectId}`);
+        }
+        const products = await fetchRevenueCatV2EntitlementProducts(projectId, entitlement.id, config.restApiKey);
+        verification = parseRevenueCatV2Access({ activeEntitlements, entitlement, products, subscriptions }, now);
     }
     else {
         const payload = await fetchRevenueCatSubscriber(appUserId, config.restApiKey);

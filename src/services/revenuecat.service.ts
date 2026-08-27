@@ -54,7 +54,6 @@ interface RevenueCatSubscriberResponse {
 interface RevenueCatV2Entitlement {
   id?: string;
   lookup_key?: string;
-  products?: RevenueCatV2List<RevenueCatV2Product>;
 }
 
 interface RevenueCatV2List<T> {
@@ -67,14 +66,25 @@ interface RevenueCatV2Product {
   store_identifier?: string;
 }
 
+interface RevenueCatV2ActiveEntitlement {
+  entitlement_id?: string;
+  expires_at?: number | null;
+}
+
 interface RevenueCatV2Subscription {
   current_period_ends_at?: number | null;
   ends_at?: number | null;
-  entitlements?: RevenueCatV2List<RevenueCatV2Entitlement>;
   environment?: string | null;
   gives_access?: boolean;
   product_id?: string | null;
   status?: string | null;
+}
+
+interface RevenueCatV2AccessPayload {
+  activeEntitlements: RevenueCatV2List<RevenueCatV2ActiveEntitlement>;
+  entitlement: RevenueCatV2Entitlement;
+  products: RevenueCatV2List<RevenueCatV2Product>;
+  subscriptions: RevenueCatV2List<RevenueCatV2Subscription>;
 }
 
 interface RevenueCatClientConfig {
@@ -119,7 +129,9 @@ export interface SubscriptionConfig {
   products: RevenueCatClientConfig["products"];
 }
 
-function getRevenueCatClientConfig(clientApp: ClientApp): RevenueCatClientConfig {
+function getRevenueCatClientConfig(
+  clientApp: ClientApp,
+): RevenueCatClientConfig {
   if (clientApp === "mycove") {
     return {
       entitlementId:
@@ -206,16 +218,17 @@ export function matchesRevenueCatEntitlementIdentifier(
     return true;
   }
 
-  const normalizedIdentifier = normalizeEntitlementIdentifier(
-    configuredIdentifier,
-  );
+  const normalizedIdentifier =
+    normalizeEntitlementIdentifier(configuredIdentifier);
   return (
     normalizeEntitlementIdentifier(entitlement.lookup_key ?? "") ===
     normalizedIdentifier
   );
 }
 
-function parseRevenueCatTimestamp(value: number | null | undefined): Date | null {
+function parseRevenueCatTimestamp(
+  value: number | null | undefined,
+): Date | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -224,36 +237,24 @@ function parseRevenueCatTimestamp(value: number | null | undefined): Date | null
 function getSubscriptionEndTime(
   subscription: RevenueCatV2Subscription,
 ): number {
-  return (
-    subscription.current_period_ends_at ?? subscription.ends_at ?? 0
-  );
+  return subscription.current_period_ends_at ?? subscription.ends_at ?? 0;
 }
 
-export function parseRevenueCatV2Subscription(
-  payload: RevenueCatV2List<RevenueCatV2Subscription>,
-  entitlementId: string,
+export function parseRevenueCatV2Access(
+  payload: RevenueCatV2AccessPayload,
   now: Date,
 ): RevenueCatVerification {
-  const candidates = (payload.items ?? []).flatMap((subscription) => {
-    const entitlement = subscription.entitlements?.items?.find((item) =>
-      matchesRevenueCatEntitlementIdentifier(item, entitlementId),
-    );
-    return entitlement ? [{ entitlement, subscription }] : [];
-  });
+  const activeEntitlement = (payload.activeEntitlements.items ?? []).find(
+    (item) => item.entitlement_id === payload.entitlement.id,
+  );
+  const entitlementExpiresAt = parseRevenueCatTimestamp(
+    activeEntitlement?.expires_at,
+  );
+  const hasActiveEntitlement =
+    Boolean(activeEntitlement) &&
+    (!entitlementExpiresAt || entitlementExpiresAt.getTime() > now.getTime());
 
-  candidates.sort((left, right) => {
-    const accessDifference =
-      Number(Boolean(right.subscription.gives_access)) -
-      Number(Boolean(left.subscription.gives_access));
-    if (accessDifference !== 0) return accessDifference;
-    return (
-      getSubscriptionEndTime(right.subscription) -
-      getSubscriptionEndTime(left.subscription)
-    );
-  });
-
-  const match = candidates[0];
-  if (!match) {
+  if (!hasActiveEntitlement) {
     return {
       environment: null,
       expiresAt: null,
@@ -264,24 +265,39 @@ export function parseRevenueCatV2Subscription(
     };
   }
 
-  const expiresAt = parseRevenueCatTimestamp(
-    match.subscription.current_period_ends_at ?? match.subscription.ends_at,
+  const productsById = new Map(
+    (payload.products.items ?? []).flatMap((product) =>
+      product.id ? [[product.id, product] as const] : [],
+    ),
   );
-  const isPro =
-    Boolean(match.subscription.gives_access) &&
-    (!expiresAt || expiresAt.getTime() > now.getTime());
-  const product = match.entitlement.products?.items?.find(
-    (item) => item.id === match.subscription.product_id,
+  const candidates = (payload.subscriptions.items ?? []).filter(
+    (subscription) =>
+      Boolean(subscription.product_id) &&
+      productsById.has(subscription.product_id ?? ""),
   );
 
+  candidates.sort((left, right) => {
+    const accessDifference =
+      Number(Boolean(right.gives_access)) - Number(Boolean(left.gives_access));
+    if (accessDifference !== 0) return accessDifference;
+    return getSubscriptionEndTime(right) - getSubscriptionEndTime(left);
+  });
+
+  const match = candidates[0];
+  const subscriptionExpiresAt = parseRevenueCatTimestamp(
+    match?.current_period_ends_at ?? match?.ends_at,
+  );
+  const product = match?.product_id
+    ? productsById.get(match.product_id)
+    : undefined;
+
   return {
-    environment: match.subscription.environment?.toUpperCase() ?? null,
-    expiresAt,
-    isPro,
+    environment: match?.environment?.toUpperCase() ?? null,
+    expiresAt: entitlementExpiresAt ?? subscriptionExpiresAt,
+    isPro: true,
     managementURL: null,
-    periodType: match.subscription.status ?? null,
-    productIdentifier:
-      product?.store_identifier ?? match.subscription.product_id ?? null,
+    periodType: match?.status ?? null,
+    productIdentifier: product?.store_identifier ?? match?.product_id ?? null,
   };
 }
 
@@ -320,7 +336,9 @@ async function fetchRevenueCatSubscriber(
   );
 
   if (!response.ok) {
-    throw new Error(`RevenueCat verification failed with status ${response.status}`);
+    throw new Error(
+      `RevenueCat verification failed with status ${response.status}`,
+    );
   }
 
   return (await response.json()) as RevenueCatSubscriberResponse;
@@ -351,6 +369,78 @@ async function fetchRevenueCatV2Subscriptions(
   return (await response.json()) as RevenueCatV2List<RevenueCatV2Subscription>;
 }
 
+async function fetchRevenueCatV2Entitlements(
+  projectId: string,
+  restApiKey: string,
+): Promise<RevenueCatV2List<RevenueCatV2Entitlement>> {
+  const response = await fetch(
+    `https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/entitlements?limit=100`,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${restApiKey}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `RevenueCat API v2 entitlement lookup failed with status ${response.status}`,
+    );
+  }
+
+  return (await response.json()) as RevenueCatV2List<RevenueCatV2Entitlement>;
+}
+
+async function fetchRevenueCatV2EntitlementProducts(
+  projectId: string,
+  entitlementId: string,
+  restApiKey: string,
+): Promise<RevenueCatV2List<RevenueCatV2Product>> {
+  const response = await fetch(
+    `https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/entitlements/${encodeURIComponent(entitlementId)}/products?limit=100`,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${restApiKey}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `RevenueCat API v2 entitlement product lookup failed with status ${response.status}`,
+    );
+  }
+
+  return (await response.json()) as RevenueCatV2List<RevenueCatV2Product>;
+}
+
+async function fetchRevenueCatV2ActiveEntitlements(
+  appUserId: string,
+  projectId: string,
+  restApiKey: string,
+): Promise<RevenueCatV2List<RevenueCatV2ActiveEntitlement>> {
+  const response = await fetch(
+    `https://api.revenuecat.com/v2/projects/${encodeURIComponent(projectId)}/customers/${encodeURIComponent(appUserId)}/active_entitlements?limit=100`,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${restApiKey}`,
+      },
+    },
+  );
+
+  if (response.status === 404) return { items: [] };
+  if (!response.ok) {
+    throw new Error(
+      `RevenueCat API v2 active entitlement lookup failed with status ${response.status}`,
+    );
+  }
+
+  return (await response.json()) as RevenueCatV2List<RevenueCatV2ActiveEntitlement>;
+}
+
 export async function refreshRevenueCatSubscription(
   appUserId: string,
   clientApp: ClientApp,
@@ -363,14 +453,33 @@ export async function refreshRevenueCatSubscription(
 
   let verification: RevenueCatVerification;
   if (config.projectId?.trim()) {
-    const payload = await fetchRevenueCatV2Subscriptions(
-      appUserId,
-      config.projectId.trim(),
+    const projectId = config.projectId.trim();
+    const [entitlements, activeEntitlements, subscriptions] = await Promise.all(
+      [
+        fetchRevenueCatV2Entitlements(projectId, config.restApiKey),
+        fetchRevenueCatV2ActiveEntitlements(
+          appUserId,
+          projectId,
+          config.restApiKey,
+        ),
+        fetchRevenueCatV2Subscriptions(appUserId, projectId, config.restApiKey),
+      ],
+    );
+    const entitlement = (entitlements.items ?? []).find((item) =>
+      matchesRevenueCatEntitlementIdentifier(item, config.entitlementId),
+    );
+    if (!entitlement?.id) {
+      throw new Error(
+        `RevenueCat entitlement ${config.entitlementId} is not configured for project ${projectId}`,
+      );
+    }
+    const products = await fetchRevenueCatV2EntitlementProducts(
+      projectId,
+      entitlement.id,
       config.restApiKey,
     );
-    verification = parseRevenueCatV2Subscription(
-      payload,
-      config.entitlementId,
+    verification = parseRevenueCatV2Access(
+      { activeEntitlements, entitlement, products, subscriptions },
       now,
     );
   } else {
@@ -437,11 +546,7 @@ export async function refreshRevenueCatSubscription(
     },
   });
 
-  if (
-    clientApp === "vybaa" &&
-    previousSnapshot?.isPro &&
-    !verification.isPro
-  ) {
+  if (clientApp === "vybaa" && previousSnapshot?.isPro && !verification.isPro) {
     await downgradeRewindRoutineToFreeTier(appUserId);
   }
 
@@ -469,7 +574,12 @@ export async function getRevenueCatSubscriptionStatus(
       SUBSCRIPTION_SNAPSHOT_TTL_MS;
 
   if (!options.forceRefresh && isFresh) {
-    return snapshotToAccess(snapshot, clientApp, Boolean(config.restApiKey), now);
+    return snapshotToAccess(
+      snapshot,
+      clientApp,
+      Boolean(config.restApiKey),
+      now,
+    );
   }
 
   try {

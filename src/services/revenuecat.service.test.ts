@@ -12,7 +12,7 @@ import {
   getRevenueCatConfig,
   isEntitlementActive,
   matchesRevenueCatEntitlementIdentifier,
-  parseRevenueCatV2Subscription,
+  parseRevenueCatV2Access,
 } from "./revenuecat.service";
 import {
   assertCanCreateCommunity,
@@ -43,8 +43,14 @@ test("My Cove subscription configuration remains isolated", () => {
 });
 
 test("subscription limits reflect the selected tier", () => {
-  assert.deepEqual(getLimitsForAccess({ isPro: false }), FREE_SUBSCRIPTION_LIMITS);
-  assert.deepEqual(getLimitsForAccess({ isPro: true }), PRO_SUBSCRIPTION_LIMITS);
+  assert.deepEqual(
+    getLimitsForAccess({ isPro: false }),
+    FREE_SUBSCRIPTION_LIMITS,
+  );
+  assert.deepEqual(
+    getLimitsForAccess({ isPro: true }),
+    PRO_SUBSCRIPTION_LIMITS,
+  );
 });
 
 test("expired RevenueCat entitlements are inactive", () => {
@@ -62,38 +68,43 @@ test("expired RevenueCat entitlements are inactive", () => {
   assert.equal(isEntitlementActive(null, now), false);
 });
 
-test("RevenueCat v2 subscriptions map active Vybaa Pro access", () => {
+test("RevenueCat v2 active entitlements map Vybaa Pro access", () => {
   const now = new Date("2026-08-06T12:00:00.000Z");
   const expiresAt = new Date("2026-09-06T12:00:00.000Z");
-  const verification = parseRevenueCatV2Subscription(
+  const verification = parseRevenueCatV2Access(
     {
-      items: [
-        {
-          current_period_ends_at: expiresAt.getTime(),
-          entitlements: {
-            items: [
-              {
-                id: "entitlement-resource-id",
-                lookup_key: "Vybaa Pro",
-                products: {
-                  items: [
-                    {
-                      id: "product-resource-id",
-                      store_identifier: "com.vybaa.app.pro.monthly",
-                    },
-                  ],
-                },
-              },
-            ],
+      activeEntitlements: {
+        items: [
+          {
+            entitlement_id: "entitlement-resource-id",
+            expires_at: expiresAt.getTime(),
           },
-          environment: "sandbox",
-          gives_access: true,
-          product_id: "product-resource-id",
-          status: "trialing",
-        },
-      ],
+        ],
+      },
+      entitlement: {
+        id: "entitlement-resource-id",
+        lookup_key: "Vybaa Pro",
+      },
+      products: {
+        items: [
+          {
+            id: "product-resource-id",
+            store_identifier: "com.vybaa.app.pro.monthly",
+          },
+        ],
+      },
+      subscriptions: {
+        items: [
+          {
+            current_period_ends_at: expiresAt.getTime(),
+            environment: "sandbox",
+            gives_access: true,
+            product_id: "product-resource-id",
+            status: "trialing",
+          },
+        ],
+      },
     },
-    VYBAA_ENTITLEMENT_ID,
     now,
   );
 
@@ -101,10 +112,7 @@ test("RevenueCat v2 subscriptions map active Vybaa Pro access", () => {
   assert.equal(verification.expiresAt?.toISOString(), expiresAt.toISOString());
   assert.equal(verification.environment, "SANDBOX");
   assert.equal(verification.periodType, "trialing");
-  assert.equal(
-    verification.productIdentifier,
-    "com.vybaa.app.pro.monthly",
-  );
+  assert.equal(verification.productIdentifier, "com.vybaa.app.pro.monthly");
   assert.equal(
     matchesRevenueCatEntitlementIdentifier(
       { lookup_key: "Vybaa Pro" },
@@ -112,6 +120,75 @@ test("RevenueCat v2 subscriptions map active Vybaa Pro access", () => {
     ),
     true,
   );
+});
+
+test("RevenueCat v2 active entitlement grants access before metadata arrives", () => {
+  const now = new Date("2026-08-06T12:00:00.000Z");
+  const verification = parseRevenueCatV2Access(
+    {
+      activeEntitlements: {
+        items: [{ entitlement_id: "entitlement-resource-id" }],
+      },
+      entitlement: { id: "entitlement-resource-id", lookup_key: "vybaa_pro" },
+      products: { items: [] },
+      subscriptions: { items: [] },
+    },
+    now,
+  );
+
+  assert.equal(verification.isPro, true);
+  assert.equal(verification.productIdentifier, null);
+  assert.equal(verification.expiresAt, null);
+});
+
+test("RevenueCat v2 ignores active entitlements for another product", () => {
+  const now = new Date("2026-08-06T12:00:00.000Z");
+  const verification = parseRevenueCatV2Access(
+    {
+      activeEntitlements: {
+        items: [{ entitlement_id: "another-entitlement" }],
+      },
+      entitlement: { id: "entitlement-resource-id", lookup_key: "vybaa_pro" },
+      products: {
+        items: [{ id: "product-resource-id", store_identifier: "monthly" }],
+      },
+      subscriptions: {
+        items: [
+          {
+            environment: "sandbox",
+            gives_access: true,
+            product_id: "product-resource-id",
+            status: "active",
+          },
+        ],
+      },
+    },
+    now,
+  );
+
+  assert.equal(verification.isPro, false);
+});
+
+test("RevenueCat v2 rejects expired active entitlement snapshots", () => {
+  const now = new Date("2026-08-06T12:00:00.000Z");
+  const verification = parseRevenueCatV2Access(
+    {
+      activeEntitlements: {
+        items: [
+          {
+            entitlement_id: "entitlement-resource-id",
+            expires_at: now.getTime() - 1,
+          },
+        ],
+      },
+      entitlement: { id: "entitlement-resource-id", lookup_key: "vybaa_pro" },
+      products: { items: [] },
+      subscriptions: { items: [] },
+    },
+    now,
+  );
+
+  assert.equal(verification.isPro, false);
 });
 
 test("only advanced Rewind controls require Pro", () => {
