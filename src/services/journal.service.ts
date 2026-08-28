@@ -47,9 +47,25 @@ class JournalService {
   }
 
   /**
+   * Get one journal by its stable record ID, scoped to its owner.
+   */
+  async getJournalById(userId: string, journalId: string) {
+    return prisma.journal.findFirst({
+      where: {
+        id: journalId,
+        userId,
+      },
+    });
+  }
+
+  /**
    * Get paginated journal entries
    */
-  async getJournalEntries(userId: string, page: number = 1, limit: number = 20) {
+  async getJournalEntries(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+  ) {
     const skip = (page - 1) * limit;
 
     const [journals, total] = await Promise.all([
@@ -84,7 +100,7 @@ class JournalService {
     date: Date,
     content: string,
     mood?: string,
-    tags?: string[]
+    tags?: string[],
   ) {
     const dateOnly = new Date(date);
     dateOnly.setHours(0, 0, 0, 0);
@@ -111,7 +127,7 @@ class JournalService {
     userId: string,
     content?: string,
     mood?: string,
-    tags?: string[]
+    tags?: string[],
   ) {
     const updateData: any = {};
     if (content !== undefined) updateData.content = content;
@@ -158,7 +174,8 @@ class JournalService {
 
     // Check if summary is still valid (less than 24 hours old)
     const isSummaryValid =
-      lastSummaryAt && now.getTime() - lastSummaryAt.getTime() < 24 * 60 * 60 * 1000;
+      lastSummaryAt &&
+      now.getTime() - lastSummaryAt.getTime() < 24 * 60 * 60 * 1000;
 
     // If we have a valid cached summary, return it without calling Gemini
     if (isSummaryValid && cachedSummary) {
@@ -186,7 +203,7 @@ class JournalService {
           date: j.date,
           content: j.content,
           mood: j.mood,
-        }))
+        })),
       );
 
       // Store summary and update timestamp
