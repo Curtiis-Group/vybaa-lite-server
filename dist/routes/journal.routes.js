@@ -55,4 +55,6 @@ router.delete("/:journalId", journalController.deleteJournal);
 router.get("/summary", journalController.getJournalSummary);
 // Get journal stats
 router.get("/stats", journalController.getJournalStats);
+// Get one journal entry by its stable record ID
+router.get("/:journalId", journalController.getJournalById);
 exports.default = router;

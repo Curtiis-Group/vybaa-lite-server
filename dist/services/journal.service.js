@@ -46,6 +46,17 @@ class JournalService {
         });
     }
     /**
+     * Get one journal by its stable record ID, scoped to its owner.
+     */
+    async getJournalById(userId, journalId) {
+        return db_config_1.prisma.journal.findFirst({
+            where: {
+                id: journalId,
+                userId,
+            },
+        });
+    }
+    /**
      * Get paginated journal entries
      */
     async getJournalEntries(userId, page = 1, limit = 20) {
@@ -136,7 +147,8 @@ class JournalService {
         const lastSummaryAt = user?.lastJournalSummaryAt;
         const cachedSummary = user?.journalSummary;
         // Check if summary is still valid (less than 24 hours old)
-        const isSummaryValid = lastSummaryAt && now.getTime() - lastSummaryAt.getTime() < 24 * 60 * 60 * 1000;
+        const isSummaryValid = lastSummaryAt &&
+            now.getTime() - lastSummaryAt.getTime() < 24 * 60 * 60 * 1000;
         // If we have a valid cached summary, return it without calling Gemini
         if (isSummaryValid && cachedSummary) {
             logger_util_1.default.info("Returning cached journal summary", { userId });

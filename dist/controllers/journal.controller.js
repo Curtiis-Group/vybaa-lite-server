@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getTodayJournal = getTodayJournal;
 exports.getJournalByDate = getJournalByDate;
+exports.getJournalById = getJournalById;
 exports.getJournals = getJournals;
 exports.createJournal = createJournal;
 exports.updateJournal = updateJournal;
@@ -44,11 +45,15 @@ async function getJournalByDate(req, res) {
         const dateStr = String(req.params.date);
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) {
-            return res.status(400).json({ msg: "Invalid date format. Use YYYY-MM-DD" });
+            return res
+                .status(400)
+                .json({ msg: "Invalid date format. Use YYYY-MM-DD" });
         }
         const journal = await journal_service_1.journalService.getJournalByDate(userId, date);
         if (!journal) {
-            return res.status(404).json({ msg: "Journal entry not found for this date" });
+            return res
+                .status(404)
+                .json({ msg: "Journal entry not found for this date" });
         }
         // Map 'content' to 'entry' for frontend compatibility
         const mappedJournal = {
@@ -66,18 +71,51 @@ async function getJournalByDate(req, res) {
     }
 }
 /**
+ * Get one journal by its stable ID.
+ */
+async function getJournalById(req, res) {
+    try {
+        const userId = req.userId;
+        const journalId = String(req.params.journalId).trim();
+        if (!journalId || journalId.length > 128) {
+            return res.status(400).json({ msg: "Invalid journal ID" });
+        }
+        const journal = await journal_service_1.journalService.getJournalById(userId, journalId);
+        if (!journal) {
+            return res.status(404).json({ msg: "Journal entry not found" });
+        }
+        res.json({
+            msg: "Journal entry retrieved successfully",
+            data: {
+                journal: {
+                    ...journal,
+                    entry: journal.content,
+                },
+            },
+        });
+    }
+    catch (error) {
+        logger_util_1.default.error("Get journal by ID error:", { error, userId: req.userId });
+        res.status(500).json({ msg: "Internal server error" });
+    }
+}
+/**
  * Get paginated journal entries
  */
 async function getJournals(req, res) {
     try {
         const userId = req.userId;
-        const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-        const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+        const pageParam = Array.isArray(req.query.page)
+            ? req.query.page[0]
+            : req.query.page;
+        const limitParam = Array.isArray(req.query.limit)
+            ? req.query.limit[0]
+            : req.query.limit;
         const page = parseInt(String(pageParam || "1")) || 1;
         const limit = parseInt(String(limitParam || "20")) || 20;
         const result = await journal_service_1.journalService.getJournalEntries(userId, page, limit);
         // Map 'content' to 'entry' for frontend compatibility
-        const mappedJournals = result.journals.map(journal => ({
+        const mappedJournals = result.journals.map((journal) => ({
             ...journal,
             entry: journal.content,
         }));
@@ -101,7 +139,9 @@ async function createJournal(req, res) {
         const { date, entry, content, mood, tags } = req.body;
         // Accept both 'entry' and 'content' for backwards compatibility
         const journalContent = entry || content;
-        if (!journalContent || typeof journalContent !== "string" || !journalContent.trim()) {
+        if (!journalContent ||
+            typeof journalContent !== "string" ||
+            !journalContent.trim()) {
             return res.status(400).json({ msg: "Entry content is required" });
         }
         const journalDate = date ? new Date(date) : new Date();
@@ -121,7 +161,9 @@ async function createJournal(req, res) {
     }
     catch (error) {
         if (error.code === "P2002") {
-            return res.status(400).json({ msg: "You already have a journal entry for this date" });
+            return res
+                .status(400)
+                .json({ msg: "You already have a journal entry for this date" });
         }
         logger_util_1.default.error("Create journal error:", { error, userId: req.userId });
         res.status(500).json({ msg: "Internal server error" });
