@@ -56,6 +56,13 @@ router.delete("/fcm-token", authMiddleware, userController.removeFCMToken);
 // GET /api/v1/users/rewards
 router.get("/rewards", authMiddleware, rewardsController.getRewards);
 
+// GET /api/v1/users/rewards/transactions
+router.get(
+  "/rewards/transactions",
+  authMiddleware,
+  rewardsController.getRewardTransactions,
+);
+
 // GET /api/v1/users/wallet
 router.get("/wallet", authMiddleware, walletController.getWallet);
 

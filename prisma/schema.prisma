@@ -675,6 +675,7 @@ model Transaction {
   recipient   User   @relation("TransactionRecipient", fields: [recipientId], references: [id])
 
   referenceId String? @map("reference_id") // MoonPay transaction ID or Goal ID
+  dedupeKey   String? @unique @map("dedupe_key")
   metadata    String? @db.Text // JSON string for additional details
 
   status String @default("PENDING") // PENDING, COMPLETED, FAILED

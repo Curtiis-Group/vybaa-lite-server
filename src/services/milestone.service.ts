@@ -1,10 +1,14 @@
 import { MilestoneTriggerType, TemplateMilestone } from "@prisma/client";
 import { prisma } from "../config/db.config";
-import { getStreakMilestonePoints, isStreakMilestoneWithPoints } from "../config/points.config";
+import {
+  getStreakMilestonePoints,
+  isStreakMilestoneWithPoints,
+} from "../config/points.config";
 import { calculateSequenceMilestoneAwards } from "../utils/sequence-milestone.util";
 import logger from "../utils/logger.util";
 import { communityActivityService } from "./community-activity.service";
 import { notificationService } from "./notification.service";
+import { recordPendingRewardTransaction } from "./reward-ledger.service";
 
 type MilestoneAward = {
   milestone: TemplateMilestone;
@@ -17,7 +21,11 @@ export class MilestoneService {
    * Check and award milestones for a goal based on its progress change.
    * previousDay: goal.currentDay before increment
    */
-  async checkAndAwardMilestones(goalId: string, userId: string, previousDay: number): Promise<void> {
+  async checkAndAwardMilestones(
+    goalId: string,
+    userId: string,
+    previousDay: number,
+  ): Promise<void> {
     try {
       const goal = await prisma.goal.findUnique({
         where: { id: goalId },
@@ -157,28 +165,50 @@ export class MilestoneService {
           },
         });
 
+        await recordPendingRewardTransaction({
+          amount: award.pointsAwarded,
+          dedupeKey: `goal:${goalId}:milestone:${award.milestone.id}:${award.sequenceValue}`,
+          goalId,
+          milestoneDay: currentDay,
+          milestoneName: award.milestone.name,
+          userId,
+        });
+
         const milestoneName =
           award.sequenceValue > 0
             ? `${award.milestone.name} (${award.sequenceValue})`
             : award.milestone.name;
 
-        await communityActivityService.createMilestoneReachedActivity(goalId, userId, {
-          id: award.milestone.id,
-          name: milestoneName,
-          points: award.pointsAwarded,
-        });
-
-        notificationService.sendMilestoneReachedNotification(
-          userId,
+        await communityActivityService.createMilestoneReachedActivity(
           goalId,
-          milestoneName,
-          award.pointsAwarded,
-          goal.goalText || "",
-          community?.name
-        ).catch((err) => logger.error("Error sending milestone notification:", err));
+          userId,
+          {
+            id: award.milestone.id,
+            name: milestoneName,
+            points: award.pointsAwarded,
+          },
+        );
+
+        notificationService
+          .sendMilestoneReachedNotification(
+            userId,
+            goalId,
+            milestoneName,
+            award.pointsAwarded,
+            goal.goalText || "",
+            community?.name,
+          )
+          .catch((err) =>
+            logger.error("Error sending milestone notification:", err),
+          );
       }
     } catch (error) {
-      logger.error("Milestone evaluation error:", { error, goalId, userId, previousDay });
+      logger.error("Milestone evaluation error:", {
+        error,
+        goalId,
+        userId,
+        previousDay,
+      });
     }
   }
 
@@ -187,7 +217,12 @@ export class MilestoneService {
    * This uses the main app milestone points configuration.
    * previousDay: goal.currentDay before increment
    */
-  async checkAndAwardStreakMilestones(goalId: string, userId: string, previousDay: number, currentDay: number): Promise<void> {
+  async checkAndAwardStreakMilestones(
+    goalId: string,
+    userId: string,
+    previousDay: number,
+    currentDay: number,
+  ): Promise<void> {
     try {
       // Check if we just crossed a streak milestone
       if (!isStreakMilestoneWithPoints(currentDay)) {
@@ -239,19 +274,34 @@ export class MilestoneService {
         },
       });
 
+      await recordPendingRewardTransaction({
+        amount: points,
+        dedupeKey: `goal:${goalId}:streak:${currentDay}`,
+        goalId,
+        milestoneDay: currentDay,
+        milestoneName: `Day ${currentDay} Streak`,
+        userId,
+      });
+
       logger.info(
-        `Awarded ${points} Play Points for streak milestone day ${currentDay} on goal ${goalId} (user ${userId})`
+        `Awarded ${points} Play Points for streak milestone day ${currentDay} on goal ${goalId} (user ${userId})`,
       );
 
       // Send notification about streak milestone (if not already sent by notification service)
       // The notification service already handles this, but we can add a points-specific message
       const communityName = goal.community?.name;
       const milestoneName = `Day ${currentDay} Streak`;
-      
+
       // Note: We don't create a community activity for main app streak milestones
       // as they're not community-specific. Only template milestones create activities.
     } catch (error) {
-      logger.error("Streak milestone points error:", { error, goalId, userId, previousDay, currentDay });
+      logger.error("Streak milestone points error:", {
+        error,
+        goalId,
+        userId,
+        previousDay,
+        currentDay,
+      });
     }
   }
 }

@@ -14,7 +14,7 @@ export async function getRewards(req: AuthRequest, res: Response) {
       where: { id: userId },
       select: {
         id: true,
-        points: true
+        points: true,
       },
     });
 
@@ -49,12 +49,12 @@ export async function getRewards(req: AuthRequest, res: Response) {
 
     // Filter to only include goals that are not yet completed
     const activePendingPoints = pendingPointsRecords.filter(
-      (record) => record.goal.currentDay < record.goal.targetDays
+      (record) => record.goal.currentDay < record.goal.targetDays,
     );
 
     const totalPendingPoints = activePendingPoints.reduce(
       (sum, record) => sum + record.totalPendingPoints,
-      0
+      0,
     );
 
     res.json({
@@ -74,6 +74,97 @@ export async function getRewards(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     logger.error("Get rewards error:", { error, userId: req.userId });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+/**
+ * Get the user's Play Points ledger. Entries are ordered newest first and
+ * include pending awards so the user can follow the balance from award to
+ * release.
+ */
+export async function getRewardTransactions(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId!;
+    const requestedPage = Number(req.query.page ?? 1);
+    const requestedLimit = Number(req.query.limit ?? 20);
+    const page =
+      Number.isFinite(requestedPage) && requestedPage > 0
+        ? Math.floor(requestedPage)
+        : 1;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.floor(requestedLimit), 1), 50)
+      : 20;
+
+    const where = {
+      OR: [{ recipientId: userId }, { senderId: userId }],
+    };
+    const [transactions, total] = await prisma.$transaction([
+      prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          recipientId: true,
+          senderId: true,
+          type: true,
+          amount: true,
+          fiatAmount: true,
+          referenceId: true,
+          metadata: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+      prisma.transaction.count({ where }),
+    ]);
+
+    res.json({
+      msg: "Reward transactions retrieved successfully",
+      data: {
+        transactions: transactions.map((transaction) => {
+          let metadata: Record<string, unknown> = {};
+          if (transaction.metadata) {
+            try {
+              const parsed: unknown = JSON.parse(transaction.metadata);
+              if (
+                parsed &&
+                typeof parsed === "object" &&
+                !Array.isArray(parsed)
+              ) {
+                metadata = parsed as Record<string, unknown>;
+              }
+            } catch {
+              metadata = {};
+            }
+          }
+
+          return {
+            ...transaction,
+            amount:
+              transaction.recipientId === userId
+                ? transaction.amount
+                : -transaction.amount,
+            createdAt: transaction.createdAt.toISOString(),
+            metadata,
+          };
+        }),
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasMore: page * limit < total,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error("Get reward transactions error:", {
+      error,
+      userId: req.userId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
