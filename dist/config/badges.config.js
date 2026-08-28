@@ -146,7 +146,7 @@ exports.BADGE_DEFINITIONS = {
             milestone: 1,
             title: "Dawn Warrior",
             description: "Checked in before 9 AM",
-            badgeIcon: "🌅",
+            badgeIcon: "☀️",
         },
     ],
     night_owl: [

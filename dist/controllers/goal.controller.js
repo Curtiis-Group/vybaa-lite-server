@@ -129,11 +129,17 @@ async function getAllGoals(req, res) {
         const userId = req.userId;
         const timezone = req.headers["x-user-tz"];
         // Parse pagination parameters
-        const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-        const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
-        const canCheckInParam = Array.isArray(req.query.canCheckIn) ? req.query.canCheckIn[0] : req.query.canCheckIn;
-        const page = parseInt(String(pageParam || '1')) || 1;
-        const limit = parseInt(String(limitParam || '10')) || 10;
+        const pageParam = Array.isArray(req.query.page)
+            ? req.query.page[0]
+            : req.query.page;
+        const limitParam = Array.isArray(req.query.limit)
+            ? req.query.limit[0]
+            : req.query.limit;
+        const canCheckInParam = Array.isArray(req.query.canCheckIn)
+            ? req.query.canCheckIn[0]
+            : req.query.canCheckIn;
+        const page = parseInt(String(pageParam || "1")) || 1;
+        const limit = parseInt(String(limitParam || "10")) || 10;
         const skip = (page - 1) * limit;
         // if (false) {
         //   const userFCMS = await prisma.user.findUnique({
@@ -153,12 +159,12 @@ async function getAllGoals(req, res) {
         // }
         // Parse canCheckIn filter (optional boolean filter)
         const canCheckInFilter = canCheckInParam !== undefined
-            ? canCheckInParam === 'true' || canCheckInParam === '1'
+            ? canCheckInParam === "true" || canCheckInParam === "1"
             : undefined;
         // Validate pagination parameters
         if (page < 1 || limit < 1 || limit > 100) {
             return res.status(400).json({
-                msg: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-100"
+                msg: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-100",
             });
         }
         // Get total count
@@ -209,15 +215,17 @@ async function getAllGoals(req, res) {
                 canCheckIn,
                 templateId: goal.templateId || null,
                 communityId: goal.communityId || null,
-                community: goal.communityId ? {
-                    id: goal.community?.id || goal.communityId,
-                    name: goal.community?.name || 'Community',
-                } : null,
+                community: goal.communityId
+                    ? {
+                        id: goal.community?.id || goal.communityId,
+                        name: goal.community?.name || "Community",
+                    }
+                    : null,
             };
         }));
         // Apply canCheckIn filter if specified
         const filteredGoals = canCheckInFilter !== undefined
-            ? goalsWithCheckInStatus.filter(goal => goal.canCheckIn === canCheckInFilter)
+            ? goalsWithCheckInStatus.filter((goal) => goal.canCheckIn === canCheckInFilter)
             : goalsWithCheckInStatus;
         // Recalculate pagination based on filtered results
         const filteredTotalCount = canCheckInFilter !== undefined ? filteredGoals.length : totalCount;
@@ -283,7 +291,9 @@ async function getCurrentGoal(req, res) {
             : goal;
         const canCheckIn = await canCheckInToday(updatedGoal.id, timezone);
         res.json({
-            msg: wasReset ? "Goal reset due to missed day" : "Goal retrieved successfully",
+            msg: wasReset
+                ? "Goal reset due to missed day"
+                : "Goal retrieved successfully",
             data: {
                 id: updatedGoal.id,
                 goalText: updatedGoal.goalText,
@@ -347,7 +357,9 @@ async function getGoalById(req, res) {
             : goal;
         const canCheckIn = await canCheckInToday(updatedGoal.id, timezone);
         res.json({
-            msg: wasReset ? "Goal reset due to missed day" : "Goal retrieved successfully",
+            msg: wasReset
+                ? "Goal reset due to missed day"
+                : "Goal retrieved successfully",
             data: {
                 id: updatedGoal.id,
                 goalText: updatedGoal.goalText,
@@ -477,7 +489,13 @@ async function checkIn(req, res) {
         const userId = req.userId;
         const { goalId, notes, attachments } = req.body;
         const timezone = req.headers["x-user-tz"];
-        logger_util_1.default.info("Check-in request:", { userId, goalId, hasNotes: !!notes, hasAttachments: !!attachments, attachmentsCount: attachments?.length || 0 });
+        logger_util_1.default.info("Check-in request:", {
+            userId,
+            goalId,
+            hasNotes: !!notes,
+            hasAttachments: !!attachments,
+            attachmentsCount: attachments?.length || 0,
+        });
         const today = new Date();
         const todayStr = getDateString(today, timezone);
         // If no goalId provided, use the most recent goal (backward compatible)
@@ -534,7 +552,9 @@ async function checkIn(req, res) {
                 goalId: freshGoal.id,
                 checkInDate,
                 notes: notes || null, // Store notes if provided
-                attachments: attachments && attachments.length > 0 ? JSON.stringify(attachments) : null, // Store attachments as JSON
+                attachments: attachments && attachments.length > 0
+                    ? JSON.stringify(attachments)
+                    : null, // Store attachments as JSON
             },
         });
         // Increment current day and update last check-in date
@@ -566,26 +586,63 @@ async function checkIn(req, res) {
             if (freshGoal.communityId) {
                 await community_activity_service_1.communityActivityService.createGoalCompletedActivity(freshGoal.id, userId);
             }
-            // Transfer pending points to user balance
+            // Release pending Play Points and close their ledger entries together.
             const pendingPoints = await db_config_1.prisma.goalPendingPoints.findUnique({
                 where: { goalId: freshGoal.id },
             });
             if (pendingPoints && pendingPoints.totalPendingPoints > 0) {
-                await db_config_1.prisma.$transaction([
-                    // Add points to user balance
-                    db_config_1.prisma.user.update({
+                const pendingRewardTransactions = await db_config_1.prisma.transaction.findMany({
+                    where: {
+                        recipientId: userId,
+                        referenceId: freshGoal.id,
+                        status: "PENDING",
+                        type: "REWARD_POINTS",
+                    },
+                    select: { amount: true },
+                });
+                const ledgerTotal = pendingRewardTransactions.reduce((total, transaction) => total + transaction.amount, 0);
+                const legacyAmount = pendingPoints.totalPendingPoints - ledgerTotal;
+                await db_config_1.prisma.$transaction(async (transaction) => {
+                    if (legacyAmount > 0.000001) {
+                        await transaction.transaction.create({
+                            data: {
+                                amount: legacyAmount,
+                                dedupeKey: `goal:${freshGoal.id}:legacy-release`,
+                                metadata: JSON.stringify({
+                                    goalId: freshGoal.id,
+                                    state: "completed",
+                                    source: "legacy_pending_points",
+                                }),
+                                recipientId: userId,
+                                referenceId: freshGoal.id,
+                                status: "COMPLETED",
+                                type: "REWARD_POINTS",
+                            },
+                        });
+                    }
+                    await transaction.transaction.updateMany({
+                        where: {
+                            recipientId: userId,
+                            referenceId: freshGoal.id,
+                            status: "PENDING",
+                            type: "REWARD_POINTS",
+                        },
+                        data: {
+                            status: "COMPLETED",
+                        },
+                    });
+                    await transaction.user.update({
                         where: { id: userId },
                         data: {
                             points: {
                                 increment: pendingPoints.totalPendingPoints,
                             },
                         },
-                    }),
-                    // Delete pending points record (points are now in wallet)
-                    db_config_1.prisma.goalPendingPoints.delete({
+                    });
+                    await transaction.goalPendingPoints.delete({
                         where: { goalId: freshGoal.id },
-                    }),
-                ]);
+                    });
+                });
                 logger_util_1.default.info(`Transferred ${pendingPoints.totalPendingPoints} points to user ${userId} for completed goal ${freshGoal.id}`);
             }
             // Check for total goals completed achievement
@@ -729,7 +786,9 @@ async function bulkDeleteGoals(req, res) {
             return res.status(400).json({ msg: "goalIds array is required" });
         }
         if (goalIds.length > 50) {
-            return res.status(400).json({ msg: "Cannot delete more than 50 goals at once" });
+            return res
+                .status(400)
+                .json({ msg: "Cannot delete more than 50 goals at once" });
         }
         // Find all goals that belong to the user
         const goalsToDelete = await db_config_1.prisma.goal.findMany({
@@ -747,7 +806,7 @@ async function bulkDeleteGoals(req, res) {
                 data: {
                     deleted: 0,
                     notFound: notFoundIds.length,
-                }
+                },
             });
         }
         // Delete check-ins for all goals (cascade should handle, but being explicit)

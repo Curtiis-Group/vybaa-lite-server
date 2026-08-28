@@ -60,6 +60,8 @@ router.post("/fcm-token", auth_middleware_1.authMiddleware, userController.regis
 router.delete("/fcm-token", auth_middleware_1.authMiddleware, userController.removeFCMToken);
 // GET /api/v1/users/rewards
 router.get("/rewards", auth_middleware_1.authMiddleware, rewardsController.getRewards);
+// GET /api/v1/users/rewards/transactions
+router.get("/rewards/transactions", auth_middleware_1.authMiddleware, rewardsController.getRewardTransactions);
 // GET /api/v1/users/wallet
 router.get("/wallet", auth_middleware_1.authMiddleware, walletController.getWallet);
 // POST /api/v1/users/wallet/paystack/initialize

@@ -11,6 +11,7 @@ const sequence_milestone_util_1 = require("../utils/sequence-milestone.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const community_activity_service_1 = require("./community-activity.service");
 const notification_service_1 = require("./notification.service");
+const reward_ledger_service_1 = require("./reward-ledger.service");
 class MilestoneService {
     /**
      * Check and award milestones for a goal based on its progress change.
@@ -132,6 +133,14 @@ class MilestoneService {
                         sequenceValue: award.sequenceValue,
                     },
                 });
+                await (0, reward_ledger_service_1.recordPendingRewardTransaction)({
+                    amount: award.pointsAwarded,
+                    dedupeKey: `goal:${goalId}:milestone:${award.milestone.id}:${award.sequenceValue}`,
+                    goalId,
+                    milestoneDay: currentDay,
+                    milestoneName: award.milestone.name,
+                    userId,
+                });
                 const milestoneName = award.sequenceValue > 0
                     ? `${award.milestone.name} (${award.sequenceValue})`
                     : award.milestone.name;
@@ -140,11 +149,18 @@ class MilestoneService {
                     name: milestoneName,
                     points: award.pointsAwarded,
                 });
-                notification_service_1.notificationService.sendMilestoneReachedNotification(userId, goalId, milestoneName, award.pointsAwarded, goal.goalText || "", community?.name).catch((err) => logger_util_1.default.error("Error sending milestone notification:", err));
+                notification_service_1.notificationService
+                    .sendMilestoneReachedNotification(userId, goalId, milestoneName, award.pointsAwarded, goal.goalText || "", community?.name)
+                    .catch((err) => logger_util_1.default.error("Error sending milestone notification:", err));
             }
         }
         catch (error) {
-            logger_util_1.default.error("Milestone evaluation error:", { error, goalId, userId, previousDay });
+            logger_util_1.default.error("Milestone evaluation error:", {
+                error,
+                goalId,
+                userId,
+                previousDay,
+            });
         }
     }
     /**
@@ -197,6 +213,14 @@ class MilestoneService {
                     },
                 },
             });
+            await (0, reward_ledger_service_1.recordPendingRewardTransaction)({
+                amount: points,
+                dedupeKey: `goal:${goalId}:streak:${currentDay}`,
+                goalId,
+                milestoneDay: currentDay,
+                milestoneName: `Day ${currentDay} Streak`,
+                userId,
+            });
             logger_util_1.default.info(`Awarded ${points} Play Points for streak milestone day ${currentDay} on goal ${goalId} (user ${userId})`);
             // Send notification about streak milestone (if not already sent by notification service)
             // The notification service already handles this, but we can add a points-specific message
@@ -206,7 +230,13 @@ class MilestoneService {
             // as they're not community-specific. Only template milestones create activities.
         }
         catch (error) {
-            logger_util_1.default.error("Streak milestone points error:", { error, goalId, userId, previousDay, currentDay });
+            logger_util_1.default.error("Streak milestone points error:", {
+                error,
+                goalId,
+                userId,
+                previousDay,
+                currentDay,
+            });
         }
     }
 }

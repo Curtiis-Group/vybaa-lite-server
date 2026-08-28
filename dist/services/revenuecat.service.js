@@ -106,7 +106,7 @@ function parseRevenueCatTimestamp(value) {
     return Number.isNaN(date.getTime()) ? null : date;
 }
 function getSubscriptionEndTime(subscription) {
-    return (subscription.current_period_ends_at ?? subscription.ends_at ?? 0);
+    return subscription.current_period_ends_at ?? subscription.ends_at ?? 0;
 }
 function parseRevenueCatV2Access(payload, now) {
     const activeEntitlement = (payload.activeEntitlements.items ?? []).find((item) => item.entitlement_id === payload.entitlement.id);
@@ -300,9 +300,7 @@ async function refreshRevenueCatSubscription(appUserId, clientApp, now = new Dat
             verifiedAt: now,
         },
     });
-    if (clientApp === "vybaa" &&
-        previousSnapshot?.isPro &&
-        !verification.isPro) {
+    if (clientApp === "vybaa" && previousSnapshot?.isPro && !verification.isPro) {
         await (0, subscription_downgrade_service_1.downgradeRewindRoutineToFreeTier)(appUserId);
     }
     return snapshotToAccess(snapshot, clientApp, true, now);

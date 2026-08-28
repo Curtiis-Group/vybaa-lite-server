@@ -77,7 +77,7 @@ async function assertCanUseRewindFrequency(userId, clientApp, frequency, loadAcc
     if (!requiresProForRewindFrequency(frequency))
         return;
     const access = await loadAccess(userId, clientApp);
-    if (!access || access.isPro)
+    if (access?.isPro)
         return;
     throw new SubscriptionAccessError("PRO_REQUIRED", "Morning and evening or custom Rewind routines require Vybaa Pro");
 }
@@ -85,7 +85,7 @@ async function assertCanUseRewindInsightsRange(userId, clientApp, range, loadAcc
     if (!requiresProForInsightsRange(range))
         return;
     const access = await loadAccess(userId, clientApp);
-    if (!access || access.isPro)
+    if (access?.isPro)
         return;
     throw new SubscriptionAccessError("PRO_REQUIRED", `${range === "30d" ? "30-day" : "90-day"} Rewind insights require Vybaa Pro`);
 }
