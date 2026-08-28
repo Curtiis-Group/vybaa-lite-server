@@ -86,45 +86,64 @@ export async function getRewards(req: AuthRequest, res: Response) {
 export async function getRewardTransactions(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const requestedPage = Number(req.query.page ?? 1);
     const requestedLimit = Number(req.query.limit ?? 20);
-    const page =
-      Number.isFinite(requestedPage) && requestedPage > 0
-        ? Math.floor(requestedPage)
-        : 1;
     const limit = Number.isFinite(requestedLimit)
       ? Math.min(Math.max(Math.floor(requestedLimit), 1), 50)
       : 20;
+    const rawCursor = req.query.cursor;
+    const cursor =
+      typeof rawCursor === "string" &&
+      rawCursor.length > 0 &&
+      rawCursor.length <= 512
+        ? decodeRewardCursor(rawCursor)
+        : null;
+
+    if (rawCursor !== undefined && !cursor) {
+      return res.status(400).json({ msg: "Invalid reward transaction cursor" });
+    }
 
     const where = {
-      OR: [{ recipientId: userId }, { senderId: userId }],
+      AND: [
+        { OR: [{ recipientId: userId }, { senderId: userId }] },
+        ...(cursor
+          ? [
+              {
+                OR: [
+                  { createdAt: { lt: cursor.createdAt } },
+                  { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+                ],
+              },
+            ]
+          : []),
+      ],
     };
-    const [transactions, total] = await prisma.$transaction([
-      prisma.transaction.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
-        take: limit,
-        select: {
-          id: true,
-          recipientId: true,
-          senderId: true,
-          type: true,
-          amount: true,
-          fiatAmount: true,
-          referenceId: true,
-          metadata: true,
-          status: true,
-          createdAt: true,
-        },
-      }),
-      prisma.transaction.count({ where }),
-    ]);
+    const transactions = await prisma.transaction.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select: {
+        id: true,
+        recipientId: true,
+        senderId: true,
+        type: true,
+        amount: true,
+        fiatAmount: true,
+        referenceId: true,
+        metadata: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    const hasMore = transactions.length > limit;
+    const pageTransactions = hasMore
+      ? transactions.slice(0, limit)
+      : transactions;
+    const lastTransaction = pageTransactions[pageTransactions.length - 1];
 
     res.json({
       msg: "Reward transactions retrieved successfully",
       data: {
-        transactions: transactions.map((transaction) => {
+        transactions: pageTransactions.map((transaction) => {
           let metadata: Record<string, unknown> = {};
           if (transaction.metadata) {
             try {
@@ -141,22 +160,47 @@ export async function getRewardTransactions(req: AuthRequest, res: Response) {
             }
           }
 
+          const {
+            recipientId,
+            senderId,
+            metadata: _metadata,
+            ...safeTransaction
+          } = transaction;
+
           return {
-            ...transaction,
+            ...safeTransaction,
             amount:
-              transaction.recipientId === userId
-                ? transaction.amount
-                : -transaction.amount,
+              recipientId === userId ? transaction.amount : -transaction.amount,
             createdAt: transaction.createdAt.toISOString(),
-            metadata,
+            metadata: {
+              ...(typeof metadata.goalId === "string"
+                ? { goalId: metadata.goalId }
+                : {}),
+              ...(typeof metadata.milestoneDay === "number"
+                ? { milestoneDay: metadata.milestoneDay }
+                : {}),
+              ...(typeof metadata.milestoneName === "string"
+                ? { milestoneName: metadata.milestoneName.slice(0, 120) }
+                : {}),
+              ...(typeof metadata.source === "string"
+                ? { source: metadata.source.slice(0, 80) }
+                : {}),
+              ...(typeof metadata.state === "string"
+                ? { state: metadata.state.slice(0, 40) }
+                : {}),
+            },
           };
         }),
         pagination: {
-          page,
           limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-          hasMore: page * limit < total,
+          hasMore,
+          nextCursor:
+            lastTransaction && hasMore
+              ? encodeRewardCursor(
+                  lastTransaction.createdAt,
+                  lastTransaction.id,
+                )
+              : null,
         },
       },
     });
@@ -166,6 +210,44 @@ export async function getRewardTransactions(req: AuthRequest, res: Response) {
       userId: req.userId,
     });
     res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+interface RewardCursor {
+  createdAt: Date;
+  id: string;
+}
+
+function encodeRewardCursor(createdAt: Date, id: string): string {
+  return Buffer.from(
+    JSON.stringify({ createdAt: createdAt.toISOString(), id }),
+  ).toString("base64url");
+}
+
+function decodeRewardCursor(value: string): RewardCursor | null {
+  try {
+    const decoded: unknown = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    );
+    if (!decoded || typeof decoded !== "object") return null;
+    const candidate = decoded as { createdAt?: unknown; id?: unknown };
+    if (
+      typeof candidate.createdAt !== "string" ||
+      typeof candidate.id !== "string"
+    ) {
+      return null;
+    }
+    const createdAt = new Date(candidate.createdAt);
+    if (
+      Number.isNaN(createdAt.getTime()) ||
+      candidate.id.length === 0 ||
+      candidate.id.length > 100
+    ) {
+      return null;
+    }
+    return { createdAt, id: candidate.id };
+  } catch {
+    return null;
   }
 }
 

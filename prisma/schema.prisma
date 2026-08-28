@@ -684,6 +684,8 @@ model Transaction {
 
   @@index([senderId])
   @@index([recipientId])
+  @@index([recipientId, createdAt, id], map: "transactions_recipient_created_id_idx")
+  @@index([senderId, createdAt, id], map: "transactions_sender_created_id_idx")
   @@index([type])
   @@map("transactions")
 }
