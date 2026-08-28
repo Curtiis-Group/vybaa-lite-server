@@ -151,7 +151,7 @@ export async function assertCanUseRewindFrequency(
   if (!requiresProForRewindFrequency(frequency)) return;
 
   const access = await loadAccess(userId, clientApp);
-  if (!access || access.isPro) return;
+  if (access?.isPro) return;
 
   throw new SubscriptionAccessError(
     "PRO_REQUIRED",
@@ -168,7 +168,7 @@ export async function assertCanUseRewindInsightsRange(
   if (!requiresProForInsightsRange(range)) return;
 
   const access = await loadAccess(userId, clientApp);
-  if (!access || access.isPro) return;
+  if (access?.isPro) return;
 
   throw new SubscriptionAccessError(
     "PRO_REQUIRED",

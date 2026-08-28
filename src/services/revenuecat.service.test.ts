@@ -13,6 +13,7 @@ import {
   isEntitlementActive,
   matchesRevenueCatEntitlementIdentifier,
   parseRevenueCatV2Access,
+  type SubscriptionAccess,
 } from "./revenuecat.service";
 import {
   assertCanCreateCommunity,
@@ -229,6 +230,40 @@ test("free Rewind capabilities do not depend on RevenueCat availability", async 
       "vybaa",
       RewindFrequency.JUST_EVENINGS,
       unavailableSubscription,
+    ),
+  );
+});
+
+test("Pro accounts can use 30-day and 90-day Rewind insights", async () => {
+  const proAccess: SubscriptionAccess = {
+    clientApp: "vybaa",
+    entitlementId: VYBAA_ENTITLEMENT_ID,
+    environment: "production",
+    expiresAt: null,
+    isConfigured: true,
+    isPro: true,
+    isTrial: false,
+    managementURL: null,
+    productIdentifier: VYBAA_PRODUCT_IDS.monthly,
+    tier: "pro",
+    verifiedAt: "2026-08-28T00:00:00.000Z",
+  };
+  const loadProAccess = async (): Promise<SubscriptionAccess> => proAccess;
+
+  await assert.doesNotReject(() =>
+    assertCanUseRewindInsightsRange(
+      "user-pro",
+      "vybaa",
+      "30d",
+      loadProAccess,
+    ),
+  );
+  await assert.doesNotReject(() =>
+    assertCanUseRewindInsightsRange(
+      "user-pro",
+      "vybaa",
+      "90d",
+      loadProAccess,
     ),
   );
 });
