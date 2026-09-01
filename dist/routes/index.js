@@ -18,6 +18,7 @@ const admin_routes_1 = __importDefault(require("./admin.routes"));
 const webhook_routes_1 = __importDefault(require("./webhook.routes"));
 const rewind_routes_1 = __importDefault(require("./rewind.routes"));
 const subscription_routes_1 = __importDefault(require("./subscription.routes"));
+const moderation_routes_1 = __importDefault(require("./moderation.routes"));
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const router = (0, express_1.Router)();
 // Health check endpoint
@@ -25,7 +26,7 @@ router.get("/health", (req, res) => {
     res.status(200).json({
         status: "ok",
         timestamp: new Date().toISOString(),
-        uptime: process.uptime()
+        uptime: process.uptime(),
     });
 });
 // Root endpoint
@@ -33,7 +34,7 @@ router.get("/", (req, res) => {
     res.status(200).json({
         message: "Vybaa API Server",
         version: "1.0.0",
-        status: "running"
+        status: "running",
     });
 });
 // Mount auth routes at /api/v1/auth
@@ -62,6 +63,7 @@ router.use("/v1/admin", admin_routes_1.default);
 router.use("/v1/rewind", rewind_routes_1.default);
 // Mount subscription routes at /api/v1/subscriptions
 router.use("/v1/subscriptions", subscription_routes_1.default);
+router.use("/v1/moderation", moderation_routes_1.default);
 // Payment webhooks
 router.use("/v1/webhooks", webhook_routes_1.default);
 // ==================== Dev-only client log bridge ====================

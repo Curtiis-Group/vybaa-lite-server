@@ -34,20 +34,10 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const adminStatsController = __importStar(require("../controllers/admin-stats.controller"));
-const admin_middleware_1 = require("../middleware/admin.middleware");
-const featureFlagsController = __importStar(require("../controllers/feature-flags.controller"));
+const auth_middleware_1 = require("../middleware/auth.middleware");
 const moderationController = __importStar(require("../controllers/moderation.controller"));
 const router = (0, express_1.Router)();
-// All admin routes require the simple admin secret header
-router.use(admin_middleware_1.adminAuthMiddleware);
-// GET /api/v1/admin/feature-flags
-router.get("/feature-flags", featureFlagsController.listFeatureFlags);
-// GET /api/v1/admin/stats
-router.get("/stats", adminStatsController.getAdminStats);
-// POST /api/v1/admin/feature-flags
-router.post("/feature-flags", featureFlagsController.upsertFeatureFlag);
-// Moderation queue for timely review of user-generated content reports.
-router.get("/moderation/reports", moderationController.listReports);
-router.patch("/moderation/reports/:reportId", moderationController.updateReport);
+router.post("/reports", auth_middleware_1.authMiddleware, moderationController.reportContent);
+router.post("/blocks/:userId", auth_middleware_1.authMiddleware, moderationController.blockUser);
+router.delete("/blocks/:userId", auth_middleware_1.authMiddleware, moderationController.unblockUser);
 exports.default = router;
