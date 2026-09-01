@@ -60,16 +60,20 @@ model User {
   fcmDevices    FcmDevice[]
 
   // Community relations
-  ownedCommunities     Community[]         @relation("CommunityOwner")
-  communityMemberships CommunityMember[]
-  createdTemplates     GoalTemplate[]      @relation("TemplateCreator")
-  communityActivities  CommunityActivity[]
-  activityReactions    ActivityReaction[]
-  activityComments     ActivityComment[]
-  createdInvites       CommunityInvite[]   @relation("InviteCreator")
-  receivedInvites      CommunityInvite[]   @relation("InviteRecipient")
-  rewindSessions       RewindSession[]
-  rewindRoutine        RewindRoutine?
+  ownedCommunities      Community[]            @relation("CommunityOwner")
+  communityMemberships  CommunityMember[]
+  createdTemplates      GoalTemplate[]         @relation("TemplateCreator")
+  communityActivities   CommunityActivity[]
+  activityReactions     ActivityReaction[]
+  activityComments      ActivityComment[]
+  blockedUsers          UserBlock[]            @relation("UserBlocks")
+  blockedByUsers        UserBlock[]            @relation("UserBlockedBy")
+  reportsFiled          ContentReport[]        @relation("ReportsFiled")
+  reportsAgainst        ContentReport[]        @relation("ReportsAgainst")
+  createdInvites        CommunityInvite[]      @relation("InviteCreator")
+  receivedInvites       CommunityInvite[]      @relation("InviteRecipient")
+  rewindSessions        RewindSession[]
+  rewindRoutine         RewindRoutine?
   subscriptionSnapshots SubscriptionSnapshot[]
 
   // Summary caching
@@ -163,31 +167,31 @@ model RewindSession {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  personaId            String    @map("persona_id")
-  sessionDateKey       String?   @map("session_date_key")
-  timezone             String?   @map("timezone")
-  scheduledFor         DateTime? @map("scheduled_for")
-  windowEndsAt         DateTime? @map("window_ends_at")
-  startedAt            DateTime? @map("started_at")
-  status               RewindSessionStatus @default(LEGACY)
+  personaId            String                  @map("persona_id")
+  sessionDateKey       String?                 @map("session_date_key")
+  timezone             String?                 @map("timezone")
+  scheduledFor         DateTime?               @map("scheduled_for")
+  windowEndsAt         DateTime?               @map("window_ends_at")
+  startedAt            DateTime?               @map("started_at")
+  status               RewindSessionStatus     @default(LEGACY)
   completionSource     RewindCompletionSource? @map("completion_source")
-  openingAnswered      Boolean?  @default(false) @map("opening_answered")
-  currentQuestionIndex Int?      @default(0) @map("current_question_index")
-  completed            Boolean   @default(false)
-  completedAt          DateTime? @map("completed_at")
-  checkInAt            DateTime? @map("check_in_at")
+  openingAnswered      Boolean?                @default(false) @map("opening_answered")
+  currentQuestionIndex Int?                    @default(0) @map("current_question_index")
+  completed            Boolean                 @default(false)
+  completedAt          DateTime?               @map("completed_at")
+  checkInAt            DateTime?               @map("check_in_at")
   responses            Json?
   summary              String?
-  emotionalInsight     String?   @map("emotional_insight")
-  emotionalTags        String[]  @default([]) @map("emotional_tags")
-  nextStepNote         String?   @map("next_step_note")
-  comparisonInsight    String?   @map("comparison_insight")
-  journalDraft         String?   @map("journal_draft")
-  wellbeingSignals     Json?     @map("wellbeing_signals")
-  transcriptAvailable  Boolean   @default(false) @map("transcript_available")
-  journalId            String?   @map("journal_id")
-  journalSavedAt       DateTime? @map("journal_saved_at")
-  journal              Journal?  @relation(fields: [journalId], references: [id], onDelete: SetNull)
+  emotionalInsight     String?                 @map("emotional_insight")
+  emotionalTags        String[]                @default([]) @map("emotional_tags")
+  nextStepNote         String?                 @map("next_step_note")
+  comparisonInsight    String?                 @map("comparison_insight")
+  journalDraft         String?                 @map("journal_draft")
+  wellbeingSignals     Json?                   @map("wellbeing_signals")
+  transcriptAvailable  Boolean                 @default(false) @map("transcript_available")
+  journalId            String?                 @map("journal_id")
+  journalSavedAt       DateTime?               @map("journal_saved_at")
+  journal              Journal?                @relation(fields: [journalId], references: [id], onDelete: SetNull)
   turns                RewindTurn[]
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
@@ -335,27 +339,27 @@ model Notification {
 
   goalId String? @map("goal_id")
 
-  type    String // "goal_reminder", "goal_completed", "streak_milestone", "system"
-  title   String
-  message String
-  data    String? // JSON string for additional data
+  type      String // "goal_reminder", "goal_completed", "streak_milestone", "system"
+  title     String
+  message   String
+  data      String? // JSON string for additional data
   dedupeKey String? @map("dedupe_key")
 
   isRead Boolean @default(false) @map("is_read")
 
-  scheduledFor DateTime? @map("scheduled_for") // When the notification should be sent
-  sentAt       DateTime? @map("sent_at") // When the notification was actually sent
-  dispatchToken String? @map("dispatch_token")
-  dispatchingAt  DateTime? @map("dispatching_at")
-  deliveryAttempts Int @default(0) @map("delivery_attempts")
+  scheduledFor     DateTime? @map("scheduled_for") // When the notification should be sent
+  sentAt           DateTime? @map("sent_at") // When the notification was actually sent
+  dispatchToken    String?   @map("dispatch_token")
+  dispatchingAt    DateTime? @map("dispatching_at")
+  deliveryAttempts Int       @default(0) @map("delivery_attempts")
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@unique([userId, dedupeKey])
   @@index([userId, isRead])
   @@index([scheduledFor])
   @@index([dispatchToken])
   @@index([sentAt, scheduledFor, dispatchingAt])
-  @@unique([userId, dedupeKey])
   @@map("notifications")
 }
 
@@ -405,10 +409,10 @@ model Journal {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  date    DateTime // Date of the journal entry (date only, no time)
-  content String   @db.Text // Journal entry text
-  mood    String? // Mood/emotion tag (e.g., "happy", "anxious", "calm")
-  tags    String[] @default([]) // Additional tags
+  date           DateTime // Date of the journal entry (date only, no time)
+  content        String          @db.Text // Journal entry text
+  mood           String? // Mood/emotion tag (e.g., "happy", "anxious", "calm")
+  tags           String[]        @default([]) // Additional tags
   rewindSessions RewindSession[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -586,6 +590,7 @@ model CommunityActivity {
 
   reactions ActivityReaction[]
   comments  ActivityComment[]
+  reports   ContentReport[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -632,12 +637,57 @@ model ActivityComment {
 
   text String @db.Text
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @default(now()) @updatedAt @map("updated_at")
+  reports   ContentReport[]
 
   @@index([activityId])
   @@index([userId])
   @@map("activity_comments")
+}
+
+enum ModerationReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  blocker   User     @relation("UserBlocks", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("UserBlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("user_blocks")
+}
+
+model ContentReport {
+  id           String                 @id @default(cuid())
+  reporterId   String                 @map("reporter_id")
+  targetUserId String                 @map("target_user_id")
+  activityId   String?                @map("activity_id")
+  commentId    String?                @map("comment_id")
+  reason       String
+  details      String?                @db.Text
+  status       ModerationReportStatus @default(OPEN)
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @default(now()) @updatedAt @map("updated_at")
+
+  reporter   User               @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetUser User               @relation("ReportsAgainst", fields: [targetUserId], references: [id], onDelete: Cascade)
+  activity   CommunityActivity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  comment    ActivityComment?   @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([targetUserId, status])
+  @@index([activityId])
+  @@index([commentId])
+  @@map("content_reports")
 }
 
 model GoalPendingPoints {

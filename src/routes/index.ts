@@ -13,26 +13,27 @@ import adminRoutes from "./admin.routes";
 import webhookRoutes from "./webhook.routes";
 import rewindRoutes from "./rewind.routes";
 import subscriptionRoutes from "./subscription.routes";
+import moderationRoutes from "./moderation.routes";
 import logger from "../utils/logger.util";
 
 const router: Router = Router();
 
 // Health check endpoint
 router.get("/health", (req, res) => {
-    res.status(200).json({ 
-        status: "ok", 
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
 });
 
 // Root endpoint
 router.get("/", (req, res) => {
-    res.status(200).json({ 
-        message: "Vybaa API Server",
-        version: "1.0.0",
-        status: "running"
-    });
+  res.status(200).json({
+    message: "Vybaa API Server",
+    version: "1.0.0",
+    status: "running",
+  });
 });
 
 // Mount auth routes at /api/v1/auth
@@ -73,6 +74,7 @@ router.use("/v1/rewind", rewindRoutes);
 
 // Mount subscription routes at /api/v1/subscriptions
 router.use("/v1/subscriptions", subscriptionRoutes);
+router.use("/v1/moderation", moderationRoutes);
 
 // Payment webhooks
 router.use("/v1/webhooks", webhookRoutes);

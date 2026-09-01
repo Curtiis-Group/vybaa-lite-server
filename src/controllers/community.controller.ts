@@ -11,6 +11,7 @@ import {
   handleSubscriptionAccessError,
 } from "../services/subscription-access.service";
 import logger from "../utils/logger.util";
+import { containsObjectionableContent } from "../utils/content-moderation.util";
 
 interface CommunityDiscoveryCounts {
   goals: number;
@@ -30,20 +31,32 @@ interface DiscoveryMembership {
   role: CommunityMemberRole;
 }
 
-function getDiscoveryScore(community: DiscoverableCommunity, isJoined: boolean): number {
+function getDiscoveryScore(
+  community: DiscoverableCommunity,
+  isJoined: boolean,
+): number {
   const memberScore = Math.min(community._count.members, 500) * 2;
   const templateScore = community._count.templates * 14;
   const activeGoalScore = community._count.goals * 8;
   const freshnessDays = Math.max(
     0,
-    30 - Math.floor((Date.now() - community.updatedAt.getTime()) / 86_400_000)
+    30 - Math.floor((Date.now() - community.updatedAt.getTime()) / 86_400_000),
   );
   const discoveryBoost = isJoined ? 0 : 1_000;
 
-  return discoveryBoost + memberScore + templateScore + activeGoalScore + freshnessDays;
+  return (
+    discoveryBoost +
+    memberScore +
+    templateScore +
+    activeGoalScore +
+    freshnessDays
+  );
 }
 
-function getDiscoveryReason(community: DiscoverableCommunity, isJoined: boolean): string {
+function getDiscoveryReason(
+  community: DiscoverableCommunity,
+  isJoined: boolean,
+): string {
   if (isJoined) {
     return "Already in your circle";
   }
@@ -64,7 +77,10 @@ function getDiscoveryReason(community: DiscoverableCommunity, isJoined: boolean)
 }
 
 // Helper function to check if user is owner or mod of community
-async function isOwnerOrMod(communityId: string, userId: string): Promise<boolean> {
+async function isOwnerOrMod(
+  communityId: string,
+  userId: string,
+): Promise<boolean> {
   const member = await prisma.communityMember.findUnique({
     where: {
       communityId_userId: {
@@ -98,6 +114,23 @@ async function isMember(communityId: string, userId: string): Promise<boolean> {
   });
 
   return !!member;
+}
+
+async function getBlockedUserIds(userId: string): Promise<string[]> {
+  const [blocked, blocking] = await Promise.all([
+    prisma.userBlock.findMany({
+      where: { blockerId: userId },
+      select: { blockedId: true },
+    }),
+    prisma.userBlock.findMany({
+      where: { blockedId: userId },
+      select: { blockerId: true },
+    }),
+  ]);
+  return [
+    ...blocked.map((item) => item.blockedId),
+    ...blocking.map((item) => item.blockerId),
+  ];
 }
 
 // ==================== Community CRUD ====================
@@ -161,8 +194,12 @@ export async function createCommunity(req: AuthRequest, res: Response) {
 export async function getCommunities(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
 
     const page = Number(pageParam || "1") || 1;
     const limit = Number(limitParam || "10") || 10;
@@ -189,14 +226,20 @@ export async function getCommunities(req: AuthRequest, res: Response) {
           joinedAt: membership.joinedAt,
           role: membership.role,
         },
-      ])
+      ]),
     );
 
     const communitiesForDiscovery = await prisma.community.findMany({
       where: { isPublic: true },
       include: {
         owner: {
-          select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true },
+          select: {
+            id: true,
+            username: true,
+            firstName: true,
+            lastName: true,
+            avatarUrl: true,
+          },
         },
         _count: {
           select: { members: true, templates: true, goals: true },
@@ -220,24 +263,29 @@ export async function getCommunities(req: AuthRequest, res: Response) {
           return right.discoveryScore - left.discoveryScore;
         }
 
-        return right.community.updatedAt.getTime() - left.community.updatedAt.getTime();
+        return (
+          right.community.updatedAt.getTime() -
+          left.community.updatedAt.getTime()
+        );
       });
 
     const totalCount = rankedCommunities.length;
-    const communities = rankedCommunities.slice(skip, skip + limit).map(({ community, discoveryScore, membership }) => {
-      const isJoined = !!membership;
+    const communities = rankedCommunities
+      .slice(skip, skip + limit)
+      .map(({ community, discoveryScore, membership }) => {
+        const isJoined = !!membership;
 
-      return {
-        ...community,
-        createdAt: community.createdAt.toISOString(),
-        updatedAt: community.updatedAt.toISOString(),
-        discoveryReason: getDiscoveryReason(community, isJoined),
-        discoveryScore,
-        isMember: isJoined,
-        joinedAt: membership?.joinedAt.toISOString() || null,
-        userRole: membership?.role || null,
-      };
-    });
+        return {
+          ...community,
+          createdAt: community.createdAt.toISOString(),
+          updatedAt: community.updatedAt.toISOString(),
+          discoveryReason: getDiscoveryReason(community, isJoined),
+          discoveryScore,
+          isMember: isJoined,
+          joinedAt: membership?.joinedAt.toISOString() || null,
+          userRole: membership?.role || null,
+        };
+      });
 
     const totalPages = Math.ceil(totalCount / limit);
     const hasNextPage = page < totalPages;
@@ -264,7 +312,7 @@ export async function getCommunities(req: AuthRequest, res: Response) {
 export async function getCommunityById(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
 
     const community = await prisma.community.findUnique({
       where: { id: communityId },
@@ -313,7 +361,11 @@ export async function getCommunityById(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get community by ID error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Get community by ID error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -321,12 +373,14 @@ export async function getCommunityById(req: AuthRequest, res: Response) {
 export async function updateCommunity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
     const { name, description, coverImage, isPublic, category } = req.body;
 
     // Check if user is owner
     if (!(await isOwner(communityId, userId))) {
-      return res.status(403).json({ msg: "Only the owner can update the community" });
+      return res
+        .status(403)
+        .json({ msg: "Only the owner can update the community" });
     }
 
     const community = await prisma.community.update({
@@ -367,7 +421,11 @@ export async function updateCommunity(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Update community error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Update community error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -375,11 +433,13 @@ export async function updateCommunity(req: AuthRequest, res: Response) {
 export async function deleteCommunity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
 
     // Check if user is owner
     if (!(await isOwner(communityId, userId))) {
-      return res.status(403).json({ msg: "Only the owner can delete the community" });
+      return res
+        .status(403)
+        .json({ msg: "Only the owner can delete the community" });
     }
 
     // Get community info before deleting
@@ -394,10 +454,11 @@ export async function deleteCommunity(req: AuthRequest, res: Response) {
 
     // Notify all members about community deletion
     if (community) {
-      notificationService.sendCommunityDeletedNotification(
-        communityId,
-        community.name
-      ).catch((err) => logger.error("Error sending community deleted notification:", err));
+      notificationService
+        .sendCommunityDeletedNotification(communityId, community.name)
+        .catch((err) =>
+          logger.error("Error sending community deleted notification:", err),
+        );
     }
 
     res.json({
@@ -405,7 +466,11 @@ export async function deleteCommunity(req: AuthRequest, res: Response) {
       data: null,
     });
   } catch (error) {
-    logger.error("Delete community error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Delete community error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -441,7 +506,9 @@ export async function joinCommunity(req: AuthRequest, res: Response) {
     });
 
     if (existingMember) {
-      return res.status(400).json({ msg: "Already a member of this community" });
+      return res
+        .status(400)
+        .json({ msg: "Already a member of this community" });
     }
 
     const member = await prisma.communityMember.create({
@@ -464,13 +531,18 @@ export async function joinCommunity(req: AuthRequest, res: Response) {
     });
 
     // Notify owner and mods about new member
-    const memberName = member.user.username || member.user.firstName || "Someone";
-    notificationService.sendMemberJoinedNotification(
-      communityId,
-      userId,
-      memberName,
-      community.name
-    ).catch((err) => logger.error("Error sending member joined notification:", err));
+    const memberName =
+      member.user.username || member.user.firstName || "Someone";
+    notificationService
+      .sendMemberJoinedNotification(
+        communityId,
+        userId,
+        memberName,
+        community.name,
+      )
+      .catch((err) =>
+        logger.error("Error sending member joined notification:", err),
+      );
 
     res.json({
       msg: "Joined community successfully",
@@ -488,11 +560,15 @@ export async function joinCommunity(req: AuthRequest, res: Response) {
 export async function leaveCommunity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
 
     // Check if user is owner
     if (await isOwner(communityId, userId)) {
-      return res.status(400).json({ msg: "Owner cannot leave the community. Transfer ownership or delete the community instead." });
+      return res
+        .status(400)
+        .json({
+          msg: "Owner cannot leave the community. Transfer ownership or delete the community instead.",
+        });
     }
 
     // Get user info before deleting
@@ -528,17 +604,27 @@ export async function leaveCommunity(req: AuthRequest, res: Response) {
     });
 
     // Create activity entry for leaving the community
-    await communityActivityService.createMemberLeftActivity(communityId, userId);
+    await communityActivityService.createMemberLeftActivity(
+      communityId,
+      userId,
+    );
 
     // Notify owner and mods about member leaving
     if (leavingMember) {
-      const memberName = leavingMember.user.username || leavingMember.user.firstName || "Someone";
-      notificationService.sendMemberLeftNotification(
-        communityId,
-        userId,
-        memberName,
-        leavingMember.community.name
-      ).catch((err) => logger.error("Error sending member left notification:", err));
+      const memberName =
+        leavingMember.user.username ||
+        leavingMember.user.firstName ||
+        "Someone";
+      notificationService
+        .sendMemberLeftNotification(
+          communityId,
+          userId,
+          memberName,
+          leavingMember.community.name,
+        )
+        .catch((err) =>
+          logger.error("Error sending member left notification:", err),
+        );
     }
 
     res.json({
@@ -546,7 +632,11 @@ export async function leaveCommunity(req: AuthRequest, res: Response) {
       data: null,
     });
   } catch (error) {
-    logger.error("Leave community error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Leave community error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -554,9 +644,13 @@ export async function leaveCommunity(req: AuthRequest, res: Response) {
 export async function getCommunityMembers(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params  as { communityId: string};
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const { communityId } = req.params as { communityId: string };
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
 
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "20")) || 20;
@@ -614,7 +708,11 @@ export async function getCommunityMembers(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get community members error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Get community members error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -623,17 +721,21 @@ export async function updateMemberRole(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
     const { communityId: $communityId } = req.params;
-    const communityId = String($communityId)
+    const communityId = String($communityId);
     const { userId: targetUserId, role } = req.body;
 
     // Check if requester is owner or mod
     if (!(await isOwnerOrMod(communityId, userId))) {
-      return res.status(403).json({ msg: "Only owners and moderators can update member roles" });
+      return res
+        .status(403)
+        .json({ msg: "Only owners and moderators can update member roles" });
     }
 
     // Owner cannot change their own role
     if (targetUserId === userId && (await isOwner(communityId, userId))) {
-      return res.status(400).json({ msg: "Owner cannot change their own role" });
+      return res
+        .status(400)
+        .json({ msg: "Owner cannot change their own role" });
     }
 
     const member = await prisma.communityMember.update({
@@ -668,13 +770,17 @@ export async function updateMemberRole(req: AuthRequest, res: Response) {
       select: { username: true, firstName: true },
     });
     const changerName = changer?.username || changer?.firstName || "Admin";
-    notificationService.sendRoleChangedNotification(
-      targetUserId,
-      role,
-      member.community.name,
-      communityId,
-      changerName
-    ).catch((err) => logger.error("Error sending role changed notification:", err));
+    notificationService
+      .sendRoleChangedNotification(
+        targetUserId,
+        role,
+        member.community.name,
+        communityId,
+        changerName,
+      )
+      .catch((err) =>
+        logger.error("Error sending role changed notification:", err),
+      );
 
     res.json({
       msg: "Member role updated successfully",
@@ -684,7 +790,11 @@ export async function updateMemberRole(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Update member role error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Update member role error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -694,12 +804,14 @@ export async function updateMemberRole(req: AuthRequest, res: Response) {
 export async function createTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-   const { communityId } = req.params  as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
     const { goalText, targetDays, reminderTime, milestones } = req.body;
 
     // Check if user is owner or mod
     if (!(await isOwnerOrMod(communityId, userId))) {
-      return res.status(403).json({ msg: "Only owners and moderators can create templates" });
+      return res
+        .status(403)
+        .json({ msg: "Only owners and moderators can create templates" });
     }
 
     const template = await prisma.goalTemplate.create({
@@ -746,23 +858,32 @@ export async function createTemplate(req: AuthRequest, res: Response) {
     });
 
     // Create community activity for template creation
-    await communityActivityService.createTemplateCreatedActivity(template.id, userId, communityId);
+    await communityActivityService.createTemplateCreatedActivity(
+      template.id,
+      userId,
+      communityId,
+    );
 
     // Notify all members about new template
-    const creatorName = template.creator.username || template.creator.firstName || "Someone";
+    const creatorName =
+      template.creator.username || template.creator.firstName || "Someone";
     const community = await prisma.community.findUnique({
       where: { id: communityId },
       select: { name: true },
     });
     if (community) {
-      notificationService.sendTemplateCreatedNotification(
-        communityId,
-        template.id,
-        template.goalText || "",
-        creatorName,
-        community.name,
-        userId
-      ).catch((err) => logger.error("Error sending template created notification:", err));
+      notificationService
+        .sendTemplateCreatedNotification(
+          communityId,
+          template.id,
+          template.goalText || "",
+          creatorName,
+          community.name,
+          userId,
+        )
+        .catch((err) =>
+          logger.error("Error sending template created notification:", err),
+        );
     }
 
     res.json({
@@ -774,7 +895,11 @@ export async function createTemplate(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Create template error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Create template error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -782,9 +907,13 @@ export async function createTemplate(req: AuthRequest, res: Response) {
 export async function getTemplates(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-   const { communityId } = req.params  as { communityId: string};
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const { communityId } = req.params as { communityId: string };
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
 
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "20")) || 20;
@@ -792,7 +921,9 @@ export async function getTemplates(req: AuthRequest, res: Response) {
 
     // Check if user is member
     if (!(await isMember(communityId, userId))) {
-      return res.status(403).json({ msg: "Must be a member to view templates" });
+      return res
+        .status(403)
+        .json({ msg: "Must be a member to view templates" });
     }
 
     const totalCount = await prisma.goalTemplate.count({
@@ -848,7 +979,11 @@ export async function getTemplates(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get templates error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Get templates error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -856,7 +991,7 @@ export async function getTemplates(req: AuthRequest, res: Response) {
 export async function getTemplateById(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params   as { templateId: string};
+    const { templateId } = req.params as { templateId: string };
 
     const template = await prisma.goalTemplate.findUnique({
       where: { id: templateId },
@@ -908,7 +1043,11 @@ export async function getTemplateById(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get template by ID error:", { error, userId: req.userId, templateId: req.params.templateId });
+    logger.error("Get template by ID error:", {
+      error,
+      userId: req.userId,
+      templateId: req.params.templateId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -916,7 +1055,7 @@ export async function getTemplateById(req: AuthRequest, res: Response) {
 export async function updateTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params   as { templateId: string};
+    const { templateId } = req.params as { templateId: string };
     const { goalText, targetDays, reminderTime, milestones } = req.body;
 
     const template = await prisma.goalTemplate.findUnique({
@@ -928,11 +1067,18 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
     }
 
     // Check if user is owner or mod of community, or creator of template
-    const isCommunityOwnerOrMod = await isOwnerOrMod(template.communityId, userId);
+    const isCommunityOwnerOrMod = await isOwnerOrMod(
+      template.communityId,
+      userId,
+    );
     const isTemplateCreator = template.createdBy === userId;
 
     if (!isCommunityOwnerOrMod && !isTemplateCreator) {
-      return res.status(403).json({ msg: "Only owners, moderators, or template creator can update templates" });
+      return res
+        .status(403)
+        .json({
+          msg: "Only owners, moderators, or template creator can update templates",
+        });
     }
 
     const updatedTemplate = await prisma.$transaction(async (tx) => {
@@ -941,12 +1087,16 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
         data: {
           ...(goalText && { goalText }),
           ...(typeof targetDays === "number" && { targetDays }),
-          ...(reminderTime !== undefined && { reminderTime: reminderTime || null }),
+          ...(reminderTime !== undefined && {
+            reminderTime: reminderTime || null,
+          }),
         },
       });
 
       if (Array.isArray(milestones)) {
-        const incomingIds = milestones.filter((m: any) => !!m.id).map((m: any) => m.id as string);
+        const incomingIds = milestones
+          .filter((m: any) => !!m.id)
+          .map((m: any) => m.id as string);
 
         // If there are no incoming milestones, delete all existing milestones
         if (milestones.length === 0) {
@@ -1046,7 +1196,11 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Update template error:", { error, userId: req.userId, templateId: req.params.templateId });
+    logger.error("Update template error:", {
+      error,
+      userId: req.userId,
+      templateId: req.params.templateId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1054,9 +1208,13 @@ export async function updateTemplate(req: AuthRequest, res: Response) {
 export async function getTemplateParticipants(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params   as { templateId: string};
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const { templateId } = req.params as { templateId: string };
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
 
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "20")) || 20;
@@ -1075,7 +1233,9 @@ export async function getTemplateParticipants(req: AuthRequest, res: Response) {
 
     // Check if user is member of community
     if (!(await isMember(template.communityId, userId))) {
-      return res.status(403).json({ msg: "Must be a member to view template participants" });
+      return res
+        .status(403)
+        .json({ msg: "Must be a member to view template participants" });
     }
 
     // Get goals started from this template with user info and progress
@@ -1135,7 +1295,11 @@ export async function getTemplateParticipants(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get template participants error:", { error, userId: req.userId, templateId: req.params.templateId });
+    logger.error("Get template participants error:", {
+      error,
+      userId: req.userId,
+      templateId: req.params.templateId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1143,7 +1307,7 @@ export async function getTemplateParticipants(req: AuthRequest, res: Response) {
 export async function deleteTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params   as { templateId: string};
+    const { templateId } = req.params as { templateId: string };
 
     const template = await prisma.goalTemplate.findUnique({
       where: { id: templateId },
@@ -1154,11 +1318,18 @@ export async function deleteTemplate(req: AuthRequest, res: Response) {
     }
 
     // Check if user is owner or mod of community, or creator of template
-    const isCommunityOwnerOrMod = await isOwnerOrMod(template.communityId, userId);
+    const isCommunityOwnerOrMod = await isOwnerOrMod(
+      template.communityId,
+      userId,
+    );
     const isTemplateCreator = template.createdBy === userId;
 
     if (!isCommunityOwnerOrMod && !isTemplateCreator) {
-      return res.status(403).json({ msg: "Only owners, moderators, or template creator can delete templates" });
+      return res
+        .status(403)
+        .json({
+          msg: "Only owners, moderators, or template creator can delete templates",
+        });
     }
 
     // Get template and community info before deleting
@@ -1179,12 +1350,16 @@ export async function deleteTemplate(req: AuthRequest, res: Response) {
 
     // Notify users who started goals from this template
     if (templateWithCommunity) {
-      notificationService.sendTemplateDeletedNotification(
-        templateId,
-        templateWithCommunity.goalText || "",
-        templateWithCommunity.community.name,
-        template.communityId
-      ).catch((err) => logger.error("Error sending template deleted notification:", err));
+      notificationService
+        .sendTemplateDeletedNotification(
+          templateId,
+          templateWithCommunity.goalText || "",
+          templateWithCommunity.community.name,
+          template.communityId,
+        )
+        .catch((err) =>
+          logger.error("Error sending template deleted notification:", err),
+        );
     }
 
     res.json({
@@ -1192,7 +1367,11 @@ export async function deleteTemplate(req: AuthRequest, res: Response) {
       data: null,
     });
   } catch (error) {
-    logger.error("Delete template error:", { error, userId: req.userId, templateId: req.params.templateId });
+    logger.error("Delete template error:", {
+      error,
+      userId: req.userId,
+      templateId: req.params.templateId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1200,7 +1379,7 @@ export async function deleteTemplate(req: AuthRequest, res: Response) {
 export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { templateId } = req.params   as { templateId: string};
+    const { templateId } = req.params as { templateId: string };
     const { reminderTime } = req.body;
 
     await assertCanCreateGoal(userId, req.clientApp);
@@ -1218,7 +1397,9 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
 
     // Check if user is member of community
     if (!(await isMember(template.communityId, userId))) {
-      return res.status(403).json({ msg: "Must be a member to start goals from templates" });
+      return res
+        .status(403)
+        .json({ msg: "Must be a member to start goals from templates" });
     }
 
     // Get user info for notification
@@ -1243,14 +1424,18 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
     // Notify template creator (if not the same user)
     if (template.createdBy !== userId) {
       const starterName = user?.username || user?.firstName || "Someone";
-      notificationService.sendGoalStartedFromTemplateNotification(
-        template.createdBy,
-        starterName,
-        template.goalText || "",
-        template.community.name,
-        template.communityId,
-        goal.id
-      ).catch((err) => logger.error("Error sending goal started notification:", err));
+      notificationService
+        .sendGoalStartedFromTemplateNotification(
+          template.createdBy,
+          starterName,
+          template.goalText || "",
+          template.community.name,
+          template.communityId,
+          goal.id,
+        )
+        .catch((err) =>
+          logger.error("Error sending goal started notification:", err),
+        );
     }
 
     res.json({
@@ -1271,7 +1456,11 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     if (handleSubscriptionAccessError(error, res)) return;
-    logger.error("Start goal from template error:", { error, userId: req.userId, templateId: req.params.templateId });
+    logger.error("Start goal from template error:", {
+      error,
+      userId: req.userId,
+      templateId: req.params.templateId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1281,9 +1470,13 @@ export async function startGoalFromTemplate(req: AuthRequest, res: Response) {
 export async function getActivityFeed(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-   const { communityId } = req.params  as { communityId: string};
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const { communityId } = req.params as { communityId: string };
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
 
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "20")) || 20;
@@ -1291,15 +1484,20 @@ export async function getActivityFeed(req: AuthRequest, res: Response) {
 
     // Check if user is member
     if (!(await isMember(communityId, userId))) {
-      return res.status(403).json({ msg: "Must be a member to view activity feed" });
+      return res
+        .status(403)
+        .json({ msg: "Must be a member to view activity feed" });
     }
 
+    const blockedUserIds = await getBlockedUserIds(userId);
+    const feedWhere = { communityId, userId: { notIn: blockedUserIds } };
+
     const totalCount = await prisma.communityActivity.count({
-      where: { communityId },
+      where: feedWhere,
     });
 
     const activities = await prisma.communityActivity.findMany({
-      where: { communityId },
+      where: feedWhere,
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
@@ -1343,8 +1541,8 @@ export async function getActivityFeed(req: AuthRequest, res: Response) {
             createdAtDate.getUTCHours(),
             0,
             0,
-            0
-          )
+            0,
+          ),
         ).toISOString();
 
         return {
@@ -1353,7 +1551,7 @@ export async function getActivityFeed(req: AuthRequest, res: Response) {
           hasUserReacted: !!userReaction,
           hourBucket,
         };
-      })
+      }),
     );
 
     const totalPages = Math.ceil(totalCount / limit);
@@ -1373,7 +1571,11 @@ export async function getActivityFeed(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get activity feed error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Get activity feed error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1381,7 +1583,7 @@ export async function getActivityFeed(req: AuthRequest, res: Response) {
 export async function reactToActivity(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { activityId } = req.params   as { activityId: string};
+    const { activityId } = req.params as { activityId: string };
 
     // Check if activity exists and user is member of community
     const activity = await prisma.communityActivity.findUnique({
@@ -1396,7 +1598,9 @@ export async function reactToActivity(req: AuthRequest, res: Response) {
     }
 
     if (!(await isMember(activity.communityId, userId))) {
-      return res.status(403).json({ msg: "Must be a member to react to activities" });
+      return res
+        .status(403)
+        .json({ msg: "Must be a member to react to activities" });
     }
 
     // Check if already reacted
@@ -1441,14 +1645,18 @@ export async function reactToActivity(req: AuthRequest, res: Response) {
         select: { username: true, firstName: true },
       });
       const reactorName = reactor?.username || reactor?.firstName || "Someone";
-      notificationService.sendActivityReactionNotification(
-        activity.userId,
-        reactorName,
-        activity.type,
-        activity.community.name,
-        activity.communityId,
-        activityId
-      ).catch((err) => logger.error("Error sending reaction notification:", err));
+      notificationService
+        .sendActivityReactionNotification(
+          activity.userId,
+          reactorName,
+          activity.type,
+          activity.community.name,
+          activity.communityId,
+          activityId,
+        )
+        .catch((err) =>
+          logger.error("Error sending reaction notification:", err),
+        );
     }
 
     res.json({
@@ -1456,7 +1664,11 @@ export async function reactToActivity(req: AuthRequest, res: Response) {
       data: { reacted: true },
     });
   } catch (error) {
-    logger.error("React to activity error:", { error, userId: req.userId, activityId: req.params.activityId });
+    logger.error("React to activity error:", {
+      error,
+      userId: req.userId,
+      activityId: req.params.activityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1464,8 +1676,15 @@ export async function reactToActivity(req: AuthRequest, res: Response) {
 export async function createComment(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { activityId } = req.params   as { activityId: string};
+    const { activityId } = req.params as { activityId: string };
     const { text } = req.body;
+
+    if (containsObjectionableContent(text)) {
+      return res.status(400).json({
+        code: "CONTENT_REJECTED",
+        msg: "This comment cannot be posted because it contains abusive content.",
+      });
+    }
 
     // Check if activity exists and user is member of community
     const activity = await prisma.communityActivity.findUnique({
@@ -1480,7 +1699,9 @@ export async function createComment(req: AuthRequest, res: Response) {
     }
 
     if (!(await isMember(activity.communityId, userId))) {
-      return res.status(403).json({ msg: "Must be a member to comment on activities" });
+      return res
+        .status(403)
+        .json({ msg: "Must be a member to comment on activities" });
     }
 
     const comment = await prisma.activityComment.create({
@@ -1504,15 +1725,20 @@ export async function createComment(req: AuthRequest, res: Response) {
 
     // Notify activity owner (if not the same user)
     if (activity.userId !== userId) {
-      const commenterName = comment.user.username || comment.user.firstName || "Someone";
-      notificationService.sendActivityCommentNotification(
-        activity.userId,
-        commenterName,
-        text,
-        activity.community.name,
-        activity.communityId,
-        activityId
-      ).catch((err) => logger.error("Error sending comment notification:", err));
+      const commenterName =
+        comment.user.username || comment.user.firstName || "Someone";
+      notificationService
+        .sendActivityCommentNotification(
+          activity.userId,
+          commenterName,
+          text,
+          activity.community.name,
+          activity.communityId,
+          activityId,
+        )
+        .catch((err) =>
+          logger.error("Error sending comment notification:", err),
+        );
     }
 
     res.json({
@@ -1524,7 +1750,11 @@ export async function createComment(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Create comment error:", { error, userId: req.userId, activityId: req.params.activityId });
+    logger.error("Create comment error:", {
+      error,
+      userId: req.userId,
+      activityId: req.params.activityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1532,9 +1762,13 @@ export async function createComment(req: AuthRequest, res: Response) {
 export async function getComments(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { activityId } = req.params   as { activityId: string};
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const { activityId } = req.params as { activityId: string };
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
 
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "20")) || 20;
@@ -1556,12 +1790,15 @@ export async function getComments(req: AuthRequest, res: Response) {
       return res.status(403).json({ msg: "Must be a member to view comments" });
     }
 
+    const blockedUserIds = await getBlockedUserIds(userId);
+    const commentsWhere = { activityId, userId: { notIn: blockedUserIds } };
+
     const totalCount = await prisma.activityComment.count({
-      where: { activityId },
+      where: commentsWhere,
     });
 
     const comments = await prisma.activityComment.findMany({
-      where: { activityId },
+      where: commentsWhere,
       orderBy: { createdAt: "asc" },
       skip,
       take: limit,
@@ -1599,7 +1836,11 @@ export async function getComments(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get comments error:", { error, userId: req.userId, activityId: req.params.activityId });
+    logger.error("Get comments error:", {
+      error,
+      userId: req.userId,
+      activityId: req.params.activityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1607,7 +1848,7 @@ export async function getComments(req: AuthRequest, res: Response) {
 export async function deleteComment(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { commentId } = req.params   as { commentId: string};
+    const { commentId } = req.params as { commentId: string };
 
     const comment = await prisma.activityComment.findUnique({
       where: { id: commentId },
@@ -1626,10 +1867,17 @@ export async function deleteComment(req: AuthRequest, res: Response) {
 
     // Check if user is comment author, owner, or mod
     const isCommentAuthor = comment.userId === userId;
-    const isOwnerOrModd = await isOwnerOrMod((comment as any)?.activity?.communityId, userId);
+    const isOwnerOrModd = await isOwnerOrMod(
+      (comment as any)?.activity?.communityId,
+      userId,
+    );
 
     if (!isCommentAuthor && !isOwnerOrModd) {
-      return res.status(403).json({ msg: "Only comment author, owner, or moderators can delete comments" });
+      return res
+        .status(403)
+        .json({
+          msg: "Only comment author, owner, or moderators can delete comments",
+        });
     }
 
     await prisma.activityComment.delete({
@@ -1641,7 +1889,11 @@ export async function deleteComment(req: AuthRequest, res: Response) {
       data: null,
     });
   } catch (error) {
-    logger.error("Delete comment error:", { error, userId: req.userId, commentId: req.params.commentId });
+    logger.error("Delete comment error:", {
+      error,
+      userId: req.userId,
+      commentId: req.params.commentId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1651,37 +1903,38 @@ export async function deleteComment(req: AuthRequest, res: Response) {
 export async function getCommunityStats(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-   const { communityId } = req.params  as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
 
     // Check if user is member
     if (!(await isMember(communityId, userId))) {
       return res.status(403).json({ msg: "Must be a member to view stats" });
     }
 
-    const [memberCount, templateCount, activeGoalCount, recentActivityCount] = await Promise.all([
-      prisma.communityMember.count({
-        where: { communityId },
-      }),
-      prisma.goalTemplate.count({
-        where: { communityId },
-      }),
-      prisma.goal.count({
-        where: {
-          communityId,
-          lastCheckInDate: {
-            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
+    const [memberCount, templateCount, activeGoalCount, recentActivityCount] =
+      await Promise.all([
+        prisma.communityMember.count({
+          where: { communityId },
+        }),
+        prisma.goalTemplate.count({
+          where: { communityId },
+        }),
+        prisma.goal.count({
+          where: {
+            communityId,
+            lastCheckInDate: {
+              gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
+            },
           },
-        },
-      }),
-      prisma.communityActivity.count({
-        where: {
-          communityId,
-          createdAt: {
-            gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+        }),
+        prisma.communityActivity.count({
+          where: {
+            communityId,
+            createdAt: {
+              gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+            },
           },
-        },
-      }),
-    ]);
+        }),
+      ]);
 
     res.json({
       msg: "Community stats retrieved successfully",
@@ -1693,7 +1946,11 @@ export async function getCommunityStats(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Get community stats error:", { error, userId: req.userId, communityId: req.params.communityId });
+    logger.error("Get community stats error:", {
+      error,
+      userId: req.userId,
+      communityId: req.params.communityId,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -1703,8 +1960,12 @@ export async function getCommunityStats(req: AuthRequest, res: Response) {
 export async function getMyCommunities(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
 
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "10")) || 10;
@@ -1779,8 +2040,13 @@ async function generateInviteCode(): Promise<string> {
   let code: string;
   let exists = true;
   do {
-    code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-    const existing = await prisma.communityInvite.findUnique({ where: { code } });
+    code = Array.from(
+      { length: 6 },
+      () => chars[Math.floor(Math.random() * chars.length)],
+    ).join("");
+    const existing = await prisma.communityInvite.findUnique({
+      where: { code },
+    });
     exists = !!existing;
   } while (exists);
   return code;
@@ -1804,21 +2070,27 @@ async function findActiveDuplicateInvite(params: {
   const invites = await prisma.communityInvite.findMany({
     where: {
       communityId: params.communityId,
-      ...(params.inviteeUsername ? { inviteeUsername: params.inviteeUsername } : {}),
+      ...(params.inviteeUsername
+        ? { inviteeUsername: params.inviteeUsername }
+        : {}),
       ...(params.inviteeEmail ? { inviteeEmail: params.inviteeEmail } : {}),
       OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return invites.find((invite) => invite.maxUses === -1 || invite.uses < invite.maxUses) || null;
+  return (
+    invites.find(
+      (invite) => invite.maxUses === -1 || invite.uses < invite.maxUses,
+    ) || null
+  );
 }
 
 /** POST /communities/:communityId/invites - Create invite link/code or invite by username/email */
 export async function createInvite(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { communityId } = req.params  as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
     const { inviteeUsername, inviteeEmail, maxUses, expiresInDays } = req.body;
     const normalizedUsername = inviteeUsername
       ? String(inviteeUsername).trim().replace(/^@/, "")
@@ -1829,7 +2101,9 @@ export async function createInvite(req: AuthRequest, res: Response) {
 
     // Must be member (or owner/mod) to create invite
     if (!(await isMember(communityId, userId))) {
-      return res.status(403).json({ msg: "Must be a member to create invites" });
+      return res
+        .status(403)
+        .json({ msg: "Must be a member to create invites" });
     }
 
     const community = await prisma.community.findUnique({
@@ -1846,12 +2120,21 @@ export async function createInvite(req: AuthRequest, res: Response) {
     let inviteeUserId: string | undefined;
     if (normalizedUsername) {
       const target = await prisma.user.findFirst({
-        where: { username: { equals: normalizedUsername, mode: "insensitive" } },
+        where: {
+          username: { equals: normalizedUsername, mode: "insensitive" },
+        },
         select: { id: true, username: true },
       });
-      if (!target) return res.status(404).json({ msg: `User @${normalizedUsername} not found` });
+      if (!target)
+        return res
+          .status(404)
+          .json({ msg: `User @${normalizedUsername} not found` });
       if (await isMember(communityId, target.id)) {
-        return res.status(400).json({ msg: `@${target.username || normalizedUsername} is already a member` });
+        return res
+          .status(400)
+          .json({
+            msg: `@${target.username || normalizedUsername} is already a member`,
+          });
       }
       inviteeUserId = target.id;
     }
@@ -1862,8 +2145,10 @@ export async function createInvite(req: AuthRequest, res: Response) {
         select: { id: true },
       });
 
-      if (target && await isMember(communityId, target.id)) {
-        return res.status(400).json({ msg: `${normalizedEmail} is already a member` });
+      if (target && (await isMember(communityId, target.id))) {
+        return res
+          .status(400)
+          .json({ msg: `${normalizedEmail} is already a member` });
       }
 
       inviteeUserId = target?.id || inviteeUserId;
@@ -1918,30 +2203,38 @@ export async function createInvite(req: AuthRequest, res: Response) {
       "Someone";
 
     if (inviteeUserId) {
-      notificationService.createNotification({
-        userId: inviteeUserId,
-        type: "system",
-        title: `${inviterName} invited you`,
-        message: `${inviterName} invited you to join ${community.name}.`,
-        data: {
-          communityId,
-          communityName: community.name,
-          code,
-          link,
-          route: `/app/invite/${code}`,
-          type: "community_invite",
-        },
-      }).catch((err) => logger.error("Error sending invite notification:", err));
+      notificationService
+        .createNotification({
+          userId: inviteeUserId,
+          type: "system",
+          title: `${inviterName} invited you`,
+          message: `${inviterName} invited you to join ${community.name}.`,
+          data: {
+            communityId,
+            communityName: community.name,
+            code,
+            link,
+            route: `/app/invite/${code}`,
+            type: "community_invite",
+          },
+        })
+        .catch((err) =>
+          logger.error("Error sending invite notification:", err),
+        );
     }
 
     if (normalizedEmail) {
-      emailService.sendCommunityInviteEmail({
-        to: normalizedEmail,
-        communityName: community.name,
-        inviteCode: invite.code,
-        inviteLink: link,
-        inviterName,
-      }).catch((err) => logger.error("Error sending community invite email:", err));
+      emailService
+        .sendCommunityInviteEmail({
+          to: normalizedEmail,
+          communityName: community.name,
+          inviteCode: invite.code,
+          inviteLink: link,
+          inviterName,
+        })
+        .catch((err) =>
+          logger.error("Error sending community invite email:", err),
+        );
     }
 
     res.json({
@@ -1985,12 +2278,19 @@ export async function getInviteByCode(req: AuthRequest, res: Response) {
           },
         },
         creator: {
-          select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true },
+          select: {
+            id: true,
+            username: true,
+            firstName: true,
+            lastName: true,
+            avatarUrl: true,
+          },
         },
       },
     });
 
-    if (!invite) return res.status(404).json({ msg: "Invite not found or expired" });
+    if (!invite)
+      return res.status(404).json({ msg: "Invite not found or expired" });
 
     // Check expiry
     if (invite.expiresAt && invite.expiresAt < new Date()) {
@@ -1999,7 +2299,9 @@ export async function getInviteByCode(req: AuthRequest, res: Response) {
 
     // Check max uses
     if (invite.maxUses !== -1 && invite.uses >= invite.maxUses) {
-      return res.status(410).json({ msg: "This invite has reached its maximum uses" });
+      return res
+        .status(410)
+        .json({ msg: "This invite has reached its maximum uses" });
     }
 
     res.json({
@@ -2028,7 +2330,13 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
     const invite = await prisma.communityInvite.findUnique({
       where: { code: code!?.toUpperCase() },
       include: {
-        community: { select: { id: true, name: true, _count: { select: { members: true } } } },
+        community: {
+          select: {
+            id: true,
+            name: true,
+            _count: { select: { members: true } },
+          },
+        },
       },
     });
 
@@ -2041,19 +2349,25 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
 
     // Check max uses
     if (invite.maxUses !== -1 && invite.uses >= invite.maxUses) {
-      return res.status(410).json({ msg: "This invite has reached its maximum uses" });
+      return res
+        .status(410)
+        .json({ msg: "This invite has reached its maximum uses" });
     }
 
     const communityId = invite.communityId;
 
     // Already a member?
     if (await isMember(communityId, userId)) {
-      return res.status(400).json({ msg: "You are already a member of this community" });
+      return res
+        .status(400)
+        .json({ msg: "You are already a member of this community" });
     }
 
     // If targeted invite, check it's for this user
     if (invite.inviteeUserId && invite.inviteeUserId !== userId) {
-      return res.status(403).json({ msg: "This invite is for a different user" });
+      return res
+        .status(403)
+        .json({ msg: "This invite is for a different user" });
     }
 
     if (invite.inviteeEmail) {
@@ -2063,7 +2377,9 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
       });
 
       if (user?.email.toLowerCase() !== invite.inviteeEmail.toLowerCase()) {
-        return res.status(403).json({ msg: "This invite is for a different email address" });
+        return res
+          .status(403)
+          .json({ msg: "This invite is for a different email address" });
       }
     }
 
@@ -2094,14 +2410,22 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
       communityId,
       userId,
       displayName,
-      invite.community.name
+      invite.community.name,
     );
 
     // Fetch the community with full info to return
     const community = await prisma.community.findUnique({
       where: { id: communityId },
       include: {
-        owner: { select: { id: true, username: true, firstName: true, lastName: true, avatarUrl: true } },
+        owner: {
+          select: {
+            id: true,
+            username: true,
+            firstName: true,
+            lastName: true,
+            avatarUrl: true,
+          },
+        },
         _count: { select: { members: true, templates: true, goals: true } },
       },
     });
@@ -2121,7 +2445,11 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
       },
     });
   } catch (error) {
-    logger.error("Join by code error:", { error, userId: req.userId, code: req.params.code });
+    logger.error("Join by code error:", {
+      error,
+      userId: req.userId,
+      code: req.params.code,
+    });
     res.status(500).json({ msg: "Internal server error" });
   }
 }
@@ -2130,10 +2458,12 @@ export async function joinByInviteCode(req: AuthRequest, res: Response) {
 export async function getCommunityInvites(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-   const { communityId } = req.params  as { communityId: string};
+    const { communityId } = req.params as { communityId: string };
 
     if (!(await isOwnerOrMod(communityId, userId))) {
-      return res.status(403).json({ msg: "Only owners and moderators can view invites" });
+      return res
+        .status(403)
+        .json({ msg: "Only owners and moderators can view invites" });
     }
 
     const invites = await prisma.communityInvite.findMany({
@@ -2175,11 +2505,18 @@ export async function revokeInvite(req: AuthRequest, res: Response) {
     const userId = req.userId!;
     const { inviteId } = req.params as any;
 
-    const invite = await prisma.communityInvite.findUnique({ where: { id: inviteId } });
+    const invite = await prisma.communityInvite.findUnique({
+      where: { id: inviteId },
+    });
     if (!invite) return res.status(404).json({ msg: "Invite not found" });
 
-    if (!(await isOwnerOrMod(invite.communityId, userId)) && invite.createdBy !== userId) {
-      return res.status(403).json({ msg: "Not authorized to revoke this invite" });
+    if (
+      !(await isOwnerOrMod(invite.communityId, userId)) &&
+      invite.createdBy !== userId
+    ) {
+      return res
+        .status(403)
+        .json({ msg: "Not authorized to revoke this invite" });
     }
 
     await prisma.communityInvite.delete({ where: { id: inviteId } });
