@@ -21,12 +21,10 @@ export async function reportContent(req: AuthRequest, res: Response) {
   >;
 
   if (!targetType || !targetId || !REPORT_REASONS.has(reason || "")) {
-    return res
-      .status(400)
-      .json({
-        code: "INVALID_REPORT",
-        msg: "Choose a valid report reason and content.",
-      });
+    return res.status(400).json({
+      code: "INVALID_REPORT",
+      msg: "Choose a valid report reason and content.",
+    });
   }
 
   try {
@@ -64,22 +62,18 @@ export async function reportContent(req: AuthRequest, res: Response) {
     }
 
     if (targetUserId === reporterId)
-      return res
-        .status(400)
-        .json({
-          code: "INVALID_REPORT",
-          msg: "You cannot report your own content.",
-        });
+      return res.status(400).json({
+        code: "INVALID_REPORT",
+        msg: "You cannot report your own content.",
+      });
     if (
       details &&
       (details.length > 1_000 || containsObjectionableContent(details))
     ) {
-      return res
-        .status(400)
-        .json({
-          code: "CONTENT_REJECTED",
-          msg: "Please remove abusive language from the report details.",
-        });
+      return res.status(400).json({
+        code: "CONTENT_REJECTED",
+        msg: "Please remove abusive language from the report details.",
+      });
     }
 
     const existing = await prisma.contentReport.findFirst({
@@ -93,12 +87,10 @@ export async function reportContent(req: AuthRequest, res: Response) {
       select: { id: true },
     });
     if (existing)
-      return res
-        .status(200)
-        .json({
-          msg: "Thanks. This content is already under review.",
-          data: { reported: true },
-        });
+      return res.status(200).json({
+        msg: "Thanks. This content is already under review.",
+        data: { reported: true },
+      });
 
     await prisma.contentReport.create({
       data: {
@@ -110,12 +102,10 @@ export async function reportContent(req: AuthRequest, res: Response) {
         details: details?.trim() || null,
       },
     });
-    return res
-      .status(201)
-      .json({
-        msg: "Thanks. We will review this report.",
-        data: { reported: true },
-      });
+    return res.status(201).json({
+      msg: "Thanks. We will review this report.",
+      data: { reported: true },
+    });
   } catch (error) {
     logger.error("Create moderation report failed", { userId: reporterId });
     return res.status(500).json({ msg: "Unable to submit report" });
@@ -162,12 +152,10 @@ export async function blockUser(req: AuthRequest, res: Response) {
         });
       }
     });
-    return res
-      .status(201)
-      .json({
-        msg: "User blocked",
-        data: { blocked: true, userId: blockedId },
-      });
+    return res.status(201).json({
+      msg: "User blocked",
+      data: { blocked: true, userId: blockedId },
+    });
   } catch (error) {
     logger.error("Block user failed", { userId: blockerId });
     return res.status(500).json({ msg: "Unable to block user" });
@@ -186,5 +174,54 @@ export async function unblockUser(req: AuthRequest, res: Response) {
   } catch (error) {
     logger.error("Unblock user failed", { userId: blockerId });
     return res.status(500).json({ msg: "Unable to unblock user" });
+  }
+}
+
+export async function listReports(req: AuthRequest, res: Response) {
+  const status =
+    typeof req.query.status === "string" ? req.query.status : "OPEN";
+  if (!["OPEN", "REVIEWING", "RESOLVED", "DISMISSED"].includes(status)) {
+    return res.status(400).json({ msg: "Invalid moderation status" });
+  }
+
+  try {
+    const reports = await prisma.contentReport.findMany({
+      where: {
+        status: status as "OPEN" | "REVIEWING" | "RESOLVED" | "DISMISSED",
+      },
+      orderBy: { createdAt: "asc" },
+      take: 100,
+      include: {
+        reporter: { select: { id: true, username: true } },
+        targetUser: { select: { id: true, username: true, firstName: true } },
+        activity: { select: { id: true, communityId: true, metadata: true } },
+        comment: { select: { id: true, activityId: true, text: true } },
+      },
+    });
+    return res.json({ msg: "Moderation reports retrieved", data: reports });
+  } catch (error) {
+    logger.error("List moderation reports failed");
+    return res.status(500).json({ msg: "Unable to load moderation reports" });
+  }
+}
+
+export async function updateReport(req: AuthRequest, res: Response) {
+  const reportId = String(req.params.reportId || "").trim();
+  const { status } = req.body as { status?: string };
+  if (
+    !reportId ||
+    !["REVIEWING", "RESOLVED", "DISMISSED"].includes(status || "")
+  ) {
+    return res.status(400).json({ msg: "Invalid report update" });
+  }
+
+  try {
+    const report = await prisma.contentReport.update({
+      where: { id: reportId },
+      data: { status: status as "REVIEWING" | "RESOLVED" | "DISMISSED" },
+    });
+    return res.json({ msg: "Moderation report updated", data: report });
+  } catch (error) {
+    return res.status(404).json({ msg: "Moderation report not found" });
   }
 }
