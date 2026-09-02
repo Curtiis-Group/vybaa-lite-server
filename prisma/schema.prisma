@@ -53,6 +53,7 @@ model User {
 
   // Relations
   goals         Goal[]
+  standardGoals GoalV2[]
   notifications Notification[]
   achievements  Achievement[]
   chillSessions ChillSession[]
@@ -73,6 +74,7 @@ model User {
   createdInvites        CommunityInvite[]      @relation("InviteCreator")
   receivedInvites       CommunityInvite[]      @relation("InviteRecipient")
   rewindSessions        RewindSession[]
+  rewindRecommendations RewindRecommendation[]
   rewindRoutine         RewindRoutine?
   subscriptionSnapshots SubscriptionSnapshot[]
 
@@ -193,6 +195,7 @@ model RewindSession {
   journalSavedAt       DateTime?               @map("journal_saved_at")
   journal              Journal?                @relation(fields: [journalId], references: [id], onDelete: SetNull)
   turns                RewindTurn[]
+  recommendations      RewindRecommendation[]
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
@@ -203,6 +206,50 @@ model RewindSession {
   @@index([status, windowEndsAt])
   @@index([journalId])
   @@map("rewind_sessions")
+}
+
+enum RewindRecommendationType {
+  GOAL_PROGRESS
+  NEW_GOAL
+  FLEXX
+}
+
+enum RewindRecommendationStatus {
+  PENDING
+  ACCEPTED
+  DISMISSED
+  EXPIRED
+}
+
+model RewindRecommendation {
+  id        String        @id @default(cuid())
+  sessionId String        @map("session_id")
+  session   RewindSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String        @map("user_id")
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      RewindRecommendationType
+  status    RewindRecommendationStatus @default(PENDING)
+  title     String
+  rationale String                     @db.Text
+  payload   Json
+  evidence  Json
+  dedupeKey String                     @unique @map("dedupe_key")
+
+  resultingGoalId          String?            @unique @map("resulting_goal_id")
+  resultingGoal            GoalV2?            @relation("RewindRecommendationGoal", fields: [resultingGoalId], references: [id], onDelete: SetNull)
+  resultingProgressEntryId String?            @unique @map("resulting_progress_entry_id")
+  resultingProgressEntry   GoalProgressEntry? @relation("RewindRecommendationProgress", fields: [resultingProgressEntryId], references: [id], onDelete: SetNull)
+
+  acceptedAt  DateTime? @map("accepted_at")
+  dismissedAt DateTime? @map("dismissed_at")
+  expiredAt   DateTime? @map("expired_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([sessionId, status])
+  @@index([userId, createdAt])
+  @@map("rewind_recommendations")
 }
 
 model RewindRoutine {
@@ -307,12 +354,262 @@ model Goal {
   pendingPoints GoalPendingPoints?
 
   startedAt         DateTime           @map("started_at")
+  archivedAt        DateTime?          @map("archived_at")
   updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at")
   createdAt         DateTime           @default(now()) @map("created_at")
   goalMilestoneHits GoalMilestoneHit[]
 
   @@index([templateId])
   @@index([communityId])
+}
+
+enum GoalV2Status {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+  AUTO_ABANDONED
+}
+
+enum GoalTargetType {
+  CHECK_IN_COUNT
+  QUANTITY
+  UNTIL_DATE
+}
+
+enum GoalScheduleType {
+  ONE_TIME
+  DAILY
+  WEEKLY
+  SELECTED_WEEKDAYS
+}
+
+enum GoalMissMode {
+  STRICT
+  FLEXIBLE
+  NO_STREAK
+}
+
+enum GoalRewardReleasePolicy {
+  IMMEDIATE
+  ON_COMPLETION
+}
+
+enum GoalOccurrenceStatus {
+  PENDING
+  GRACE
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum GoalRewardPlanSource {
+  STANDARD
+  COMMUNITY_TEMPLATE
+}
+
+enum GoalRewardAwardStatus {
+  PENDING
+  RELEASED
+  FORFEITED
+}
+
+enum GoalResumeDeadlinePolicy {
+  KEEP_DEADLINE
+  SHIFT_DEADLINE
+}
+
+model GoalV2 {
+  id          String       @id @default(cuid())
+  userId      String       @map("user_id")
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?      @db.Text
+  status      GoalV2Status @default(ACTIVE)
+
+  targetType  GoalTargetType @map("target_type")
+  targetValue Float?         @map("target_value")
+  unit        String?
+
+  scheduleType  GoalScheduleType @map("schedule_type")
+  weekdays      Int[]            @default([])
+  startDate     DateTime         @map("start_date") @db.Date
+  endDate       DateTime?        @map("end_date") @db.Date
+  hardStopDate  DateTime         @map("hard_stop_date") @db.Date
+  reminderTimes String[]         @default([]) @map("reminder_times")
+
+  missMode             GoalMissMode @default(STRICT) @map("miss_mode")
+  graceHours           Int          @default(0) @map("grace_hours")
+  breakStreakOnMiss    Boolean      @default(true) @map("break_streak_on_miss")
+  forfeitPendingOnMiss Boolean      @default(true) @map("forfeit_pending_on_miss")
+  maxConsecutiveMisses Int?         @map("max_consecutive_misses")
+
+  rewardReleasePolicy GoalRewardReleasePolicy @default(ON_COMPLETION) @map("reward_release_policy")
+
+  progressValue        Float @default(0) @map("progress_value")
+  completedOccurrences Int   @default(0) @map("completed_occurrences")
+  missedOccurrences    Int   @default(0) @map("missed_occurrences")
+  currentStreak        Int   @default(0) @map("current_streak")
+  longestStreak        Int   @default(0) @map("longest_streak")
+  consecutiveMisses    Int   @default(0) @map("consecutive_misses")
+
+  communityId String?       @map("community_id")
+  community   Community?    @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  templateId  String?       @map("template_id")
+  template    GoalTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  reopenedFromId String?  @map("reopened_from_id")
+  reopenedFrom   GoalV2?  @relation("GoalV2Reopens", fields: [reopenedFromId], references: [id], onDelete: SetNull)
+  reopenedGoals  GoalV2[] @relation("GoalV2Reopens")
+
+  occurrences          GoalOccurrence[]
+  rewardPlan           GoalRewardPlan?
+  conclusion           GoalConclusion?
+  pauses               GoalPause[]
+  sourceRecommendation RewindRecommendation? @relation("RewindRecommendationGoal")
+
+  pausedAt    DateTime? @map("paused_at")
+  completedAt DateTime? @map("completed_at")
+  abandonedAt DateTime? @map("abandoned_at")
+  archivedAt  DateTime? @map("archived_at")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([userId, status, archivedAt])
+  @@index([status, hardStopDate])
+  @@index([communityId])
+  @@index([templateId])
+  @@map("goals_v2")
+}
+
+model GoalOccurrence {
+  id              String               @id @default(cuid())
+  goalId          String               @map("goal_id")
+  goal            GoalV2               @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  status          GoalOccurrenceStatus @default(PENDING)
+  dueDate         DateTime             @map("due_date") @db.Date
+  originalDueDate DateTime             @map("original_due_date") @db.Date
+  closesAt        DateTime             @map("closes_at")
+  graceEndsAt     DateTime?            @map("grace_ends_at")
+  rescheduledAt   DateTime?            @map("rescheduled_at")
+  completedAt     DateTime?            @map("completed_at")
+  progress        GoalProgressEntry?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([goalId, dueDate])
+  @@index([status, closesAt])
+  @@index([goalId, dueDate])
+  @@map("goal_occurrences")
+}
+
+model GoalProgressEntry {
+  id                   String                @id @default(cuid())
+  occurrenceId         String                @unique @map("occurrence_id")
+  occurrence           GoalOccurrence        @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  amount               Float                 @default(1)
+  notes                String?               @db.Text
+  attachments          Json?
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @default(now()) @updatedAt @map("updated_at")
+  sourceRecommendation RewindRecommendation? @relation("RewindRecommendationProgress")
+
+  @@map("goal_progress_entries")
+}
+
+model GoalRewardPlan {
+  id             String                  @id @default(cuid())
+  goalId         String                  @unique @map("goal_id")
+  goal           GoalV2                  @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  source         GoalRewardPlanSource
+  releasePolicy  GoalRewardReleasePolicy @map("release_policy")
+  eligible       Boolean                 @default(false)
+  eligibleAt     DateTime?               @map("eligible_at")
+  totalPotential Float                   @default(0) @map("total_potential")
+  milestones     GoalRewardMilestone[]
+  awards         GoalRewardAward[]
+  createdAt      DateTime                @default(now()) @map("created_at")
+
+  @@map("goal_reward_plans")
+}
+
+model GoalRewardMilestone {
+  id                String            @id @default(cuid())
+  rewardPlanId      String            @map("reward_plan_id")
+  rewardPlan        GoalRewardPlan    @relation(fields: [rewardPlanId], references: [id], onDelete: Cascade)
+  name              String
+  triggerPercentage Int               @map("trigger_percentage")
+  points            Float
+  order             Int
+  awards            GoalRewardAward[]
+
+  @@unique([rewardPlanId, triggerPercentage])
+  @@index([rewardPlanId, order])
+  @@map("goal_reward_milestones")
+}
+
+model GoalRewardAward {
+  id             String                @id @default(cuid())
+  goalId         String                @map("goal_id")
+  planId         String?               @map("plan_id")
+  plan           GoalRewardPlan?       @relation(fields: [planId], references: [id], onDelete: SetNull)
+  milestoneId    String?               @map("milestone_id")
+  milestone      GoalRewardMilestone?  @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  referenceTitle String                @map("reference_title")
+  referenceType  String                @default("GOAL_V2") @map("reference_type")
+  points         Float
+  status         GoalRewardAwardStatus
+  dedupeKey      String                @unique @map("dedupe_key")
+  transactionId  String?               @map("transaction_id")
+  awardedAt      DateTime              @default(now()) @map("awarded_at")
+  releasedAt     DateTime?             @map("released_at")
+  forfeitedAt    DateTime?             @map("forfeited_at")
+
+  @@unique([goalId, milestoneId])
+  @@index([goalId, status])
+  @@map("goal_reward_awards")
+}
+
+model GoalConclusion {
+  id                   String       @id @default(cuid())
+  goalId               String       @unique @map("goal_id")
+  goal                 GoalV2       @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  outcome              GoalV2Status
+  finalProgress        Float        @map("final_progress")
+  targetValue          Float?       @map("target_value")
+  adherenceRate        Float        @map("adherence_rate")
+  completedOccurrences Int          @map("completed_occurrences")
+  missedOccurrences    Int          @map("missed_occurrences")
+  currentStreak        Int          @map("current_streak")
+  longestStreak        Int          @map("longest_streak")
+  durationDays         Int          @map("duration_days")
+  overTargetAmount     Float        @default(0) @map("over_target_amount")
+  earnedPoints         Float        @default(0) @map("earned_points")
+  releasedPoints       Float        @default(0) @map("released_points")
+  forfeitedPoints      Float        @default(0) @map("forfeited_points")
+  rating               Int?
+  reflection           String?      @db.Text
+  nextStep             String?      @map("next_step") @db.Text
+  attachments          Json?
+  endedAt              DateTime     @map("ended_at")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  reviewUpdatedAt      DateTime?    @map("review_updated_at")
+
+  @@map("goal_conclusions")
+}
+
+model GoalPause {
+  id             String                    @id @default(cuid())
+  goalId         String                    @map("goal_id")
+  goal           GoalV2                    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  pausedAt       DateTime                  @map("paused_at")
+  resumedAt      DateTime?                 @map("resumed_at")
+  deadlinePolicy GoalResumeDeadlinePolicy? @map("deadline_policy")
+
+  @@index([goalId, pausedAt])
+  @@map("goal_pauses")
 }
 
 model CheckIn {
@@ -452,11 +749,12 @@ model Community {
   ownerId String @map("owner_id")
   owner   User   @relation("CommunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
-  members    CommunityMember[]
-  templates  GoalTemplate[]
-  activities CommunityActivity[]
-  goals      Goal[]
-  invites    CommunityInvite[]
+  members       CommunityMember[]
+  templates     GoalTemplate[]
+  activities    CommunityActivity[]
+  goals         Goal[]
+  standardGoals GoalV2[]
+  invites       CommunityInvite[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
@@ -519,11 +817,20 @@ model GoalTemplate {
   targetDays   Int     @map("target_days")
   reminderTime String? @map("reminder_time") // Format: "HH:MM" (24-hour format)
 
+  modelVersion  Int              @default(2) @map("model_version")
+  targetType    GoalTargetType   @default(CHECK_IN_COUNT) @map("target_type")
+  targetValue   Float?           @map("target_value")
+  unit          String?
+  scheduleType  GoalScheduleType @default(DAILY) @map("schedule_type")
+  weekdays      Int[]            @default([])
+  reminderTimes String[]         @default([]) @map("reminder_times")
+
   createdBy String @map("created_by")
   creator   User   @relation("TemplateCreator", fields: [createdBy], references: [id])
 
-  startedGoals Goal[]
-  milestones   TemplateMilestone[]
+  startedGoals  Goal[]
+  standardGoals GoalV2[]
+  milestones    TemplateMilestone[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")

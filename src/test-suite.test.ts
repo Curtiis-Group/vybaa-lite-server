@@ -6,6 +6,7 @@ import "./services/push-notification.service.test";
 import "./services/revenuecat.service.test";
 import "./services/revenuecat-webhook.service.test";
 import "./services/rewind-reflection.service.test";
+import "./services/rewind-personal-context.service.test";
 import "./services/rewind-routine.service.test";
 import "./services/rewind-session-finalization.service.test";
 import "./utils/notification-dedupe.util.test";

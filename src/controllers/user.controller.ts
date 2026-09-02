@@ -12,6 +12,7 @@ import {
   isValidRewindTimezone,
   refreshFutureRewindOccurrences,
 } from "../services/rewind-routine.service";
+import { refreshGoalV2RemindersForUser } from "../services/goal-v2-reminder.service";
 import { formatUserResponse } from "./auth.controller";
 
 export async function updateProfile(req: AuthRequest, res: Response) {
@@ -96,6 +97,9 @@ export async function updateProfile(req: AuthRequest, res: Response) {
 
     if (timezone !== undefined || rewindPersona !== undefined) {
       await refreshFutureRewindOccurrences({ userId });
+    }
+    if (timezone !== undefined) {
+      await refreshGoalV2RemindersForUser(userId);
     }
 
     res.json({

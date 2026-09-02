@@ -7,6 +7,7 @@ const express_1 = require("express");
 const auth_routes_1 = __importDefault(require("./auth.routes"));
 const user_routes_1 = __importDefault(require("./user.routes"));
 const goal_routes_1 = __importDefault(require("./goal.routes"));
+const goal_v2_routes_1 = __importDefault(require("./goal-v2.routes"));
 const insights_routes_1 = __importDefault(require("./insights.routes"));
 const upload_routes_1 = __importDefault(require("./upload.routes"));
 const notification_routes_1 = __importDefault(require("./notification.routes"));
@@ -43,6 +44,7 @@ router.use("/v1/auth", auth_routes_1.default);
 router.use("/v1/users", user_routes_1.default);
 // Mount goal routes at /api/v1/goals
 router.use("/v1/goals", goal_routes_1.default);
+router.use("/v2/goals", goal_v2_routes_1.default);
 // Mount insights routes at /api/v1/insights
 router.use("/v1/insights", insights_routes_1.default);
 // Mount upload routes at /api/v1/upload

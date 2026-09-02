@@ -43,6 +43,8 @@ router.put("/routine", auth_middleware_1.authMiddleware, rewindRoutineController
 router.get("/sessions", auth_middleware_1.authMiddleware, rewindController.getPaginatedRewindSessions);
 router.get("/insights", auth_middleware_1.authMiddleware, rewindController.getRewindInsights);
 router.post("/sessions/:sessionId/add-to-journal", auth_middleware_1.authMiddleware, rewindController.addRewindSessionToJournal);
+router.post("/sessions/:sessionId/recommendations/:recommendationId/accept", auth_middleware_1.authMiddleware, rewindController.acceptRecommendation);
+router.post("/sessions/:sessionId/recommendations/:recommendationId/dismiss", auth_middleware_1.authMiddleware, rewindController.dismissRecommendation);
 router.get("/sessions/:sessionId", auth_middleware_1.authMiddleware, rewindController.getRewindSession);
 router.post("/live-token", auth_middleware_1.authMiddleware, rewindController.createLiveToken);
 exports.default = router;

@@ -15,6 +15,7 @@ const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const username_util_1 = require("../utils/username.util");
 const rewind_routine_service_1 = require("../services/rewind-routine.service");
+const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
 const auth_controller_1 = require("./auth.controller");
 async function updateProfile(req, res) {
     try {
@@ -82,6 +83,9 @@ async function updateProfile(req, res) {
         });
         if (timezone !== undefined || rewindPersona !== undefined) {
             await (0, rewind_routine_service_1.refreshFutureRewindOccurrences)({ userId });
+        }
+        if (timezone !== undefined) {
+            await (0, goal_v2_reminder_service_1.refreshGoalV2RemindersForUser)(userId);
         }
         res.json({
             msg: "Profile updated successfully",

@@ -559,7 +559,7 @@ async function getSuggestions(req, res) {
         res.json({
             msg: "Suggestions generated",
             data: {
-                suggestedTasks: [],
+                suggestedGoals: [],
             },
         });
     }

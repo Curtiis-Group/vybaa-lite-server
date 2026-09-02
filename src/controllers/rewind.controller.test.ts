@@ -109,12 +109,31 @@ test("identity and private memory are included in every Live system instruction"
   );
 
   assert.match(prompt, /preferred name is Nia/i);
-  assert.match(prompt, /private memories/i);
-  assert.match(prompt, /other Rewind partners have separate memories/i);
+  assert.match(prompt, /memories from this partner/i);
+  assert.match(prompt, /Cross-partner memories/i);
   assert.match(prompt, /explicit Journal entries/i);
   assert.match(prompt, /local time is/i);
   assert.match(prompt, /pause_session/i);
   assert.doesNotMatch(prompt, /Open by asking how their day went/i);
+});
+
+test("Rewind closing instructions require a spoken farewell before saving", () => {
+  const prompt = getRewindSystemInstruction(
+    "jake",
+    {
+      currentMood: null,
+      emotionSummary: null,
+      firstName: "Nia",
+      id: "user-1",
+      lastName: null,
+      username: "niawrites",
+    },
+  );
+
+  assert.match(prompt, /short flowing recap-farewell/i);
+  assert.match(prompt, /ending this Rewind now/i);
+  assert.match(prompt, /return next time/i);
+  assert.match(prompt, /ask another question/i);
 });
 
 test("resume context is framed as private memory instead of instructions", () => {

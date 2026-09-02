@@ -639,7 +639,7 @@ export async function getSuggestions(req: AuthRequest, res: Response) {
     res.json({
       msg: "Suggestions generated",
       data: {
-        suggestedTasks: [],
+        suggestedGoals: [],
       },
     });
   } catch (error) {

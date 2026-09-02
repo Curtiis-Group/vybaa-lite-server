@@ -151,14 +151,17 @@ async function loadReflectionContext(params: {
 }
 
 async function markMissed(sessionId: string): Promise<RewindFinalizationResult> {
-  await prisma.rewindSession.update({
-    where: { id: sessionId },
-    data: {
-      completed: false,
-      completionSource: null,
-      status: RewindSessionStatus.MISSED,
-    },
-  });
+  await prisma.$transaction([
+    prisma.rewindRecommendation.deleteMany({ where: { sessionId } }),
+    prisma.rewindSession.update({
+      data: {
+        completed: false,
+        completionSource: null,
+        status: RewindSessionStatus.MISSED,
+      },
+      where: { id: sessionId },
+    }),
+  ]);
   return {
     emotionalInsight: null,
     sessionId,
@@ -261,20 +264,7 @@ export async function finalizeRewindSession(params: {
     });
 
     if (!hasSubstantiveUserTurn(context.turns)) {
-      if (params.source === RewindCompletionSource.AUTO_TIMEOUT) {
-        return markMissed(session.id);
-      }
-      await prisma.rewindSession.update({
-        where: { id: session.id },
-        data: { status: RewindSessionStatus.IN_PROGRESS },
-      });
-      return {
-        emotionalInsight: null,
-        sessionId: session.id,
-        status: "needs_more_reflection",
-        summary: null,
-        wellbeingSignals: null,
-      };
+      return markMissed(session.id);
     }
 
     params.onStage?.("noticing_patterns");

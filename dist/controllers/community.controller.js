@@ -31,13 +31,94 @@ exports.getInviteByCode = getInviteByCode;
 exports.joinByInviteCode = joinByInviteCode;
 exports.getCommunityInvites = getCommunityInvites;
 exports.revokeInvite = revokeInvite;
+const client_1 = require("@prisma/client");
+const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
 const community_activity_service_1 = require("../services/community-activity.service");
 const email_service_1 = require("../services/email.service");
+const goal_v2_service_1 = require("../services/goal-v2.service");
 const notification_service_1 = require("../services/notification.service");
 const subscription_access_service_1 = require("../services/subscription-access.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const content_moderation_util_1 = require("../utils/content-moderation.util");
+function getTemplateRewardMilestones(milestones, targetDays) {
+    const rewards = [];
+    for (const milestone of milestones) {
+        if (milestone.triggerType === client_1.MilestoneTriggerType.PERCENTAGE) {
+            rewards.push({
+                name: milestone.name,
+                points: milestone.points,
+                triggerPercentage: milestone.triggerValue,
+            });
+            continue;
+        }
+        if (milestone.triggerType === client_1.MilestoneTriggerType.DAY) {
+            rewards.push({
+                name: milestone.name,
+                points: milestone.points,
+                triggerPercentage: (milestone.triggerValue / targetDays) * 100,
+            });
+            continue;
+        }
+        const start = milestone.sequenceStartDay ?? milestone.triggerValue;
+        const end = milestone.sequenceEndDay ?? targetDays;
+        let sequenceIndex = 0;
+        for (let day = start; day <= end; day += milestone.triggerValue) {
+            rewards.push({
+                name: `${milestone.name} ${sequenceIndex + 1}`,
+                points: milestone.points + milestone.sequenceBonusPoints * sequenceIndex,
+                triggerPercentage: (day / targetDays) * 100,
+            });
+            sequenceIndex += 1;
+        }
+    }
+    return rewards;
+}
+function getTemplateScheduleFields(schedule) {
+    if (!schedule) {
+        return { scheduleType: client_1.GoalScheduleType.DAILY, weekdays: [] };
+    }
+    const type = String(schedule.type);
+    if (type === "WEEKLY") {
+        return {
+            scheduleType: client_1.GoalScheduleType.WEEKLY,
+            weekdays: [Number(schedule.weekday)],
+        };
+    }
+    if (type === "SELECTED_WEEKDAYS") {
+        return {
+            scheduleType: client_1.GoalScheduleType.SELECTED_WEEKDAYS,
+            weekdays: Array.isArray(schedule.weekdays)
+                ? schedule.weekdays.map(Number)
+                : [],
+        };
+    }
+    return {
+        scheduleType: type === "ONE_TIME" ? client_1.GoalScheduleType.ONE_TIME : client_1.GoalScheduleType.DAILY,
+        weekdays: [],
+    };
+}
+function getTemplateTargetFields(target, targetDays) {
+    if (target?.type === "QUANTITY") {
+        return {
+            targetType: client_1.GoalTargetType.QUANTITY,
+            targetValue: Number(target.amount),
+            unit: String(target.unit),
+        };
+    }
+    if (target?.type === "UNTIL_DATE") {
+        return {
+            targetType: client_1.GoalTargetType.UNTIL_DATE,
+            targetValue: targetDays,
+            unit: null,
+        };
+    }
+    return {
+        targetType: client_1.GoalTargetType.CHECK_IN_COUNT,
+        targetValue: Number(target?.count ?? targetDays),
+        unit: null,
+    };
+}
 function getDiscoveryScore(community, isJoined) {
     const memberScore = Math.min(community._count.members, 500) * 2;
     const templateScore = community._count.templates * 14;
@@ -698,20 +779,25 @@ async function createTemplate(req, res) {
     try {
         const userId = req.userId;
         const { communityId } = req.params;
-        const { goalText, targetDays, reminderTime, milestones } = req.body;
+        const { goalText, milestones, reminderTime, reminderTimes, schedule, target, targetDays, } = req.body;
         // Check if user is owner or mod
         if (!(await isOwnerOrMod(communityId, userId))) {
             return res
                 .status(403)
                 .json({ msg: "Only owners and moderators can create templates" });
         }
+        const scheduleFields = getTemplateScheduleFields(schedule);
+        const targetFields = getTemplateTargetFields(target, targetDays);
         const template = await db_config_1.prisma.goalTemplate.create({
             data: {
                 communityId,
-                goalText,
-                targetDays,
-                reminderTime: reminderTime || null,
                 createdBy: userId,
+                goalText,
+                reminderTime: reminderTime ?? null,
+                reminderTimes: reminderTimes ?? (reminderTime ? [reminderTime] : []),
+                ...scheduleFields,
+                ...targetFields,
+                targetDays,
                 milestones: milestones && milestones.length > 0
                     ? {
                         create: milestones.map((m, index) => ({
@@ -919,7 +1005,7 @@ async function updateTemplate(req, res) {
     try {
         const userId = req.userId;
         const { templateId } = req.params;
-        const { goalText, targetDays, reminderTime, milestones } = req.body;
+        const { goalText, milestones, reminderTime, reminderTimes, schedule, target, targetDays, } = req.body;
         const template = await db_config_1.prisma.goalTemplate.findUnique({
             where: { id: templateId },
         });
@@ -936,6 +1022,12 @@ async function updateTemplate(req, res) {
                 msg: "Only owners, moderators, or template creator can update templates",
             });
         }
+        const scheduleFields = schedule
+            ? getTemplateScheduleFields(schedule)
+            : null;
+        const targetFields = target
+            ? getTemplateTargetFields(target, targetDays ?? template.targetDays)
+            : null;
         const updatedTemplate = await db_config_1.prisma.$transaction(async (tx) => {
             const updated = await tx.goalTemplate.update({
                 where: { id: templateId },
@@ -945,6 +1037,9 @@ async function updateTemplate(req, res) {
                     ...(reminderTime !== undefined && {
                         reminderTime: reminderTime || null,
                     }),
+                    ...(reminderTimes !== undefined && { reminderTimes }),
+                    ...(scheduleFields ?? {}),
+                    ...(targetFields ?? {}),
                 },
             });
             if (Array.isArray(milestones)) {
@@ -1207,12 +1302,13 @@ async function startGoalFromTemplate(req, res) {
     try {
         const userId = req.userId;
         const { templateId } = req.params;
-        const { reminderTime } = req.body;
+        const { reminderTime, reminderTimes, rewardReleasePolicy, schedule: scheduleOverride, } = req.body;
         await (0, subscription_access_service_1.assertCanCreateGoal)(userId, req.clientApp);
         const template = await db_config_1.prisma.goalTemplate.findUnique({
             where: { id: templateId },
             include: {
                 community: true,
+                milestones: { orderBy: { order: "asc" } },
             },
         });
         if (!template) {
@@ -1227,19 +1323,78 @@ async function startGoalFromTemplate(req, res) {
         // Get user info for notification
         const user = await db_config_1.prisma.user.findUnique({
             where: { id: userId },
-            select: { username: true, firstName: true },
+            select: { firstName: true, timezone: true, username: true },
         });
-        // Create goal from template
-        const goal = await db_config_1.prisma.goal.create({
-            data: {
-                userId,
-                goalText: template?.goalText,
-                targetDays: template.targetDays,
-                reminderTime: reminderTime || template.reminderTime || null,
-                templateId: template.id,
-                communityId: template.communityId,
-                startedAt: new Date(),
-            },
+        const timezone = user?.timezone ?? "UTC";
+        const startDate = luxon_1.DateTime.now().setZone(timezone).toISODate() ?? new Date().toISOString().slice(0, 10);
+        let schedule;
+        if (scheduleOverride) {
+            schedule = scheduleOverride;
+        }
+        else if (template.scheduleType === client_1.GoalScheduleType.ONE_TIME) {
+            schedule = { date: startDate, type: "ONE_TIME" };
+        }
+        else if (template.scheduleType === client_1.GoalScheduleType.WEEKLY) {
+            schedule = {
+                startDate,
+                type: "WEEKLY",
+                weekday: template.weekdays[0] ?? luxon_1.DateTime.fromISO(startDate).weekday,
+            };
+        }
+        else if (template.scheduleType === client_1.GoalScheduleType.SELECTED_WEEKDAYS) {
+            schedule = {
+                startDate,
+                type: "SELECTED_WEEKDAYS",
+                weekdays: template.weekdays.length
+                    ? template.weekdays
+                    : [luxon_1.DateTime.fromISO(startDate).weekday],
+            };
+        }
+        else {
+            schedule = { startDate, type: "DAILY" };
+        }
+        let target;
+        if (template.targetType === client_1.GoalTargetType.QUANTITY) {
+            target = {
+                amount: template.targetValue ?? template.targetDays,
+                type: "QUANTITY",
+                unit: template.unit ?? "units",
+            };
+        }
+        else if (template.targetType === client_1.GoalTargetType.UNTIL_DATE) {
+            target = {
+                endDate: luxon_1.DateTime.fromISO(startDate)
+                    .plus({ days: Math.max(1, template.targetDays) - 1 })
+                    .toISODate() ?? startDate,
+                type: "UNTIL_DATE",
+            };
+        }
+        else {
+            target = {
+                count: Math.max(1, Math.round(template.targetValue ?? template.targetDays)),
+                type: "CHECK_IN_COUNT",
+            };
+        }
+        const rewards = getTemplateRewardMilestones(template.milestones, Math.max(1, template.targetDays));
+        const goal = await (0, goal_v2_service_1.createGoalV2)(userId, timezone, {
+            communityId: template.communityId,
+            missPolicy: { mode: "STRICT" },
+            reminderTimes: reminderTimes ??
+                (reminderTime
+                    ? [reminderTime]
+                    : template.reminderTimes.length
+                        ? template.reminderTimes
+                        : template.reminderTime
+                            ? [template.reminderTime]
+                            : []),
+            rewardReleasePolicy: rewardReleasePolicy ?? "ON_COMPLETION",
+            schedule,
+            target,
+            templateId: template.id,
+            title: template.goalText ?? "Community goal",
+        }, {
+            rewardMilestones: rewards,
+            rewardSource: client_1.GoalRewardPlanSource.COMMUNITY_TEMPLATE,
         });
         // Notify template creator (if not the same user)
         if (template.createdBy !== userId) {
@@ -1248,21 +1403,9 @@ async function startGoalFromTemplate(req, res) {
                 .sendGoalStartedFromTemplateNotification(template.createdBy, starterName, template.goalText || "", template.community.name, template.communityId, goal.id)
                 .catch((err) => logger_util_1.default.error("Error sending goal started notification:", err));
         }
-        res.json({
+        res.status(201).json({
             msg: "Goal started from template successfully",
-            data: {
-                id: goal.id,
-                goalText: goal.goalText,
-                targetDays: goal.targetDays,
-                currentDay: goal.currentDay,
-                lastCheckInDate: goal.lastCheckInDate?.toISOString() || null,
-                startedAt: goal.startedAt.toISOString(),
-                reminderTime: goal.reminderTime,
-                templateId: goal.templateId,
-                communityId: goal.communityId,
-                createdAt: goal.createdAt.toISOString(),
-                updatedAt: goal.updatedAt.toISOString(),
-            },
+            data: goal,
         });
     }
     catch (error) {

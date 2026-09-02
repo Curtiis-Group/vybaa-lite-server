@@ -35,26 +35,24 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_middleware_1 = require("../middleware/auth.middleware");
-const validation_middleware_1 = require("../middleware/validation.middleware");
-const goal_validators_1 = require("../validators/goal.validators");
-const goalController = __importStar(require("../controllers/goal.controller"));
+const goalController = __importStar(require("../controllers/legacy-goal.controller"));
 const router = (0, express_1.Router)();
 // GET /api/v1/goals - Get all user's goals
-router.get("/", auth_middleware_1.authMiddleware, goalController.getAllGoals);
+router.get("/", auth_middleware_1.authMiddleware, goalController.listLegacyGoals);
 // GET /api/v1/goals/current - Get user's current active goal
-router.get("/current", auth_middleware_1.authMiddleware, goalController.getCurrentGoal);
+router.get("/current", auth_middleware_1.authMiddleware, goalController.getCurrentLegacyGoal);
 // GET /api/v1/goals/:goalId - Get a specific goal
-router.get("/:goalId", auth_middleware_1.authMiddleware, goalController.getGoalById);
-// POST /api/v1/goals - Create/start a goal
-router.post("/", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(goal_validators_1.createGoalSchema), goalController.createGoal);
-// PUT /api/v1/goals/:goalId - Update a goal
-router.put("/:goalId", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(goal_validators_1.updateGoalSchema), goalController.updateGoal);
-// POST /api/v1/goals/check-in - Mark "I showed up today"
-router.post("/check-in", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(goal_validators_1.checkInSchema), goalController.checkIn);
-// POST /api/v1/goals/reset - Reset to Day 0
-router.post("/reset", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(goal_validators_1.resetGoalSchema), goalController.resetGoal);
-// POST /api/v1/goals/bulk-delete - Bulk delete goals
-router.post("/bulk-delete", auth_middleware_1.authMiddleware, goalController.bulkDeleteGoals);
-// DELETE /api/v1/goals/:goalId - Delete a goal
-router.delete("/:goalId", auth_middleware_1.authMiddleware, goalController.deleteGoal);
+router.get("/:goalId", auth_middleware_1.authMiddleware, goalController.getLegacyGoal);
+function requireGoalV2(_req, res) {
+    res.status(426).json({
+        code: "GOAL_V2_REQUIRED",
+        msg: "Goal changes now require the standardized v2 goal experience",
+    });
+}
+router.post("/", auth_middleware_1.authMiddleware, requireGoalV2);
+router.put("/:goalId", auth_middleware_1.authMiddleware, requireGoalV2);
+router.post("/check-in", auth_middleware_1.authMiddleware, requireGoalV2);
+router.post("/reset", auth_middleware_1.authMiddleware, requireGoalV2);
+router.post("/bulk-delete", auth_middleware_1.authMiddleware, requireGoalV2);
+router.delete("/:goalId", auth_middleware_1.authMiddleware, requireGoalV2);
 exports.default = router;

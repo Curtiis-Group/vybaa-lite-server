@@ -14,6 +14,16 @@ router.post(
   authMiddleware,
   rewindController.addRewindSessionToJournal,
 );
+router.post(
+  "/sessions/:sessionId/recommendations/:recommendationId/accept",
+  authMiddleware,
+  rewindController.acceptRecommendation,
+);
+router.post(
+  "/sessions/:sessionId/recommendations/:recommendationId/dismiss",
+  authMiddleware,
+  rewindController.dismissRecommendation,
+);
 router.get("/sessions/:sessionId", authMiddleware, rewindController.getRewindSession);
 router.post("/live-token", authMiddleware, rewindController.createLiveToken);
 

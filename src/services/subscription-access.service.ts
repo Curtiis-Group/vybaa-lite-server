@@ -75,11 +75,19 @@ async function getVybaaAccess(userId: string, clientApp: ClientApp) {
 }
 
 async function countActiveGoals(userId: string): Promise<number> {
-  const goals = await prisma.goal.findMany({
-    where: { userId },
-    select: { currentDay: true, targetDays: true },
-  });
-  return goals.filter((goal) => goal.currentDay < goal.targetDays).length;
+  const [legacyGoals, standardGoals] = await Promise.all([
+    prisma.goal.findMany({
+      where: { archivedAt: null, userId },
+      select: { currentDay: true, targetDays: true },
+    }),
+    prisma.goalV2.count({
+      where: { archivedAt: null, status: { in: ["ACTIVE", "PAUSED"] }, userId },
+    }),
+  ]);
+  return (
+    legacyGoals.filter((goal) => goal.currentDay < goal.targetDays).length +
+    standardGoals
+  );
 }
 
 async function countOwnedCommunities(userId: string): Promise<number> {

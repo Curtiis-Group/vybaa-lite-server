@@ -17,7 +17,12 @@ import { pushNotificationService } from "./push-notification.service";
 export interface CreateNotificationData {
   userId: string;
   goalId?: string;
-  type: "goal_reminder" | "goal_completed" | "streak_milestone" | "system";
+  type:
+    | "goal_completed"
+    | "goal_reminder"
+    | "goal_v2_reminder"
+    | "streak_milestone"
+    | "system";
   title: string;
   message: string;
   data?: Record<string, unknown>;

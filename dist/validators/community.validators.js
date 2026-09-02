@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.joinByCodeSchema = exports.inviteCodeParamSchema = exports.createInviteSchema = exports.commentIdParamSchema = exports.activityIdParamSchema = exports.createCommentSchema = exports.updateMemberRoleSchema = exports.joinCommunitySchema = exports.startGoalFromTemplateSchema = exports.templateIdParamSchema = exports.updateTemplateSchema = exports.createTemplateSchema = exports.communityIdParamSchema = exports.updateCommunitySchema = exports.createCommunitySchema = void 0;
 const zod_1 = require("zod");
+const goal_v2_validators_1 = require("./goal-v2.validators");
 const communityCoverImageSchema = zod_1.z
     .string()
     .refine((value) => value.startsWith("illustration:") || zod_1.z.string().url().safeParse(value).success, "Cover image must be a valid URL or illustration token");
@@ -107,6 +108,12 @@ exports.createTemplateSchema = zod_1.z.object({
         .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
         .optional(),
     milestones: zod_1.z.array(milestoneSchema).optional(),
+    reminderTimes: zod_1.z
+        .array(zod_1.z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Reminder time must use HH:MM"))
+        .max(3)
+        .optional(),
+    schedule: goal_v2_validators_1.goalScheduleSchema.optional(),
+    target: goal_v2_validators_1.goalTargetSchema.optional(),
 });
 // Goal template update schema (aligned with goal update)
 exports.updateTemplateSchema = zod_1.z.object({
@@ -127,6 +134,12 @@ exports.updateTemplateSchema = zod_1.z.object({
         .nullable()
         .optional(),
     milestones: zod_1.z.array(milestoneSchema).optional(),
+    reminderTimes: zod_1.z
+        .array(zod_1.z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Reminder time must use HH:MM"))
+        .max(3)
+        .optional(),
+    schedule: goal_v2_validators_1.goalScheduleSchema.optional(),
+    target: goal_v2_validators_1.goalTargetSchema.optional(),
 });
 // Template ID param schema
 exports.templateIdParamSchema = zod_1.z.object({
@@ -138,6 +151,12 @@ exports.startGoalFromTemplateSchema = zod_1.z.object({
         .string()
         .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
         .optional(),
+    reminderTimes: zod_1.z
+        .array(zod_1.z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Reminder time must use HH:MM"))
+        .max(3)
+        .optional(),
+    rewardReleasePolicy: zod_1.z.enum(["IMMEDIATE", "ON_COMPLETION"]).optional(),
+    schedule: goal_v2_validators_1.goalScheduleSchema.optional(),
 });
 // Join community schema
 exports.joinCommunitySchema = zod_1.z.object({

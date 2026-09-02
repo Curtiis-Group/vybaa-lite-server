@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { goalScheduleSchema, goalTargetSchema } from "./goal-v2.validators";
+
 const communityCoverImageSchema = z
   .string()
   .refine(
@@ -115,6 +117,14 @@ export const createTemplateSchema = z.object({
     .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
     .optional(),
   milestones: z.array(milestoneSchema).optional(),
+  reminderTimes: z
+    .array(
+      z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Reminder time must use HH:MM"),
+    )
+    .max(3)
+    .optional(),
+  schedule: goalScheduleSchema.optional(),
+  target: goalTargetSchema.optional(),
 });
 
 // Goal template update schema (aligned with goal update)
@@ -136,6 +146,14 @@ export const updateTemplateSchema = z.object({
     .nullable()
     .optional(),
   milestones: z.array(milestoneSchema).optional(),
+  reminderTimes: z
+    .array(
+      z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Reminder time must use HH:MM"),
+    )
+    .max(3)
+    .optional(),
+  schedule: goalScheduleSchema.optional(),
+  target: goalTargetSchema.optional(),
 });
 
 // Template ID param schema
@@ -149,6 +167,14 @@ export const startGoalFromTemplateSchema = z.object({
     .string()
     .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Reminder time must be in HH:MM format (24-hour)")
     .optional(),
+  reminderTimes: z
+    .array(
+      z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Reminder time must use HH:MM"),
+    )
+    .max(3)
+    .optional(),
+  rewardReleasePolicy: z.enum(["IMMEDIATE", "ON_COMPLETION"]).optional(),
+  schedule: goalScheduleSchema.optional(),
 });
 
 // Join community schema

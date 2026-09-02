@@ -1,6 +1,8 @@
 import { notificationService } from "./notification.service";
 import { processPendingRevenueCatWebhooks } from "./revenuecat-webhook.service";
 import { runRewindRoutineLifecycle } from "./rewind-routine.service";
+import { processGoalV2Lifecycle } from "./goal-v2.service";
+import { scheduleGoalV2Reminders } from "./goal-v2-reminder.service";
 import logger from "../utils/logger.util";
 
 class SchedulerService {
@@ -32,9 +34,11 @@ class SchedulerService {
     // Process pending notifications every minute
     this.processPendingNotifications();
     this.processRevenueCatWebhooks();
+    this.processGoalV2Lifecycle();
     this.intervalId = setInterval(() => {
       this.processPendingNotifications();
       this.processRevenueCatWebhooks();
+      this.processGoalV2Lifecycle();
     }, 60 * 1000); // Every minute
 
     // Rewind slots are account-local, so their lifecycle must be evaluated
@@ -116,6 +120,27 @@ class SchedulerService {
       }
     } catch (error) {
       logger.error("Error processing RevenueCat webhooks", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+
+  private async processGoalV2Lifecycle(): Promise<void> {
+    try {
+      const [lifecycle, reminderCount] = await Promise.all([
+        processGoalV2Lifecycle(),
+        scheduleGoalV2Reminders(),
+      ]);
+      if (
+        lifecycle.autoAbandoned ||
+        lifecycle.graceStarted ||
+        lifecycle.missed ||
+        reminderCount
+      ) {
+        logger.info("Processed goal v2 lifecycle", { ...lifecycle, reminderCount });
+      }
+    } catch (error) {
+      logger.error("Error processing goal v2 lifecycle", {
         errorName: error instanceof Error ? error.name : "UnknownError",
       });
     }

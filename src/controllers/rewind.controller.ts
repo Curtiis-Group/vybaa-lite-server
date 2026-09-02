@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
+import { metricsService } from "../services/metrics.service";
 import { type RewindWellbeingSignals } from "../services/rewind-reflection.service";
 import {
   RewindRoutineAvailabilityError,
@@ -36,6 +37,16 @@ import {
   finalizeRewindSession,
   type RewindFinalizationStage,
 } from "../services/rewind-session-finalization.service";
+import {
+  acceptRewindRecommendation,
+  dismissRewindRecommendation,
+  prepareRewindRecommendations,
+  RewindRecommendationError,
+} from "../services/rewind-recommendation.service";
+import {
+  formatRewindPersonalContext,
+  loadRewindPersonalContext,
+} from "../services/rewind-personal-context.service";
 import {
   assertCanUseRewindFrequency,
   assertCanUseRewindInsightsRange,
@@ -66,6 +77,11 @@ const REWIND_TOKEN_ISSUER = "vybaa-api";
 const REWIND_TOKEN_AUDIENCE = "vybaa-rewind-live";
 const GEMINI_RECONNECT_MAX_ATTEMPTS = 4;
 const GEMINI_RECONNECT_BASE_DELAY_MS = 300;
+const REWIND_PERSONAL_CONTEXT_ENABLED =
+  process.env.REWIND_PERSONAL_CONTEXT_V2 !== "false";
+const REWIND_SPOKEN_CLOSE_ENABLED =
+  process.env.REWIND_SPOKEN_CLOSE_V2 !== "false";
+const REWIND_CLOSING_PLAYBACK_TIMEOUT_MS = 30_000;
 const activeConnections = new Map<string, number>();
 const consumedTokenIds = new Map<string, number>();
 
@@ -92,7 +108,9 @@ type RewindClientMessage = {
     | "text"
     | "context"
     | "realtime_audio"
+    | "retry_finalization"
     | "audio_stream_end"
+    | "closing_playback_complete"
     | "finish_session";
   content?: string;
   data?: string;
@@ -688,6 +706,9 @@ export async function getPaginatedRewindSessions(
     const [sessions, total, completedTotal, partnerFacets, dayFacets] =
       await Promise.all([
         prisma.rewindSession.findMany({
+          include: {
+            recommendations: { orderBy: { createdAt: "asc" } },
+          },
           where,
           orderBy: { updatedAt: "desc" },
           skip,
@@ -791,6 +812,7 @@ export async function getRewindSession(req: AuthRequest, res: Response) {
         userId,
       },
       include: {
+        recommendations: { orderBy: { createdAt: "asc" } },
         turns: {
           orderBy: { sequence: "asc" },
         },
@@ -800,6 +822,14 @@ export async function getRewindSession(req: AuthRequest, res: Response) {
     if (!session) {
       res.status(404).json({ msg: "Rewind session not found" });
       return;
+    }
+
+    if (session.recommendations.length) {
+      void metricsService.record(
+        "rewind_recommendation_impression",
+        session.recommendations.length,
+        { sessionId },
+      );
     }
 
     res.json({
@@ -815,6 +845,59 @@ export async function getRewindSession(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     logger.error("Get rewind session error:", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      userId: req.userId,
+    });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+export async function acceptRecommendation(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const user = await prisma.user.findUnique({
+      select: { timezone: true },
+      where: { id: req.userId! },
+    });
+    const recommendation = await acceptRewindRecommendation(
+      String(req.params.recommendationId),
+      String(req.params.sessionId),
+      req.userId!,
+      normalizeRewindTimezone(user?.timezone),
+    );
+    res.json({ data: recommendation, msg: "Recommendation accepted" });
+  } catch (error) {
+    if (error instanceof RewindRecommendationError) {
+      res.status(error.status).json({ code: error.code, msg: error.message });
+      return;
+    }
+    logger.error("Accept Rewind recommendation error", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      userId: req.userId,
+    });
+    res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+export async function dismissRecommendation(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const recommendation = await dismissRewindRecommendation(
+      String(req.params.recommendationId),
+      String(req.params.sessionId),
+      req.userId!,
+    );
+    res.json({ data: recommendation, msg: "Recommendation dismissed" });
+  } catch (error) {
+    if (error instanceof RewindRecommendationError) {
+      res.status(error.status).json({ code: error.code, msg: error.message });
+      return;
+    }
+    logger.error("Dismiss Rewind recommendation error", {
       errorName: error instanceof Error ? error.name : "UnknownError",
       userId: req.userId,
     });
@@ -1087,6 +1170,7 @@ export function getRewindSystemInstruction(
   journalEntries?: Array<{ content: string; dateKey: string }>,
   temporalContext: RewindTemporalContext = getRewindTemporalContext(),
   rewindIntent?: string,
+  personalContext?: string,
 ) {
   const personaPrompts: Record<RewindPersonaId, string> = {
     ella: "You are Ella. You understand the user through emotional nuance: notice feelings beneath their words, shifts in energy, and needs they may not have named. You are warm, gentle, and reflective. Speak with soft clarity and keep spoken replies short.",
@@ -1109,13 +1193,13 @@ export function getRewindSystemInstruction(
 
     if (historyList) {
       historyContext =
-        `These are your private memories from prior completed Rewinds with this user. They belong only to you; other Rewind partners have separate memories and perspectives. ` +
+        `These are memories from this partner's prior completed Rewinds with the user. Cross-partner memories may also appear in the attributed account context below. ` +
         `Use them only when they genuinely clarify a pattern or change. Do not mention them as stored notes.\n${historyList}\n\n`;
     }
   }
 
   const journalContext = journalEntries?.length
-    ? `These are the user's explicit Journal entries. They are the only cross-day context you may use beyond your own prior Rewinds. Use them sparingly and only when it helps the user make meaning:\n${journalEntries.map((journal) => `- [${journal.dateKey}]: ${journal.content}`).join("\n")}\n\n`
+    ? `These are the user's explicit Journal entries. Use them sparingly and only when it helps the user make meaning:\n${journalEntries.map((journal) => `- [${journal.dateKey}]: ${journal.content}`).join("\n")}\n\n`
     : "";
 
   return (
@@ -1126,16 +1210,18 @@ export function getRewindSystemInstruction(
       ? `The user's stated reason for Rewind is "${rewindIntent}". Let that guide which details matter, without forcing the conversation into a checklist.\n\n`
       : "") +
     `${historyContext}${journalContext}` +
+    (personalContext ? `${personalContext}\n\n` : "") +
     `This is a daily reflection, not an interview. Internally move through arriving, unpacking the day, making meaning, optionally noticing a relevant pattern, and closing; never announce or rigidly force those stages. ` +
     `Use the local time guidance above to choose a fitting opening. Acknowledge and briefly reflect what they say before probing. Keep spoken replies short. ` +
     `Ask at most one useful, contextual question at a time. Accept silence, hesitation, topic changes, and short answers without filling the space or repeating questions. ` +
     `Compare with yesterday, a prior Rewind, or a Journal only when it adds clear value. Do not diagnose or make clinical claims. ` +
-    `Maintain your own perspective of the user and never imply access to another partner's private conversations. ` +
+    `Maintain your own perspective. When an attributed cross-partner memory genuinely helps, credit that partner and date rather than presenting the observation as your own. ` +
     `You have tools available to manage the session:\n` +
-    `- end_session: Use this only when the user explicitly signals they are done or the conversation has reached a natural, meaningful conclusion. The server will create the saved reflection from the complete transcript.\n` +
+    `- end_session: Use this only when the user explicitly signals they are done or the conversation has reached a natural, meaningful conclusion. Include zero to three strongly supported recommendations, never more than one of each type. After the tool succeeds, speak one short flowing recap-farewell: reflect what mattered, acknowledge the user, say naturally that you are ending this Rewind now, and remind them they can return next time. Do not ask another question. Mention at most one approved recommendation.\n` +
     `- pause_session: Call this when the user explicitly says they need to leave, pause, or return later. It saves the unfinished conversation without concluding it, so it can continue when they return. Do not use it for a brief silence.\n` +
     `- open_history: Call this if the user specifically asks to see their transcript archive or past Rewinds.\n` +
-    `- update_conversation_state: Call this after setup, then only when the conversation meaningfully moves to a new stage. Include the stage and one short user-visible note. This appears under "This conversation", so never include private hidden reasoning, exact transcripts, diagnoses, or sensitive details. Do not call it repeatedly within the same stage.`
+    `- update_conversation_state: Call this after setup, then only when the conversation meaningfully moves to a new stage. Include the stage and one short user-visible note. This appears under "This conversation", so never include private hidden reasoning, exact transcripts, diagnoses, or sensitive details. Do not call it repeatedly within the same stage.\n` +
+    `Use account balances only after a relevant reward event, a direct question, or a genuinely helpful connection. Keep Play Points and real-points separate. Never imply that you can spend or move either balance. Goal progress and new-goal actions always require a tap in the app; never claim an action was completed merely because it was suggested.`
   );
 }
 
@@ -1371,7 +1457,11 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     ws.close(1008, "Rewind occurrence unavailable");
     return;
   }
-  const [previousSessions, journalEntries, routine] = await Promise.all([
+  const connectionTimezone = normalizeRewindTimezone(
+    sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
+  );
+  const [previousSessions, journalEntries, routine, personalContext] =
+    await Promise.all([
     loadPreviousRewindSessions({
       userId: auth.userId,
       personaId,
@@ -1382,11 +1472,25 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       timezone: sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
     }),
     prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
+    REWIND_PERSONAL_CONTEXT_ENABLED
+      ? loadRewindPersonalContext(
+          auth.userId,
+          connectionTimezone,
+          sessionState!?.sessionId,
+        ).catch((error: unknown) => {
+          logger.warn("Rewind personal context unavailable", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            sessionId: sessionState!?.sessionId,
+            userId: auth.userId,
+          });
+          void metricsService.record("rewind_personal_context_failure", 1, {
+            personaId,
+          });
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
   const shouldRestore = sessionState!?.transcriptAvailable;
-  const connectionTimezone = normalizeRewindTimezone(
-    sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
-  );
   const voiceName = getRewindVoiceName(personaId);
 
   try {
@@ -1484,8 +1588,45 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     let hasInitializedClient = false;
     let clientDisconnected = false;
     let finishRequested = false;
+    let closingAudioObserved = false;
+    let closingPlaybackComplete = false;
+    let closingRequested = false;
+    let closingTurnComplete = false;
+    let closingPlaybackTimeout: ReturnType<typeof setTimeout> | undefined;
+    let closingStartedAt: number | null = null;
+    let pendingClosingMessage: Record<string, unknown> | null = null;
     let rolloverRequested = false;
     const queuedRealtimeInputs: LiveSendRealtimeInputParameters[] = [];
+
+    const completeClosingWhenReady = (force = false): void => {
+      if (!pendingClosingMessage || (!closingPlaybackComplete && !force)) return;
+      if (closingPlaybackTimeout) {
+        clearTimeout(closingPlaybackTimeout);
+        closingPlaybackTimeout = undefined;
+      }
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify(pendingClosingMessage));
+      }
+      void metricsService.record(
+        "rewind_closing_latency_ms",
+        closingStartedAt ? Date.now() - closingStartedAt : 0,
+        { forcedPlaybackTimeout: force, personaId },
+      );
+      pendingClosingMessage = null;
+    };
+
+    const beginClosing = (): void => {
+      if (closingRequested || isSessionFinalized || isSessionFinalizing) return;
+      closingRequested = true;
+      closingAudioObserved = false;
+      closingPlaybackComplete = false;
+      closingTurnComplete = false;
+      closingStartedAt = Date.now();
+      finishRequested = true;
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: "closing_started" }));
+      }
+    };
 
     const appendTranscriptFragment = (
       current: string,
@@ -1619,13 +1760,15 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         if (result.status === "missed") {
           isSessionFinalized = true;
           sessionState.status = RewindSessionStatus.MISSED;
-          if (ws.readyState === ws.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "session_missed",
-                sessionId: sessionState!?.sessionId,
-              }),
-            );
+          const missedMessage = {
+            type: "session_missed",
+            sessionId: sessionState!?.sessionId,
+          };
+          if (closingRequested) {
+            pendingClosingMessage = missedMessage;
+            completeClosingWhenReady();
+          } else if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify(missedMessage));
           }
           return "missed";
         }
@@ -1640,15 +1783,17 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
         sessionState.emotionalInsight = result.emotionalInsight;
         sessionState.wellbeingSignals = result.wellbeingSignals;
 
-        if (ws.readyState === ws.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: "session_ended",
-              sessionId: sessionState!?.sessionId,
-              emotionalInsight: sessionState!?.emotionalInsight,
-              summary: sessionState!?.summary,
-            }),
-          );
+        const endedMessage = {
+          type: "session_ended",
+          sessionId: sessionState!?.sessionId,
+          emotionalInsight: sessionState!?.emotionalInsight,
+          summary: sessionState!?.summary,
+        };
+        if (closingRequested) {
+          pendingClosingMessage = endedMessage;
+          completeClosingWhenReady();
+        } else if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify(endedMessage));
         }
         return "completed";
       } finally {
@@ -1872,6 +2017,9 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                   journalEntries,
                   getRewindTemporalContext(new Date(), connectionTimezone),
                   routine ? getRewindIntentLabel(routine) : undefined,
+                  personalContext
+                    ? formatRewindPersonalContext(personalContext)
+                    : undefined,
                 ),
               },
             ],
@@ -1882,7 +2030,93 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                 {
                   name: "end_session",
                   description:
-                    "Ends the current Rewind only after a real close. The server will save its structured reflection from the final transcript.",
+                    "Prepares a graceful close and validates up to three optional recommendations. After it succeeds, speak the final recap-farewell before the session is saved.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                      recommendations: {
+                        type: Type.ARRAY,
+                        description:
+                          "Zero to three strongly supported actions, with at most one GOAL_PROGRESS, one NEW_GOAL, and one FLEXX item.",
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            achievementId: { type: Type.STRING },
+                            amount: { type: Type.NUMBER },
+                            cardType: {
+                              type: Type.STRING,
+                              enum: [
+                                "achievement",
+                                "daily",
+                                "rewind",
+                                "streak",
+                                "weekly",
+                              ],
+                            },
+                            description: { type: Type.STRING },
+                            evidence: {
+                              type: Type.ARRAY,
+                              items: { type: Type.STRING },
+                            },
+                            goalId: { type: Type.STRING },
+                            notes: { type: Type.STRING },
+                            occurrenceId: { type: Type.STRING },
+                            rationale: { type: Type.STRING },
+                            reminderTimes: {
+                              type: Type.ARRAY,
+                              items: { type: Type.STRING },
+                            },
+                            schedule: {
+                              type: Type.OBJECT,
+                              properties: {
+                                date: { type: Type.STRING },
+                                endDate: { type: Type.STRING },
+                                startDate: { type: Type.STRING },
+                                type: {
+                                  type: Type.STRING,
+                                  enum: [
+                                    "DAILY",
+                                    "ONE_TIME",
+                                    "SELECTED_WEEKDAYS",
+                                    "WEEKLY",
+                                  ],
+                                },
+                                weekday: { type: Type.NUMBER },
+                                weekdays: {
+                                  type: Type.ARRAY,
+                                  items: { type: Type.NUMBER },
+                                },
+                              },
+                            },
+                            target: {
+                              type: Type.OBJECT,
+                              properties: {
+                                amount: { type: Type.NUMBER },
+                                count: { type: Type.NUMBER },
+                                endDate: { type: Type.STRING },
+                                type: {
+                                  type: Type.STRING,
+                                  enum: [
+                                    "CHECK_IN_COUNT",
+                                    "QUANTITY",
+                                    "UNTIL_DATE",
+                                  ],
+                                },
+                                unit: { type: Type.STRING },
+                              },
+                            },
+                            title: { type: Type.STRING },
+                            type: {
+                              type: Type.STRING,
+                              enum: ["FLEXX", "GOAL_PROGRESS", "NEW_GOAL"],
+                            },
+                          },
+                          required: ["evidence", "rationale", "title", "type"],
+                        },
+                      },
+                    },
+                    required: ["recommendations"],
+                  },
                 },
                 {
                   name: "pause_session",
@@ -1968,6 +2202,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               for (const part of message.serverContent.modelTurn.parts) {
                 // 1. Handle Audio/Text content
                 if (part.inlineData?.data && ws.readyState === ws.OPEN) {
+                  if (closingRequested) closingAudioObserved = true;
                   ws.send(
                     JSON.stringify({
                       type: "audio",
@@ -1987,6 +2222,18 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               message.serverContent?.interrupted &&
               ws.readyState === ws.OPEN
             ) {
+              if (closingRequested && !closingTurnComplete) {
+                await prisma.rewindRecommendation.deleteMany({
+                  where: {
+                    sessionId: sessionState!?.sessionId,
+                    status: "PENDING",
+                  },
+                });
+                closingRequested = false;
+                closingAudioObserved = false;
+                finishRequested = false;
+                ws.send(JSON.stringify({ type: "closing_cancelled" }));
+              }
               ws.send(JSON.stringify({ type: "interrupted" }));
             }
 
@@ -2021,17 +2268,48 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
 
                 if (call.name === "end_session") {
                   try {
-                    await finalizeSession();
+                    if (!REWIND_SPOKEN_CLOSE_ENABLED) {
+                      await finalizeSession();
+                      session?.sendToolResponse({
+                        functionResponses: [
+                          {
+                            id: call.id,
+                            name: "end_session",
+                            response: { success: true },
+                          },
+                        ],
+                      });
+                      continue;
+                    }
+                    beginClosing();
+                    const recommendations = await prepareRewindRecommendations(
+                      sessionState!?.sessionId,
+                      sessionState!?.userId,
+                      call.args,
+                    );
                     session?.sendToolResponse({
                       functionResponses: [
                         {
                           name: "end_session",
                           id: call.id,
-                          response: { success: true },
+                          response: {
+                            approvedRecommendations: recommendations.map(
+                              (recommendation) => ({
+                                id: recommendation.id,
+                                title: recommendation.title,
+                                type: recommendation.type,
+                              }),
+                            ),
+                            instruction:
+                              "Now speak the short personalized recap-farewell. Say naturally that this Rewind is ending now and the user can return next time. Mention at most one approved action and ask no question.",
+                            success: true,
+                          },
                         },
                       ],
                     });
                   } catch (error) {
+                    closingRequested = false;
+                    finishRequested = false;
                     logger.warn("Rewind session finalization failed", {
                       connectionId,
                       personaId,
@@ -2047,7 +2325,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                           response: {
                             success: false,
                             error:
-                              "The reflection could not be saved yet. Keep the conversation open and try closing again shortly.",
+                              "The conclusion could not be prepared yet. Keep the conversation open and try closing again shortly.",
                           },
                         },
                       ],
@@ -2057,7 +2335,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                         JSON.stringify({
                           type: "error",
                           message:
-                            "I could not save that Rewind yet. Please continue for a moment and try again.",
+                            "I could not prepare that Rewind conclusion yet. Please try again.",
                         }),
                       );
                     }
@@ -2147,12 +2425,50 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
               }
             }
 
-            // Persist completed turns, then close promptly if the user tapped Finish.
             if (message?.serverContent?.turnComplete && !clientDisconnected) {
               reconnectAttempts = 0;
-              scheduleTranscriptFlush();
-              if (finishRequested) {
-                scheduleRequestedFinalization(450);
+              if (
+                REWIND_SPOKEN_CLOSE_ENABLED &&
+                closingRequested &&
+                closingAudioObserved &&
+                !closingTurnComplete
+              ) {
+                closingTurnComplete = true;
+                await flushTranscriptTurn();
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: "closing_turn_complete" }));
+                }
+                closingPlaybackTimeout = setTimeout(() => {
+                  closingPlaybackComplete = true;
+                  completeClosingWhenReady(true);
+                }, REWIND_CLOSING_PLAYBACK_TIMEOUT_MS);
+                void finalizeSession().catch((error: unknown) => {
+                  closingRequested = false;
+                  finishRequested = false;
+                  pendingClosingMessage = null;
+                  logger.warn("Spoken Rewind finalization failed", {
+                    connectionId,
+                    errorName:
+                      error instanceof Error ? error.name : "UnknownError",
+                    personaId,
+                    sessionId: sessionState!?.sessionId,
+                  });
+                  void metricsService.record("rewind_finalization_failure", 1, {
+                    personaId,
+                    source: "spoken_close",
+                  });
+                  if (ws.readyState === ws.OPEN) {
+                    ws.send(
+                      JSON.stringify({
+                        message:
+                          "Your closing was preserved, but it could not be saved yet. Tap Finish to retry.",
+                        type: "closing_save_failed",
+                      }),
+                    );
+                  }
+                });
+              } else {
+                scheduleTranscriptFlush();
               }
               if (ws.readyState === ws.OPEN) {
                 ws.send(JSON.stringify({ type: "turn_complete" }));
@@ -2357,9 +2673,54 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           if (isSessionFinalized || isSessionFinalizing || finishRequested) {
             return;
           }
-          finishRequested = true;
+          if (!REWIND_SPOKEN_CLOSE_ENABLED) {
+            finishRequested = true;
+            sendRealtimeInput({ audioStreamEnd: true });
+            scheduleRequestedFinalization(1_200);
+            return;
+          }
+          beginClosing();
           sendRealtimeInput({ audioStreamEnd: true });
-          scheduleRequestedFinalization(1_200);
+          sendRealtimeInput({
+            text:
+              "The user tapped Finish. Call end_session now with zero to three strongly supported recommendations. After the tool succeeds, speak one short personalized recap-farewell that flows naturally into saying you are ending this Rewind now and they can return next time. Ask no question.",
+          });
+          return;
+        }
+
+        if (parsed.type === "retry_finalization") {
+          if (isSessionFinalized || isSessionFinalizing) return;
+          closingRequested = true;
+          closingPlaybackComplete = true;
+          closingTurnComplete = true;
+          if (ws.readyState === ws.OPEN) {
+            ws.send(
+              JSON.stringify({
+                stage: "saving_conversation",
+                type: "finalization_progress",
+              }),
+            );
+          }
+          void finalizeSession().catch((error: unknown) => {
+            logger.warn("Rewind finalization retry failed", {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              sessionId: sessionState!?.sessionId,
+            });
+            if (ws.readyState === ws.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  message: "Your Rewind still could not be saved. Please retry.",
+                  type: "closing_save_failed",
+                }),
+              );
+            }
+          });
+          return;
+        }
+
+        if (parsed.type === "closing_playback_complete") {
+          closingPlaybackComplete = true;
+          completeClosingWhenReady();
           return;
         }
 
