@@ -1,11 +1,13 @@
 import "./controllers/rewind.controller.test";
 import "./middleware/client-app.middleware.test";
 import "./services/milestone.service.test";
+import "./services/daily-observation.service.test";
 import "./services/notification-realtime.service.test";
 import "./services/push-notification.service.test";
 import "./services/revenuecat.service.test";
 import "./services/revenuecat-webhook.service.test";
 import "./services/rewind-reflection.service.test";
+import "./services/rewind-chat.service.test";
 import "./services/rewind-personal-context.service.test";
 import "./services/rewind-routine.service.test";
 import "./services/rewind-session-finalization.service.test";

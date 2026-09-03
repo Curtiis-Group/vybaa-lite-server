@@ -12,7 +12,10 @@ export const nameSchema = z
   .max(100, "Name must be less than 100 characters");
 export const otpSchema = z
   .union([
-    z.string().length(6, "OTP must be 6 digits").regex(/^\d+$/, "OTP must contain only digits"),
+    z
+      .string()
+      .length(6, "OTP must be 6 digits")
+      .regex(/^\d+$/, "OTP must contain only digits"),
     z.number().int().min(100000).max(999999),
   ])
   .transform((val) => (typeof val === "number" ? val.toString() : val));
@@ -20,7 +23,10 @@ export const usernameSchema = z
   .string()
   .min(3, "Username must be at least 3 characters")
   .max(50, "Username must be less than 50 characters")
-  .regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores");
+  .regex(
+    /^[a-zA-Z0-9_]+$/,
+    "Username can only contain letters, numbers, and underscores",
+  );
 
 // Auth request validators
 export const loginSchema = z.object({
@@ -71,13 +77,15 @@ export const accountConfirmationSchema = z.object({
   otp: otpSchema,
 });
 
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: passwordSchema,
-}).refine((data) => data.currentPassword !== data.newPassword, {
-  message: "New password must be different from current password",
-  path: ["newPassword"],
-});
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: passwordSchema,
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    message: "New password must be different from current password",
+    path: ["newPassword"],
+  });
 
 export const onboardingAnswerSchema = z.object({
   question: z.string().min(1, "Question is required"),
@@ -99,7 +107,11 @@ export const updateProfileSchema = z.object({
   lastName: nameSchema.optional(),
   username: usernameSchema.optional(),
   profileImageId: z.string().optional(),
-  rewindPersona: z.enum(["ella", "lyra", "jake", "ariel"]).nullable().optional(),
+  rewindPersona: z
+    .enum(["ella", "lyra", "jake", "ariel"])
+    .nullable()
+    .optional(),
+  rewindPersonalizationEnabled: z.boolean().optional(),
   timezone: z.string().min(1).max(64).optional(),
 });
 

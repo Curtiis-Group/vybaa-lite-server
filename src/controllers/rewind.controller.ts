@@ -68,6 +68,7 @@ type OpeningPromptUserData = {
   lastName: string | null;
   currentMood: string | null;
   emotionSummary: string | null;
+  rewindPersonalizationEnabled?: boolean;
 } | null;
 
 const GEMINI_LIVE_MODEL =
@@ -322,7 +323,9 @@ export function buildDraftSessionSummary(
   return `${getPersonaName(personaId)} heard you reflect on: ${latestReflection}`;
 }
 
-function getConversationState(args: unknown): RewindConversationState | undefined {
+function getConversationState(
+  args: unknown,
+): RewindConversationState | undefined {
   if (
     !args ||
     typeof args !== "object" ||
@@ -954,11 +957,7 @@ export function averageRewindSignals(
 export async function getRewindInsights(req: AuthRequest, res: Response) {
   try {
     const range = getRewindInsightsRange(getSingleQueryParam(req.query.range));
-    await assertCanUseRewindInsightsRange(
-      req.userId!,
-      req.clientApp,
-      range,
-    );
+    await assertCanUseRewindInsightsRange(req.userId!, req.clientApp, range);
     const days = REWIND_INSIGHT_RANGES[range];
     const userId = req.userId!;
     const user = await prisma.user.findUnique({
@@ -1414,6 +1413,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       lastName: true,
       emotionSummary: true,
       currentMood: true,
+      rewindPersonalizationEnabled: true,
       timezone: true,
     },
   });
@@ -1460,36 +1460,44 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
   const connectionTimezone = normalizeRewindTimezone(
     sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
   );
+  const personalizationEnabled =
+    REWIND_PERSONAL_CONTEXT_ENABLED &&
+    user?.rewindPersonalizationEnabled !== false;
   const [previousSessions, journalEntries, routine, personalContext] =
     await Promise.all([
-    loadPreviousRewindSessions({
-      userId: auth.userId,
-      personaId,
-      currentSessionId: sessionState!?.sessionId,
-    }),
-    loadRecentJournalEntries({
-      userId: auth.userId,
-      timezone: sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
-    }),
-    prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
-    REWIND_PERSONAL_CONTEXT_ENABLED
-      ? loadRewindPersonalContext(
-          auth.userId,
-          connectionTimezone,
-          sessionState!?.sessionId,
-        ).catch((error: unknown) => {
-          logger.warn("Rewind personal context unavailable", {
-            errorName: error instanceof Error ? error.name : "UnknownError",
-            sessionId: sessionState!?.sessionId,
+      personalizationEnabled
+        ? loadPreviousRewindSessions({
             userId: auth.userId,
-          });
-          void metricsService.record("rewind_personal_context_failure", 1, {
             personaId,
-          });
-          return null;
-        })
-      : Promise.resolve(null),
-  ]);
+            currentSessionId: sessionState!?.sessionId,
+          })
+        : Promise.resolve([]),
+      personalizationEnabled
+        ? loadRecentJournalEntries({
+            userId: auth.userId,
+            timezone:
+              sessionState!?.timezone ?? user?.timezone ?? auth.timezone,
+          })
+        : Promise.resolve([]),
+      prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
+      personalizationEnabled
+        ? loadRewindPersonalContext(
+            auth.userId,
+            connectionTimezone,
+            sessionState!?.sessionId,
+          ).catch((error: unknown) => {
+            logger.warn("Rewind personal context unavailable", {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              sessionId: sessionState!?.sessionId,
+              userId: auth.userId,
+            });
+            void metricsService.record("rewind_personal_context_failure", 1, {
+              personaId,
+            });
+            return null;
+          })
+        : Promise.resolve(null),
+    ]);
   const shouldRestore = sessionState!?.transcriptAvailable;
   const voiceName = getRewindVoiceName(personaId);
 
@@ -1599,7 +1607,8 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
     const queuedRealtimeInputs: LiveSendRealtimeInputParameters[] = [];
 
     const completeClosingWhenReady = (force = false): void => {
-      if (!pendingClosingMessage || (!closingPlaybackComplete && !force)) return;
+      if (!pendingClosingMessage || (!closingPlaybackComplete && !force))
+        return;
       if (closingPlaybackTimeout) {
         clearTimeout(closingPlaybackTimeout);
         closingPlaybackTimeout = undefined;
@@ -2016,7 +2025,9 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
                   previousSessions,
                   journalEntries,
                   getRewindTemporalContext(new Date(), connectionTimezone),
-                  routine ? getRewindIntentLabel(routine) : undefined,
+                  personalizationEnabled && routine
+                    ? getRewindIntentLabel(routine)
+                    : undefined,
                   personalContext
                     ? formatRewindPersonalContext(personalContext)
                     : undefined,
@@ -2682,8 +2693,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
           beginClosing();
           sendRealtimeInput({ audioStreamEnd: true });
           sendRealtimeInput({
-            text:
-              "The user tapped Finish. Call end_session now with zero to three strongly supported recommendations. After the tool succeeds, speak one short personalized recap-farewell that flows naturally into saying you are ending this Rewind now and they can return next time. Ask no question.",
+            text: "The user tapped Finish. Call end_session now with zero to three strongly supported recommendations. After the tool succeeds, speak one short personalized recap-farewell that flows naturally into saying you are ending this Rewind now and they can return next time. Ask no question.",
           });
           return;
         }
@@ -2709,7 +2719,8 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
             if (ws.readyState === ws.OPEN) {
               ws.send(
                 JSON.stringify({
-                  message: "Your Rewind still could not be saved. Please retry.",
+                  message:
+                    "Your Rewind still could not be saved. Please retry.",
                   type: "closing_save_failed",
                 }),
               );

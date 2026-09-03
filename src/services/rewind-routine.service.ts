@@ -1,4 +1,5 @@
 import {
+  ActivitySignalSourceType,
   RewindCompletionSource,
   RewindFrequency,
   RewindIntent,
@@ -8,6 +9,7 @@ import { DateTime } from "luxon";
 import { prisma } from "../config/db.config";
 import { notificationService } from "./notification.service";
 import { finalizeRewindSession } from "./rewind-session-finalization.service";
+import { recordActivitySignal } from "./activity-signal.service";
 
 export const DEFAULT_REWIND_TIMEZONE = "UTC";
 export const MORNING_REWIND_TIME = "08:00";
@@ -94,9 +96,10 @@ export function getRoutineTimes(input: {
   }
 }
 
-export function validateRewindRoutineInput(
-  input: RewindRoutineInput,
-): { customIntent: string | null; times: string[] } {
+export function validateRewindRoutineInput(input: RewindRoutineInput): {
+  customIntent: string | null;
+  times: string[];
+} {
   if (!isValidRewindTimezone(input.timezone)) {
     throw new Error("A valid IANA timezone is required");
   }
@@ -124,7 +127,9 @@ export function validateRewindRoutineInput(
   const customIntent = input.customIntent?.trim() ?? "";
   if (input.intent === RewindIntent.CUSTOM) {
     if (!customIntent || customIntent.length > 240) {
-      throw new Error("Custom Rewind intention must be between 1 and 240 characters");
+      throw new Error(
+        "Custom Rewind intention must be between 1 and 240 characters",
+      );
     }
   }
 
@@ -259,39 +264,42 @@ export async function getRewindRoutineOverview(params: {
 
   await materializeRewindOccurrences({ now: params.now, user });
   const now = params.now ?? new Date();
-  const [routine, currentSession, nextSession, latestSession] = await Promise.all([
-    prisma.rewindRoutine.findUnique({ where: { userId: params.userId } }),
-    prisma.rewindSession.findFirst({
-      where: {
-        userId: params.userId,
-        scheduledFor: { lte: now },
-        windowEndsAt: { gt: now },
-        status: { in: [RewindSessionStatus.SCHEDULED, RewindSessionStatus.IN_PROGRESS] },
-      },
-      orderBy: { scheduledFor: "asc" },
-    }),
-    prisma.rewindSession.findFirst({
-      where: {
-        userId: params.userId,
-        scheduledFor: { gt: now },
-        status: RewindSessionStatus.SCHEDULED,
-      },
-      orderBy: { scheduledFor: "asc" },
-    }),
-    prisma.rewindSession.findFirst({
-      where: {
-        userId: params.userId,
-        scheduledFor: { lte: now },
-        status: {
-          in: [
-            RewindSessionStatus.COMPLETED,
-            RewindSessionStatus.MISSED,
-          ],
+  const [routine, currentSession, nextSession, latestSession] =
+    await Promise.all([
+      prisma.rewindRoutine.findUnique({ where: { userId: params.userId } }),
+      prisma.rewindSession.findFirst({
+        where: {
+          userId: params.userId,
+          scheduledFor: { lte: now },
+          windowEndsAt: { gt: now },
+          status: {
+            in: [
+              RewindSessionStatus.SCHEDULED,
+              RewindSessionStatus.IN_PROGRESS,
+            ],
+          },
         },
-      },
-      orderBy: { scheduledFor: "desc" },
-    }),
-  ]);
+        orderBy: { scheduledFor: "asc" },
+      }),
+      prisma.rewindSession.findFirst({
+        where: {
+          userId: params.userId,
+          scheduledFor: { gt: now },
+          status: RewindSessionStatus.SCHEDULED,
+        },
+        orderBy: { scheduledFor: "asc" },
+      }),
+      prisma.rewindSession.findFirst({
+        where: {
+          userId: params.userId,
+          scheduledFor: { lte: now },
+          status: {
+            in: [RewindSessionStatus.COMPLETED, RewindSessionStatus.MISSED],
+          },
+        },
+        orderBy: { scheduledFor: "desc" },
+      }),
+    ]);
 
   return {
     currentSession,
@@ -383,9 +391,7 @@ export async function startOrResumeRewindOccurrence(params: {
 async function scheduleRewindStartNotifications(now: Date): Promise<number> {
   const minuteStart = new Date(now);
   minuteStart.setSeconds(0, 0);
-  const fiveMinutesFromNow = new Date(
-    minuteStart.getTime() + 5 * 60 * 1000,
-  );
+  const fiveMinutesFromNow = new Date(minuteStart.getTime() + 5 * 60 * 1000);
   const upperBound = new Date(fiveMinutesFromNow.getTime() + 60 * 1000);
   const occurrences = await prisma.rewindSession.findMany({
     where: {
@@ -485,7 +491,15 @@ export async function runRewindRoutineLifecycle(params?: { now?: Date }) {
           },
           windowEndsAt: { lte: now },
         },
-        select: { id: true, status: true },
+        select: {
+          id: true,
+          personaId: true,
+          scheduledFor: true,
+          sessionDateKey: true,
+          status: true,
+          timezone: true,
+          userId: true,
+        },
         take: 500,
       }),
     ]);
@@ -499,6 +513,20 @@ export async function runRewindRoutineLifecycle(params?: { now?: Date }) {
         data: { status: RewindSessionStatus.MISSED },
       });
       missedCount += result.count;
+      if (result.count) {
+        await recordActivitySignal({
+          dedupeKey: `rewind-routine:${occurrence.id}:missed`,
+          description: `Skipped the scheduled Rewind with ${occurrence.personaId}.`,
+          eventType: "REWIND_ROUTINE_SKIPPED",
+          happenedAt: occurrence.scheduledFor ?? now,
+          localDateKey: occurrence.sessionDateKey ?? undefined,
+          personaId: occurrence.personaId,
+          sourceId: occurrence.id,
+          sourceType: ActivitySignalSourceType.REWIND_ROUTINE,
+          timezone: occurrence.timezone ?? "UTC",
+          userId: occurrence.userId,
+        });
+      }
       continue;
     }
 

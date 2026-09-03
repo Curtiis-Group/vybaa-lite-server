@@ -14,7 +14,10 @@ exports.nameSchema = zod_1.z
     .max(100, "Name must be less than 100 characters");
 exports.otpSchema = zod_1.z
     .union([
-    zod_1.z.string().length(6, "OTP must be 6 digits").regex(/^\d+$/, "OTP must contain only digits"),
+    zod_1.z
+        .string()
+        .length(6, "OTP must be 6 digits")
+        .regex(/^\d+$/, "OTP must contain only digits"),
     zod_1.z.number().int().min(100000).max(999999),
 ])
     .transform((val) => (typeof val === "number" ? val.toString() : val));
@@ -62,10 +65,12 @@ exports.accountConfirmationSchema = zod_1.z.object({
     email: exports.emailSchema,
     otp: exports.otpSchema,
 });
-exports.changePasswordSchema = zod_1.z.object({
+exports.changePasswordSchema = zod_1.z
+    .object({
     currentPassword: zod_1.z.string().min(1, "Current password is required"),
     newPassword: exports.passwordSchema,
-}).refine((data) => data.currentPassword !== data.newPassword, {
+})
+    .refine((data) => data.currentPassword !== data.newPassword, {
     message: "New password must be different from current password",
     path: ["newPassword"],
 });
@@ -86,7 +91,11 @@ exports.updateProfileSchema = zod_1.z.object({
     lastName: exports.nameSchema.optional(),
     username: exports.usernameSchema.optional(),
     profileImageId: zod_1.z.string().optional(),
-    rewindPersona: zod_1.z.enum(["ella", "lyra", "jake", "ariel"]).nullable().optional(),
+    rewindPersona: zod_1.z
+        .enum(["ella", "lyra", "jake", "ariel"])
+        .nullable()
+        .optional(),
+    rewindPersonalizationEnabled: zod_1.z.boolean().optional(),
     timezone: zod_1.z.string().min(1).max(64).optional(),
 });
 // Params validators

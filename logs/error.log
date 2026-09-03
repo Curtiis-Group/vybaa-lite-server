@@ -20407,3 +20407,14 @@
 {"errorName":"PrismaClientKnownRequestError","level":"error","message":"Goal v2 list error","service":"vybaa-lite-server","timestamp":"2026-09-01 22:37:42","userId":"cml5a0int0000153e9sxl0dei"}
 {"errorName":"PrismaClientKnownRequestError","level":"error","message":"Goal v2 list error","service":"vybaa-lite-server","timestamp":"2026-09-01 22:37:43","userId":"cml5a0int0000153e9sxl0dei"}
 {"errorName":"PrismaClientKnownRequestError","level":"error","message":"Goal v2 list error","service":"vybaa-lite-server","timestamp":"2026-09-01 22:37:44","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 00:58:57","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 00:59:53","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 00:59:56","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 00:59:59","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 01:00:58","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 01:02:51","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 01:03:38","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 01:04:22","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 01:05:40","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 01:07:07","userId":"cml5a0int0000153e9sxl0dei"}
+{"errorName":"ApiError","level":"error","message":"Rewind intelligence send chat message error","service":"vybaa-lite-server","timestamp":"2026-09-03 01:08:54","userId":"cml5a0int0000153e9sxl0dei"}

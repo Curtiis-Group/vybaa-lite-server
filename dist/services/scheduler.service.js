@@ -9,6 +9,7 @@ const revenuecat_webhook_service_1 = require("./revenuecat-webhook.service");
 const rewind_routine_service_1 = require("./rewind-routine.service");
 const goal_v2_service_1 = require("./goal-v2.service");
 const goal_v2_reminder_service_1 = require("./goal-v2-reminder.service");
+const daily_observation_service_1 = require("./daily-observation.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 class SchedulerService {
     constructor() {
@@ -30,9 +31,11 @@ class SchedulerService {
         // Schedule goal reminders every hour
         this.scheduleGoalReminders();
         this.scheduleEngagementNotifications();
+        this.refreshDailyObservations();
         this.schedulingIntervalId = setInterval(() => {
             this.scheduleGoalReminders();
             this.scheduleEngagementNotifications();
+            this.refreshDailyObservations();
         }, 60 * 60 * 1000); // Every hour
         // Process pending notifications every minute
         this.processPendingNotifications();
@@ -97,6 +100,19 @@ class SchedulerService {
             logger_util_1.default.error("Error in scheduleEngagementNotifications:", error);
         }
     }
+    async refreshDailyObservations() {
+        try {
+            const result = await (0, daily_observation_service_1.refreshPendingDailyObservations)();
+            if (result.generated) {
+                logger_util_1.default.info("Refreshed Rewind daily observations", result);
+            }
+        }
+        catch (error) {
+            logger_util_1.default.error("Error refreshing Rewind daily observations", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+        }
+    }
     /**
      * Process pending notifications
      */
@@ -131,7 +147,10 @@ class SchedulerService {
                 lifecycle.graceStarted ||
                 lifecycle.missed ||
                 reminderCount) {
-                logger_util_1.default.info("Processed goal v2 lifecycle", { ...lifecycle, reminderCount });
+                logger_util_1.default.info("Processed goal v2 lifecycle", {
+                    ...lifecycle,
+                    reminderCount,
+                });
             }
         }
         catch (error) {

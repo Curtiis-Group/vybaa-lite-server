@@ -20,14 +20,15 @@ model User {
   password String? // Nullable for OAuth users
 
   // User bio/profile fields
-  firstName            String?   @map("first_name")
-  lastName             String?   @map("last_name")
-  username             String?   @unique // Required - auto-generated on signup
-  avatarUrl            String?   @map("avatar_url")
-  currentMood          String?   @map("current_mood")
-  rewindPersona        String?   @map("rewind_persona")
-  timezone             String    @default("UTC") @map("timezone")
-  lastUsernameChangeAt DateTime? @map("last_username_change_at") // Track username changes for cooldown
+  firstName                    String?   @map("first_name")
+  lastName                     String?   @map("last_name")
+  username                     String?   @unique // Required - auto-generated on signup
+  avatarUrl                    String?   @map("avatar_url")
+  currentMood                  String?   @map("current_mood")
+  rewindPersona                String?   @map("rewind_persona")
+  rewindPersonalizationEnabled Boolean   @default(true) @map("rewind_personalization_enabled")
+  timezone                     String    @default("UTC") @map("timezone")
+  lastUsernameChangeAt         DateTime? @map("last_username_change_at") // Track username changes for cooldown
 
   // Auth fields
   isConfirmed Boolean @default(false) @map("is_confirmed")
@@ -76,6 +77,10 @@ model User {
   rewindSessions        RewindSession[]
   rewindRecommendations RewindRecommendation[]
   rewindRoutine         RewindRoutine?
+  rewindChats           RewindChat[]
+  rewindChatMessages    RewindChatMessage[]
+  activitySignals       ActivitySignal[]
+  dailyObservations     DailyObservation[]
   subscriptionSnapshots SubscriptionSnapshot[]
 
   // Summary caching
@@ -318,6 +323,122 @@ model RewindTurn {
   @@unique([sessionId, sequence])
   @@index([sessionId, createdAt])
   @@map("rewind_turns")
+}
+
+enum RewindChatType {
+  GROUP
+  PARTNER
+}
+
+enum RewindChatMessageRole {
+  USER
+  PARTNER
+  SYSTEM
+}
+
+model RewindChat {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  threadKey     String              @map("thread_key")
+  type          RewindChatType
+  personaId     String?             @map("persona_id")
+  title         String
+  archivedAt    DateTime?           @map("archived_at")
+  lastMessageAt DateTime?           @map("last_message_at")
+  messages      RewindChatMessage[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, threadKey])
+  @@index([userId, archivedAt, lastMessageAt])
+  @@map("rewind_chats")
+}
+
+model RewindChatMessage {
+  id String @id @default(cuid())
+
+  chatId String     @map("chat_id")
+  chat   RewindChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  userId String     @map("user_id")
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role           RewindChatMessageRole
+  personaId      String?               @map("persona_id")
+  content        String                @db.Text
+  localDateKey   String                @map("local_date_key")
+  mentions       String[]              @default([])
+  idempotencyKey String?               @unique @map("idempotency_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([chatId, createdAt, id])
+  @@index([userId, localDateKey, createdAt])
+  @@map("rewind_chat_messages")
+}
+
+enum ActivitySignalSourceType {
+  ACHIEVEMENT
+  FLEXX
+  GOAL
+  JOURNAL
+  REWARD
+  REWIND_CHAT
+  REWIND_ROUTINE
+  REWIND_VOICE
+}
+
+model ActivitySignal {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sourceType      ActivitySignalSourceType @map("source_type")
+  sourceId        String                   @map("source_id")
+  eventType       String                   @map("event_type")
+  localDateKey    String                   @map("local_date_key")
+  description     String                   @db.Text
+  personaId       String?                  @map("persona_id")
+  metadata        Json?
+  privacyEligible Boolean                  @default(true) @map("privacy_eligible")
+  dedupeKey       String                   @unique @map("dedupe_key")
+  happenedAt      DateTime                 @map("happened_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, localDateKey, happenedAt])
+  @@index([userId, sourceType, happenedAt])
+  @@map("activity_signals")
+}
+
+model DailyObservation {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  localDateKey      String    @map("local_date_key")
+  description       String    @db.Text
+  observations      Json
+  evidence          Json
+  sourceTypes       String[]  @default([]) @map("source_types")
+  confidence        Float
+  personaId         String?   @map("persona_id")
+  reflection        String?   @db.Text
+  journalDraft      String?   @map("journal_draft") @db.Text
+  generationVersion Int       @default(1) @map("generation_version")
+  dismissedAt       DateTime? @map("dismissed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, localDateKey])
+  @@index([userId, dismissedAt, localDateKey])
+  @@map("daily_observations")
 }
 
 model FeatureFlag {

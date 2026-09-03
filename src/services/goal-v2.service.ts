@@ -1,4 +1,5 @@
 import {
+  ActivitySignalSourceType,
   GoalMissMode,
   GoalOccurrenceStatus,
   GoalRewardAwardStatus,
@@ -34,6 +35,10 @@ import type {
   GoalMissPolicyInput,
   GoalScheduleInput,
 } from "../validators/goal-v2.validators";
+import {
+  recordActivitySignal,
+  recordGoalLifecycleSignal,
+} from "./activity-signal.service";
 
 type DatabaseClient = Prisma.TransactionClient | typeof prisma;
 
@@ -175,7 +180,9 @@ function resolveMissPolicy(input: GoalMissPolicyInput): MissPolicyValues {
   };
 }
 
-function toPrismaScheduleType(type: GoalScheduleInput["type"]): GoalScheduleType {
+function toPrismaScheduleType(
+  type: GoalScheduleInput["type"],
+): GoalScheduleType {
   return type === "SELECTED_WEEKDAYS"
     ? GoalScheduleType.SELECTED_WEEKDAYS
     : GoalScheduleType[type];
@@ -203,7 +210,10 @@ function normalizeRewardMilestones(
 ): GoalRewardMilestoneInput[] {
   const byPercentage = new Map<number, GoalRewardMilestoneInput>();
   for (const milestone of milestones) {
-    const percentage = Math.min(100, Math.max(1, Math.round(milestone.triggerPercentage)));
+    const percentage = Math.min(
+      100,
+      Math.max(1, Math.round(milestone.triggerPercentage)),
+    );
     const current = byPercentage.get(percentage);
     byPercentage.set(percentage, {
       name: current ? `${current.name} + ${milestone.name}` : milestone.name,
@@ -359,7 +369,11 @@ function serializeGoal(goal: GoalDetailsRecord, timezone: string) {
     status: goal.status,
     target:
       goal.targetType === GoalTargetType.QUANTITY
-        ? { amount: goal.targetValue ?? 0, type: goal.targetType, unit: goal.unit }
+        ? {
+            amount: goal.targetValue ?? 0,
+            type: goal.targetType,
+            unit: goal.unit,
+          }
         : goal.targetType === GoalTargetType.UNTIL_DATE
           ? {
               endDate: goal.endDate ? parseDateKey(goal.endDate) : null,
@@ -383,13 +397,15 @@ function decodeCursor(cursor: string): GoalCursor {
     const parsed: unknown = JSON.parse(
       Buffer.from(cursor, "base64url").toString("utf8"),
     );
-    if (!parsed || typeof parsed !== "object") throw new Error("Invalid cursor");
+    if (!parsed || typeof parsed !== "object")
+      throw new Error("Invalid cursor");
     if (!("createdAt" in parsed) || !("id" in parsed)) {
       throw new Error("Invalid cursor");
     }
     const createdAt = new Date(String(parsed.createdAt));
     const id = String(parsed.id);
-    if (!id || Number.isNaN(createdAt.getTime())) throw new Error("Invalid cursor");
+    if (!id || Number.isNaN(createdAt.getTime()))
+      throw new Error("Invalid cursor");
     return { createdAt, id };
   } catch {
     throw new GoalV2ServiceError("INVALID_CURSOR", "Invalid goal cursor");
@@ -401,7 +417,10 @@ function encodeOccurrenceCursor(occurrence: {
   id: string;
 }): string {
   return Buffer.from(
-    JSON.stringify({ dueDate: occurrence.dueDate.toISOString(), id: occurrence.id }),
+    JSON.stringify({
+      dueDate: occurrence.dueDate.toISOString(),
+      id: occurrence.id,
+    }),
   ).toString("base64url");
 }
 
@@ -410,12 +429,18 @@ function decodeOccurrenceCursor(cursor: string): OccurrenceCursor {
     const parsed: unknown = JSON.parse(
       Buffer.from(cursor, "base64url").toString("utf8"),
     );
-    if (!parsed || typeof parsed !== "object" || !("dueDate" in parsed) || !("id" in parsed)) {
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !("dueDate" in parsed) ||
+      !("id" in parsed)
+    ) {
       throw new Error("Invalid cursor");
     }
     const dueDate = new Date(String(parsed.dueDate));
     const id = String(parsed.id);
-    if (!id || Number.isNaN(dueDate.getTime())) throw new Error("Invalid cursor");
+    if (!id || Number.isNaN(dueDate.getTime()))
+      throw new Error("Invalid cursor");
     return { dueDate, id };
   } catch {
     throw new GoalV2ServiceError("INVALID_CURSOR", "Invalid occurrence cursor");
@@ -427,7 +452,8 @@ function getListWhere(options: GoalListOptions): Prisma.GoalV2WhereInput {
     archivedAt: options.filter === "ARCHIVED" ? { not: null } : null,
     userId: options.userId,
   };
-  if (options.filter === "PAUSED") return { ...base, status: GoalV2Status.PAUSED };
+  if (options.filter === "PAUSED")
+    return { ...base, status: GoalV2Status.PAUSED };
   if (options.filter === "ENDED" || options.filter === "ARCHIVED") {
     return {
       ...base,
@@ -446,10 +472,11 @@ function getListWhere(options: GoalListOptions): Prisma.GoalV2WhereInput {
       ...base,
       occurrences: {
         some: {
-          closesAt:
-            options.filter === "OVERDUE" ? { lt: now } : { gte: now },
+          closesAt: options.filter === "OVERDUE" ? { lt: now } : { gte: now },
           dueDate: { lte: now },
-          status: { in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING] },
+          status: {
+            in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING],
+          },
         },
       },
       status: GoalV2Status.ACTIVE,
@@ -467,7 +494,8 @@ async function getOwnedGoal(
     include: goalDetailsInclude,
     where: { id: goalId, userId },
   });
-  if (!goal) throw new GoalV2ServiceError("GOAL_NOT_FOUND", "Goal not found", 404);
+  if (!goal)
+    throw new GoalV2ServiceError("GOAL_NOT_FOUND", "Goal not found", 404);
   return goal;
 }
 
@@ -629,7 +657,9 @@ async function createConclusion(
 
   await client.goalConclusion.create({
     data: {
-      adherenceRate: attempted ? (goal.completedOccurrences / attempted) * 100 : 100,
+      adherenceRate: attempted
+        ? (goal.completedOccurrences / attempted) * 100
+        : 100,
       completedOccurrences: goal.completedOccurrences,
       currentStreak: goal.currentStreak,
       durationDays,
@@ -664,7 +694,9 @@ async function finishGoal(
     data: { status: GoalOccurrenceStatus.CANCELLED },
     where: {
       goalId: goal.id,
-      status: { in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING] },
+      status: {
+        in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING],
+      },
     },
   });
   await client.notification.deleteMany({
@@ -691,7 +723,10 @@ function hasReachedTarget(goal: GoalDetailsRecord): boolean {
     return goal.progressValue >= (goal.targetValue ?? Number.POSITIVE_INFINITY);
   }
   if (goal.targetType === GoalTargetType.CHECK_IN_COUNT) {
-    return goal.completedOccurrences >= (goal.targetValue ?? Number.POSITIVE_INFINITY);
+    return (
+      goal.completedOccurrences >=
+      (goal.targetValue ?? Number.POSITIVE_INFINITY)
+    );
   }
   return (
     goal.missedOccurrences === 0 &&
@@ -720,17 +755,51 @@ export async function createGoalV2(
   }
   const targetEndDate =
     input.target.type === "UNTIL_DATE" ? input.target.endDate : undefined;
-  const hardStopDate = resolveGoalHardStopDate({
-    hardStopDate: input.hardStopDate,
-    schedule: input.schedule,
-    targetEndDate,
-    timezone,
-  });
-  const windows = generateGoalOccurrenceWindows({
-    hardStopDate,
-    schedule: input.schedule,
-    timezone,
-  });
+  const startDateKey = getScheduleStartDate(input.schedule);
+  if (
+    (input.hardStopDate && input.hardStopDate < startDateKey) ||
+    (targetEndDate && targetEndDate < startDateKey)
+  ) {
+    throw new GoalV2ServiceError(
+      "INVALID_GOAL_DATE_RANGE",
+      "The goal end date must be on or after its schedule start date",
+    );
+  }
+
+  let hardStopDate: string;
+  try {
+    hardStopDate = resolveGoalHardStopDate({
+      hardStopDate: input.hardStopDate,
+      schedule: input.schedule,
+      targetEndDate,
+      timezone,
+    });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Invalid goal dates";
+    throw new GoalV2ServiceError(
+      message.includes("365 days")
+        ? "GOAL_HORIZON_EXCEEDED"
+        : "INVALID_GOAL_DATE_RANGE",
+      message,
+    );
+  }
+
+  let windows: ReturnType<typeof generateGoalOccurrenceWindows>;
+  try {
+    windows = generateGoalOccurrenceWindows({
+      hardStopDate,
+      schedule: input.schedule,
+      timezone,
+    });
+  } catch (error: unknown) {
+    throw new GoalV2ServiceError(
+      "INVALID_GOAL_SCHEDULE",
+      error instanceof Error
+        ? error.message
+        : "The schedule produces no occurrences",
+    );
+  }
   if (
     input.target.type === "CHECK_IN_COUNT" &&
     input.target.count > windows.length
@@ -740,14 +809,16 @@ export async function createGoalV2(
       "The selected schedule cannot provide enough occurrences before the goal ends",
     );
   }
-  if (input.target.type === "UNTIL_DATE" && input.schedule.type === "ONE_TIME") {
+  if (
+    input.target.type === "UNTIL_DATE" &&
+    input.schedule.type === "ONE_TIME"
+  ) {
     throw new GoalV2ServiceError(
       "INVALID_TARGET_SCHEDULE",
       "Date-based adherence goals require a recurring schedule",
     );
   }
 
-  const startDateKey = getScheduleStartDate(input.schedule);
   const startDate = DateTime.fromISO(startDateKey, { zone: "UTC" }).toJSDate();
   const endDate = DateTime.fromISO(hardStopDate, { zone: "UTC" }).toJSDate();
   const elapsedDays =
@@ -789,59 +860,59 @@ export async function createGoalV2(
     }
     const goal = await transaction.goalV2.create({
       data: {
-      breakStreakOnMiss: missPolicy.breakStreakOnMiss,
-      communityId: input.communityId,
-      description: input.description,
-      endDate,
-      forfeitPendingOnMiss: missPolicy.forfeitPendingOnMiss,
-      graceHours: missPolicy.graceHours,
-      hardStopDate: endDate,
-      maxConsecutiveMisses: missPolicy.maxConsecutiveMisses,
-      missMode: missPolicy.mode,
-      occurrences: {
-        create: windows.map((window) => ({
-          closesAt: window.closesAt,
-          dueDate: window.dueDate,
-          originalDueDate: window.dueDate,
-        })),
-      },
-      reminderTimes: [...input.reminderTimes].sort(),
-      reopenedFromId: options.reopenedFromId,
-      rewardPlan: {
-        create: {
-          eligible: rewardEligible,
-          eligibleAt: rewardEligible
-            ? DateTime.fromISO(startDateKey, { zone: timezone })
-                .plus({ days: GOAL_REWARD_MINIMUM_DAYS - 1 })
-                .startOf("day")
-                .toUTC()
-                .toJSDate()
-            : null,
-          milestones: {
-            create: rewardMilestones.map((milestone, order) => ({
-              ...milestone,
-              order,
-            })),
-          },
-          releasePolicy: input.rewardReleasePolicy,
-          source:
-            options.rewardSource ??
-            (input.templateId
-              ? GoalRewardPlanSource.COMMUNITY_TEMPLATE
-              : GoalRewardPlanSource.STANDARD),
-          totalPotential: rewardEligible ? totalPotential : 0,
+        breakStreakOnMiss: missPolicy.breakStreakOnMiss,
+        communityId: input.communityId,
+        description: input.description,
+        endDate,
+        forfeitPendingOnMiss: missPolicy.forfeitPendingOnMiss,
+        graceHours: missPolicy.graceHours,
+        hardStopDate: endDate,
+        maxConsecutiveMisses: missPolicy.maxConsecutiveMisses,
+        missMode: missPolicy.mode,
+        occurrences: {
+          create: windows.map((window) => ({
+            closesAt: window.closesAt,
+            dueDate: window.dueDate,
+            originalDueDate: window.dueDate,
+          })),
         },
-      },
-      rewardReleasePolicy: input.rewardReleasePolicy,
-      scheduleType: toPrismaScheduleType(input.schedule.type),
-      startDate,
-      targetType: GoalTargetType[input.target.type],
-      targetValue,
-      templateId: input.templateId,
-      title: input.title,
-      unit: input.target.type === "QUANTITY" ? input.target.unit : null,
-      userId,
-      weekdays: getScheduleWeekdays(input.schedule),
+        reminderTimes: [...input.reminderTimes].sort(),
+        reopenedFromId: options.reopenedFromId,
+        rewardPlan: {
+          create: {
+            eligible: rewardEligible,
+            eligibleAt: rewardEligible
+              ? DateTime.fromISO(startDateKey, { zone: timezone })
+                  .plus({ days: GOAL_REWARD_MINIMUM_DAYS - 1 })
+                  .startOf("day")
+                  .toUTC()
+                  .toJSDate()
+              : null,
+            milestones: {
+              create: rewardMilestones.map((milestone, order) => ({
+                ...milestone,
+                order,
+              })),
+            },
+            releasePolicy: input.rewardReleasePolicy,
+            source:
+              options.rewardSource ??
+              (input.templateId
+                ? GoalRewardPlanSource.COMMUNITY_TEMPLATE
+                : GoalRewardPlanSource.STANDARD),
+            totalPotential: rewardEligible ? totalPotential : 0,
+          },
+        },
+        rewardReleasePolicy: input.rewardReleasePolicy,
+        scheduleType: toPrismaScheduleType(input.schedule.type),
+        startDate,
+        targetType: GoalTargetType[input.target.type],
+        targetValue,
+        templateId: input.templateId,
+        title: input.title,
+        unit: input.target.type === "QUANTITY" ? input.target.unit : null,
+        userId,
+        weekdays: getScheduleWeekdays(input.schedule),
       },
       include: goalDetailsInclude,
     });
@@ -852,6 +923,14 @@ export async function createGoalV2(
       });
     }
     return goal;
+  });
+  await recordGoalLifecycleSignal({
+    eventType: "GOAL_CREATED",
+    goalId: created.id,
+    status: created.status,
+    timezone,
+    title: created.title,
+    userId,
   });
   return serializeGoal(created, timezone);
 }
@@ -965,9 +1044,15 @@ export async function recordGoalProgress(
     }
     const goal = await getOwnedGoal(transaction, goalId, userId);
     if (goal.status !== GoalV2Status.ACTIVE) {
-      throw new GoalV2ServiceError("GOAL_NOT_ACTIVE", "Goal is not active", 409);
+      throw new GoalV2ServiceError(
+        "GOAL_NOT_ACTIVE",
+        "Goal is not active",
+        409,
+      );
     }
-    const occurrence = goal.occurrences.find((item) => item.id === occurrenceId);
+    const occurrence = goal.occurrences.find(
+      (item) => item.id === occurrenceId,
+    );
     if (!occurrence) {
       throw new GoalV2ServiceError(
         "OCCURRENCE_NOT_FOUND",
@@ -993,7 +1078,10 @@ export async function recordGoalProgress(
         409,
       );
     }
-    if (occurrence.status === GoalOccurrenceStatus.PENDING && now > occurrence.closesAt) {
+    if (
+      occurrence.status === GoalOccurrenceStatus.PENDING &&
+      now > occurrence.closesAt
+    ) {
       throw new GoalV2ServiceError(
         "OCCURRENCE_OVERDUE",
         "This occurrence has passed its due window",
@@ -1054,15 +1142,38 @@ export async function recordGoalProgress(
     await awardCrossedMilestones(transaction, updatedGoal, percentage, now);
     const refreshedGoal = await getOwnedGoal(transaction, goal.id, userId);
     if (hasReachedTarget(refreshedGoal)) {
-      await finishGoal(
-        transaction,
-        refreshedGoal,
-        GoalV2Status.COMPLETED,
-        now,
-      );
+      await finishGoal(transaction, refreshedGoal, GoalV2Status.COMPLETED, now);
     }
   });
-  return getGoalV2(goalId, userId, timezone);
+  const result = await getGoalV2(goalId, userId, timezone);
+  if (result) {
+    await recordActivitySignal({
+      dedupeKey: `goal-progress:${occurrenceId}:completed`,
+      description: `Completed scheduled progress for “${result.title}”.`,
+      eventType: "GOAL_PROGRESS_COMPLETED",
+      metadata: {
+        currentStreak: result.progress.currentStreak,
+        goalId,
+        occurrenceId,
+        status: result.status,
+      },
+      sourceId: occurrenceId,
+      sourceType: ActivitySignalSourceType.GOAL,
+      timezone,
+      userId,
+    });
+    if (result.status === GoalV2Status.COMPLETED) {
+      await recordGoalLifecycleSignal({
+        eventType: "GOAL_COMPLETED",
+        goalId,
+        status: GoalV2Status.COMPLETED,
+        timezone,
+        title: result.title,
+        userId,
+      });
+    }
+  }
+  return result;
 }
 
 export async function updateGoalProgress(
@@ -1083,7 +1194,11 @@ export async function updateGoalProgress(
   }
   const occurrence = goal.occurrences.find((item) => item.id === occurrenceId);
   if (!occurrence?.progress) {
-    throw new GoalV2ServiceError("PROGRESS_NOT_FOUND", "Progress not found", 404);
+    throw new GoalV2ServiceError(
+      "PROGRESS_NOT_FOUND",
+      "Progress not found",
+      404,
+    );
   }
   if (getLocalDateKey(now, timezone) !== parseDateKey(occurrence.dueDate)) {
     throw new GoalV2ServiceError(
@@ -1094,7 +1209,7 @@ export async function updateGoalProgress(
   }
   const amount =
     goal.targetType === GoalTargetType.QUANTITY
-      ? input.amount ?? occurrence.progress.amount
+      ? (input.amount ?? occurrence.progress.amount)
       : 1;
   if (amount <= 0) {
     throw new GoalV2ServiceError("INVALID_AMOUNT", "Amount must be positive");
@@ -1104,9 +1219,7 @@ export async function updateGoalProgress(
     prisma.goalProgressEntry.update({
       data: {
         amount,
-        ...(input.attachments
-          ? { attachments: input.attachments }
-          : {}),
+        ...(input.attachments ? { attachments: input.attachments } : {}),
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
       },
       where: { occurrenceId },
@@ -1116,6 +1229,14 @@ export async function updateGoalProgress(
       where: { id: goal.id },
     }),
   ]);
+  await recordGoalLifecycleSignal({
+    eventType: "GOAL_PAUSED",
+    goalId,
+    status: GoalV2Status.PAUSED,
+    timezone,
+    title: goal.title,
+    userId,
+  });
   return getGoalV2(goalId, userId, timezone);
 }
 
@@ -1136,7 +1257,11 @@ export async function deleteGoalProgress(
   }
   const occurrence = goal.occurrences.find((item) => item.id === occurrenceId);
   if (!occurrence?.progress) {
-    throw new GoalV2ServiceError("PROGRESS_NOT_FOUND", "Progress not found", 404);
+    throw new GoalV2ServiceError(
+      "PROGRESS_NOT_FOUND",
+      "Progress not found",
+      404,
+    );
   }
   if (getLocalDateKey(now, timezone) !== parseDateKey(occurrence.dueDate)) {
     throw new GoalV2ServiceError(
@@ -1175,7 +1300,10 @@ export async function updateGoalV2(
   },
 ) {
   const goal = await getOwnedGoal(prisma, goalId, userId);
-  if (goal.status !== GoalV2Status.ACTIVE && goal.status !== GoalV2Status.PAUSED) {
+  if (
+    goal.status !== GoalV2Status.ACTIVE &&
+    goal.status !== GoalV2Status.PAUSED
+  ) {
     throw new GoalV2ServiceError(
       "GOAL_ENDED",
       "Only active or paused goals can be edited",
@@ -1246,7 +1374,8 @@ export async function rescheduleGoalOccurrence(
     );
   }
   const duplicate = goal.occurrences.some(
-    (item) => item.id !== occurrenceId && parseDateKey(item.dueDate) === dueDateKey,
+    (item) =>
+      item.id !== occurrenceId && parseDateKey(item.dueDate) === dueDateKey,
   );
   if (duplicate) {
     throw new GoalV2ServiceError(
@@ -1332,7 +1461,11 @@ export async function resumeGoalV2(
   await prisma.$transaction(async (transaction) => {
     const goal = await getOwnedGoal(transaction, goalId, userId);
     if (goal.status !== GoalV2Status.PAUSED || !goal.pausedAt) {
-      throw new GoalV2ServiceError("GOAL_NOT_PAUSED", "Goal is not paused", 409);
+      throw new GoalV2ServiceError(
+        "GOAL_NOT_PAUSED",
+        "Goal is not paused",
+        409,
+      );
     }
     const now = new Date();
     const pauseDays = Math.max(
@@ -1349,9 +1482,15 @@ export async function resumeGoalV2(
       await transaction.goalOccurrence.updateMany({
         data: { status: GoalOccurrenceStatus.CANCELLED },
         where: {
-          dueDate: { lt: DateTime.fromISO(getLocalDateKey(now, timezone), { zone: "UTC" }).toJSDate() },
+          dueDate: {
+            lt: DateTime.fromISO(getLocalDateKey(now, timezone), {
+              zone: "UTC",
+            }).toJSDate(),
+          },
           goalId,
-          status: { in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING] },
+          status: {
+            in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING],
+          },
         },
       });
     }
@@ -1377,7 +1516,18 @@ export async function resumeGoalV2(
       });
     }
   });
-  return getGoalV2(goalId, userId, timezone);
+  const resumed = await getGoalV2(goalId, userId, timezone);
+  if (resumed) {
+    await recordGoalLifecycleSignal({
+      eventType: "GOAL_RESUMED",
+      goalId,
+      status: GoalV2Status.ACTIVE,
+      timezone,
+      title: resumed.title,
+      userId,
+    });
+  }
+  return resumed;
 }
 
 export async function abandonGoalV2(
@@ -1385,17 +1535,25 @@ export async function abandonGoalV2(
   userId: string,
   timezone: string,
 ) {
+  let goalTitle = "Goal";
   await prisma.$transaction(async (transaction) => {
     const goal = await getOwnedGoal(transaction, goalId, userId);
-    if (goal.status !== GoalV2Status.ACTIVE && goal.status !== GoalV2Status.PAUSED) {
+    goalTitle = goal.title;
+    if (
+      goal.status !== GoalV2Status.ACTIVE &&
+      goal.status !== GoalV2Status.PAUSED
+    ) {
       throw new GoalV2ServiceError("GOAL_ENDED", "Goal has already ended", 409);
     }
-    await finishGoal(
-      transaction,
-      goal,
-      GoalV2Status.ABANDONED,
-      new Date(),
-    );
+    await finishGoal(transaction, goal, GoalV2Status.ABANDONED, new Date());
+  });
+  await recordGoalLifecycleSignal({
+    eventType: "GOAL_ABANDONED",
+    goalId,
+    status: GoalV2Status.ABANDONED,
+    timezone,
+    title: goalTitle,
+    userId,
   });
   return getGoalV2(goalId, userId, timezone);
 }
@@ -1439,7 +1597,10 @@ export async function permanentlyDeleteGoalV2(
   await prisma.goalV2.delete({ where: { id: goalId } });
 }
 
-function scheduleFromGoal(goal: GoalDetailsRecord, startDate: string): GoalScheduleInput {
+function scheduleFromGoal(
+  goal: GoalDetailsRecord,
+  startDate: string,
+): GoalScheduleInput {
   if (goal.scheduleType === GoalScheduleType.ONE_TIME) {
     return { date: startDate, type: "ONE_TIME" };
   }
@@ -1471,7 +1632,11 @@ export async function reopenGoalV2(
     goal.status !== GoalV2Status.AUTO_ABANDONED &&
     goal.status !== GoalV2Status.COMPLETED
   ) {
-    throw new GoalV2ServiceError("GOAL_NOT_ENDED", "Only ended goals can be reopened", 409);
+    throw new GoalV2ServiceError(
+      "GOAL_NOT_ENDED",
+      "Only ended goals can be reopened",
+      409,
+    );
   }
   const startDate = getLocalDateKey(new Date(), timezone);
   const target =
@@ -1483,9 +1648,10 @@ export async function reopenGoalV2(
         }
       : goal.targetType === GoalTargetType.UNTIL_DATE
         ? {
-            endDate: DateTime.fromISO(startDate)
-              .plus({ days: Math.max(1, goal.occurrences.length - 1) })
-              .toISODate() ?? startDate,
+            endDate:
+              DateTime.fromISO(startDate)
+                .plus({ days: Math.max(1, goal.occurrences.length - 1) })
+                .toISODate() ?? startDate,
             type: "UNTIL_DATE" as const,
           }
         : {
@@ -1591,6 +1757,44 @@ async function finalizeMissedOccurrence(
   });
 }
 
+async function recordMissedOccurrenceSignal(occurrence: {
+  goal: { title: string; userId: string };
+  goalId: string;
+  id: string;
+}): Promise<void> {
+  const [user, goal] = await Promise.all([
+    prisma.user.findUnique({
+      select: { timezone: true },
+      where: { id: occurrence.goal.userId },
+    }),
+    prisma.goalV2.findUnique({
+      select: { status: true },
+      where: { id: occurrence.goalId },
+    }),
+  ]);
+  const timezone = user?.timezone ?? "UTC";
+  await recordActivitySignal({
+    dedupeKey: `goal-progress:${occurrence.id}:missed`,
+    description: `Missed scheduled progress for “${occurrence.goal.title}”.`,
+    eventType: "GOAL_PROGRESS_MISSED",
+    metadata: { goalId: occurrence.goalId, occurrenceId: occurrence.id },
+    sourceId: occurrence.id,
+    sourceType: ActivitySignalSourceType.GOAL,
+    timezone,
+    userId: occurrence.goal.userId,
+  });
+  if (goal?.status === GoalV2Status.AUTO_ABANDONED) {
+    await recordGoalLifecycleSignal({
+      eventType: "GOAL_AUTO_ABANDONED",
+      goalId: occurrence.goalId,
+      status: goal.status,
+      timezone,
+      title: occurrence.goal.title,
+      userId: occurrence.goal.userId,
+    });
+  }
+}
+
 export async function processGoalV2Lifecycle(now = new Date()): Promise<{
   autoAbandoned: number;
   graceStarted: number;
@@ -1620,10 +1824,12 @@ export async function processGoalV2Lifecycle(now = new Date()): Promise<{
       graceStarted += 1;
     } else {
       await finalizeMissedOccurrence(occurrence.id, now);
+      await recordMissedOccurrenceSignal(occurrence);
       missed += 1;
     }
   }
   const expiredGrace = await prisma.goalOccurrence.findMany({
+    include: { goal: true },
     where: {
       graceEndsAt: { lt: now },
       goal: { status: GoalV2Status.ACTIVE },
@@ -1632,10 +1838,13 @@ export async function processGoalV2Lifecycle(now = new Date()): Promise<{
   });
   for (const occurrence of expiredGrace) {
     await finalizeMissedOccurrence(occurrence.id, now);
+    await recordMissedOccurrenceSignal(occurrence);
     missed += 1;
   }
 
-  const todayUtc = DateTime.fromJSDate(now, { zone: "UTC" }).startOf("day").toJSDate();
+  const todayUtc = DateTime.fromJSDate(now, { zone: "UTC" })
+    .startOf("day")
+    .toJSDate();
   const expiredGoals = await prisma.goalV2.findMany({
     include: goalDetailsInclude,
     where: {
@@ -1652,16 +1861,13 @@ export async function processGoalV2Lifecycle(now = new Date()): Promise<{
   });
   let autoAbandoned = 0;
   for (const goal of expiredGoals) {
+    let finalStatus: GoalV2Status = GoalV2Status.COMPLETED;
     await prisma.$transaction(async (transaction) => {
       const current = await getOwnedGoal(transaction, goal.id, goal.userId);
       if (hasReachedTarget(current)) {
-        await finishGoal(
-          transaction,
-          current,
-          GoalV2Status.COMPLETED,
-          now,
-        );
+        await finishGoal(transaction, current, GoalV2Status.COMPLETED, now);
       } else {
+        finalStatus = GoalV2Status.AUTO_ABANDONED;
         await finishGoal(
           transaction,
           current,
@@ -1670,6 +1876,21 @@ export async function processGoalV2Lifecycle(now = new Date()): Promise<{
         );
         autoAbandoned += 1;
       }
+    });
+    const user = await prisma.user.findUnique({
+      select: { timezone: true },
+      where: { id: goal.userId },
+    });
+    await recordGoalLifecycleSignal({
+      eventType:
+        finalStatus === GoalV2Status.COMPLETED
+          ? "GOAL_COMPLETED"
+          : "GOAL_AUTO_ABANDONED",
+      goalId: goal.id,
+      status: finalStatus,
+      timezone: user?.timezone ?? "UTC",
+      title: goal.title,
+      userId: goal.userId,
     });
   }
   return { autoAbandoned, graceStarted, missed };

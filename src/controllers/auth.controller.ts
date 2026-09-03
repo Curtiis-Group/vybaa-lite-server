@@ -28,6 +28,7 @@ export function formatUserResponse(user: any) {
     avatarUrl: user.avatarUrl || undefined,
     currentMood: user.currentMood || undefined,
     rewindPersona: user.rewindPersona || undefined,
+    rewindPersonalizationEnabled: user.rewindPersonalizationEnabled ?? true,
     timezone: user.timezone || "UTC",
     isConfirmed: user.isConfirmed,
     isFirstTime: user.isFirstTime,

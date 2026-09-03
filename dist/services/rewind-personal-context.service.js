@@ -33,9 +33,13 @@ async function loadRewindPersonalContext(userId, timezone, sessionId) {
     const today = luxon_1.DateTime.fromISO(localToday ?? luxon_1.DateTime.now().toISODate(), {
         zone: "UTC",
     }).toJSDate();
-    const [user, goals, memories, conclusions, achievements, rewards] = await Promise.all([
+    const [user, goals, memories, conclusions, achievements, rewards, observations,] = await Promise.all([
         db_config_1.prisma.user.findUnique({
-            select: { points: true, realPointsBalance: true },
+            select: {
+                points: true,
+                realPointsBalance: true,
+                rewindPersonalizationEnabled: true,
+            },
             where: { id: userId },
         }),
         db_config_1.prisma.goalV2.findMany({
@@ -93,6 +97,16 @@ async function loadRewindPersonalContext(userId, timezone, sessionId) {
                 recipientId: userId,
             },
         }),
+        db_config_1.prisma.dailyObservation.findMany({
+            orderBy: { localDateKey: "desc" },
+            select: {
+                description: true,
+                localDateKey: true,
+                personaId: true,
+            },
+            take: 5,
+            where: { dismissedAt: null, userId },
+        }),
     ]);
     return {
         achievements: achievements.map((achievement) => ({
@@ -145,6 +159,12 @@ async function loadRewindPersonalContext(userId, timezone, sessionId) {
             partner: PARTNER_NAMES[memory.personaId] ?? memory.personaId,
             summary: memory.summary?.trim().slice(0, 1200) ?? "",
         })),
+        observations: observations.map((observation) => ({
+            dateKey: observation.localDateKey,
+            description: observation.description,
+            personaId: observation.personaId,
+        })),
+        personalizationEnabled: user?.rewindPersonalizationEnabled ?? true,
         recentRewards: rewards.map((reward) => ({
             amount: reward.amount,
             createdAt: reward.createdAt.toISOString(),
@@ -153,6 +173,16 @@ async function loadRewindPersonalContext(userId, timezone, sessionId) {
     };
 }
 function formatRewindPersonalContext(context) {
+    if (!context.personalizationEnabled)
+        return "";
+    const observationContext = context.observations
+        .map((observation) => {
+        const partner = observation.personaId
+            ? (PARTNER_NAMES[observation.personaId] ?? observation.personaId)
+            : "Vybaa activity";
+        return `- ${partner}, ${observation.dateKey}: ${observation.description}`;
+    })
+        .join("\n");
     return (`Account context (private, current, and never recited as a report):\n` +
         `- Play Points: ${context.balances.playPoints.toFixed(2)}\n` +
         `- Real-points balance: ${context.balances.realPoints}\n` +
@@ -160,6 +190,7 @@ function formatRewindPersonalContext(context) {
         `- Recent goal conclusions: ${JSON.stringify(context.goalConclusions)}\n` +
         `- Recent reward events: ${JSON.stringify(context.recentRewards)}\n` +
         `- Recent achievements: ${JSON.stringify(context.achievements)}\n` +
+        `Recent grounded observations. Credit a named partner and date whenever one is used:\n${observationContext}\n` +
         `Cross-partner memories. When using one, credit the named partner and date naturally:\n` +
         context.memories
             .map((memory) => `- ${memory.partner}, ${memory.dateKey}: ${memory.summary}${memory.emotionalInsight ? ` Insight: ${memory.emotionalInsight}` : ""}${memory.comparisonInsight ? ` Pattern: ${memory.comparisonInsight}` : ""}`)

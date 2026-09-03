@@ -6,7 +6,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handlePaystackWebhook = handlePaystackWebhook;
 exports.handlePolarWebhook = handlePolarWebhook;
 const node_crypto_1 = __importDefault(require("node:crypto"));
+const client_1 = require("@prisma/client");
 const db_config_1 = require("../config/db.config");
+const activity_signal_service_1 = require("../services/activity-signal.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 // NOTE: This handler expects `req.body` to be a raw Buffer.
 // We mount it with `express.raw({ type: 'application/json' })` at the app level.
@@ -64,6 +66,29 @@ async function handlePaystackWebhook(req, res) {
                                 },
                             }),
                         ]);
+                        try {
+                            const recipient = await db_config_1.prisma.user.findUnique({
+                                select: { timezone: true },
+                                where: { id: tx.recipientId },
+                            });
+                            await (0, activity_signal_service_1.recordActivitySignal)({
+                                dedupeKey: `wallet-funding:${tx.id}:completed`,
+                                description: `Added ${credit} real points to the wallet.`,
+                                eventType: "REAL_POINTS_ADDED",
+                                sourceId: tx.id,
+                                sourceType: client_1.ActivitySignalSourceType.REWARD,
+                                timezone: recipient?.timezone ?? "UTC",
+                                userId: tx.recipientId,
+                            });
+                        }
+                        catch (signalError) {
+                            logger_util_1.default.warn("Unable to record wallet funding activity signal", {
+                                errorName: signalError instanceof Error
+                                    ? signalError.name
+                                    : "UnknownError",
+                                transactionId: tx.id,
+                            });
+                        }
                     }
                     else {
                         await db_config_1.prisma.transaction.update({

@@ -1,3 +1,5 @@
+import { ActivitySignalSourceType } from "@prisma/client";
+
 import { prisma } from "../config/db.config";
 import {
   getBadgeDefinition,
@@ -7,6 +9,7 @@ import {
 import { notificationService } from "./notification.service";
 import { communityActivityService } from "./community-activity.service";
 import logger from "../utils/logger.util";
+import { recordActivitySignal } from "./activity-signal.service";
 
 export interface AwardedAchievement {
   id: string;
@@ -25,7 +28,7 @@ class AchievementService {
   async hasAchievement(
     userId: string,
     type: string,
-    milestone: number
+    milestone: number,
   ): Promise<boolean> {
     const existing = await prisma.achievement.findUnique({
       where: {
@@ -47,7 +50,7 @@ class AchievementService {
     userId: string,
     type: string,
     milestone: number,
-    goalId?: string
+    goalId?: string,
   ): Promise<AwardedAchievement | null> {
     try {
       // Check if already earned
@@ -59,7 +62,9 @@ class AchievementService {
       // Get badge definition
       const badgeDef = getBadgeDefinition(type, milestone);
       if (!badgeDef) {
-        logger.warn(`No badge definition found for ${type} milestone ${milestone}`);
+        logger.warn(
+          `No badge definition found for ${type} milestone ${milestone}`,
+        );
         return null;
       }
 
@@ -75,6 +80,31 @@ class AchievementService {
           badgeIcon: badgeDef.badgeIcon,
         },
       });
+
+      try {
+        const user = await prisma.user.findUnique({
+          select: { timezone: true },
+          where: { id: userId },
+        });
+        await recordActivitySignal({
+          dedupeKey: `achievement:${achievement.id}:earned`,
+          description: `Earned “${achievement.title}”: ${achievement.description}`,
+          eventType: "ACHIEVEMENT_EARNED",
+          happenedAt: achievement.earnedAt,
+          metadata: { milestone, type },
+          sourceId: achievement.id,
+          sourceType: ActivitySignalSourceType.ACHIEVEMENT,
+          timezone: user?.timezone ?? "UTC",
+          userId,
+        });
+      } catch (signalError: unknown) {
+        logger.warn("Unable to record achievement activity signal", {
+          achievementId: achievement.id,
+          errorName:
+            signalError instanceof Error ? signalError.name : "UnknownError",
+          userId,
+        });
+      }
 
       // Send notification about achievement
       await notificationService.createNotification({
@@ -94,7 +124,11 @@ class AchievementService {
 
       // Create community activity for achievement
       if (goalId) {
-        await communityActivityService.createAchievementActivity(achievement.id, userId, goalId);
+        await communityActivityService.createAchievementActivity(
+          achievement.id,
+          userId,
+          goalId,
+        );
       }
 
       logger.info(`Badge awarded: ${badgeDef.title} to user ${userId}`);
@@ -121,7 +155,7 @@ class AchievementService {
     userId: string,
     goalId: string,
     currentDay: number,
-    wasResetBefore: boolean = false
+    wasResetBefore: boolean = false,
   ): Promise<AwardedAchievement[]> {
     const awardedBadges: AwardedAchievement[] = [];
 
@@ -129,7 +163,12 @@ class AchievementService {
       // 1. Check streak milestone badges
       const streakMilestones = getStreakMilestones();
       if (streakMilestones.includes(currentDay)) {
-        const badge = await this.awardBadge(userId, "streak_milestone", currentDay, goalId);
+        const badge = await this.awardBadge(
+          userId,
+          "streak_milestone",
+          currentDay,
+          goalId,
+        );
         if (badge) awardedBadges.push(badge);
       }
 
@@ -143,7 +182,12 @@ class AchievementService {
         });
 
         if (checkIns.length === 7) {
-          const badge = await this.awardBadge(userId, "perfect_week", 1, goalId);
+          const badge = await this.awardBadge(
+            userId,
+            "perfect_week",
+            1,
+            goalId,
+          );
           if (badge) awardedBadges.push(badge);
         }
       }
@@ -164,14 +208,18 @@ class AchievementService {
       const checkInMilestones = [50, 100, 200, 500];
       for (const milestone of checkInMilestones) {
         if (totalCheckIns === milestone) {
-          const badge = await this.awardBadge(userId, "total_checkins", milestone);
+          const badge = await this.awardBadge(
+            userId,
+            "total_checkins",
+            milestone,
+          );
           if (badge) awardedBadges.push(badge);
         }
       }
 
       // 5. Check early bird / night owl (based on current time)
       const currentHour = new Date().getHours();
-      
+
       if (currentHour < 9) {
         const badge = await this.awardBadge(userId, "early_bird", 1);
         if (badge) awardedBadges.push(badge);
@@ -190,7 +238,9 @@ class AchievementService {
   /**
    * Check and award total goals completed badge
    */
-  async checkTotalGoalsAchievement(userId: string): Promise<AwardedAchievement | null> {
+  async checkTotalGoalsAchievement(
+    userId: string,
+  ): Promise<AwardedAchievement | null> {
     try {
       // Count completed goals (currentDay >= targetDays)
       const completedGoals = await prisma.goal.count({
@@ -258,10 +308,15 @@ class AchievementService {
           earnedAt: a.earnedAt.toISOString(),
         })),
       byType: {
-        streak_milestone: achievements.filter((a) => a.type === "streak_milestone").length,
-        total_goals: achievements.filter((a) => a.type === "total_goals").length,
-        total_checkins: achievements.filter((a) => a.type === "total_checkins").length,
-        perfect_week: achievements.filter((a) => a.type === "perfect_week").length,
+        streak_milestone: achievements.filter(
+          (a) => a.type === "streak_milestone",
+        ).length,
+        total_goals: achievements.filter((a) => a.type === "total_goals")
+          .length,
+        total_checkins: achievements.filter((a) => a.type === "total_checkins")
+          .length,
+        perfect_week: achievements.filter((a) => a.type === "perfect_week")
+          .length,
         comeback: achievements.filter((a) => a.type === "comeback").length,
         early_bird: achievements.filter((a) => a.type === "early_bird").length,
         night_owl: achievements.filter((a) => a.type === "night_owl").length,

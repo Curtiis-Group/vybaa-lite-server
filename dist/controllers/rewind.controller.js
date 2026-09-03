@@ -1021,6 +1021,7 @@ async function handleLiveConnection(ws, req) {
             lastName: true,
             emotionSummary: true,
             currentMood: true,
+            rewindPersonalizationEnabled: true,
             timezone: true,
         },
     });
@@ -1062,18 +1063,24 @@ async function handleLiveConnection(ws, req) {
         return;
     }
     const connectionTimezone = normalizeRewindTimezone(sessionState?.timezone ?? user?.timezone ?? auth.timezone);
+    const personalizationEnabled = REWIND_PERSONAL_CONTEXT_ENABLED &&
+        user?.rewindPersonalizationEnabled !== false;
     const [previousSessions, journalEntries, routine, personalContext] = await Promise.all([
-        loadPreviousRewindSessions({
-            userId: auth.userId,
-            personaId,
-            currentSessionId: sessionState?.sessionId,
-        }),
-        loadRecentJournalEntries({
-            userId: auth.userId,
-            timezone: sessionState?.timezone ?? user?.timezone ?? auth.timezone,
-        }),
+        personalizationEnabled
+            ? loadPreviousRewindSessions({
+                userId: auth.userId,
+                personaId,
+                currentSessionId: sessionState?.sessionId,
+            })
+            : Promise.resolve([]),
+        personalizationEnabled
+            ? loadRecentJournalEntries({
+                userId: auth.userId,
+                timezone: sessionState?.timezone ?? user?.timezone ?? auth.timezone,
+            })
+            : Promise.resolve([]),
         db_config_1.prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
-        REWIND_PERSONAL_CONTEXT_ENABLED
+        personalizationEnabled
             ? (0, rewind_personal_context_service_1.loadRewindPersonalContext)(auth.userId, connectionTimezone, sessionState?.sessionId).catch((error) => {
                 logger_util_1.default.warn("Rewind personal context unavailable", {
                     errorName: error instanceof Error ? error.name : "UnknownError",
@@ -1536,7 +1543,9 @@ async function handleLiveConnection(ws, req) {
                     systemInstruction: {
                         parts: [
                             {
-                                text: getRewindSystemInstruction(personaId, user, previousSessions, journalEntries, getRewindTemporalContext(new Date(), connectionTimezone), routine ? (0, rewind_routine_service_1.getRewindIntentLabel)(routine) : undefined, personalContext
+                                text: getRewindSystemInstruction(personaId, user, previousSessions, journalEntries, getRewindTemporalContext(new Date(), connectionTimezone), personalizationEnabled && routine
+                                    ? (0, rewind_routine_service_1.getRewindIntentLabel)(routine)
+                                    : undefined, personalContext
                                     ? (0, rewind_personal_context_service_1.formatRewindPersonalContext)(personalContext)
                                     : undefined),
                             },

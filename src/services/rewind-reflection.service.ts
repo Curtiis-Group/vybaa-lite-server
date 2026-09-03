@@ -22,6 +22,10 @@ export type RewindReflection = {
 };
 
 export type RewindReflectionContext = {
+  activityObservations?: Array<{
+    description: string;
+    sourceType: string;
+  }>;
   intent?: string | null;
   journalEntries: Array<{ content: string; dateKey: string }>;
   personaName: string;
@@ -105,23 +109,31 @@ function formatTranscript(
   transcript: RewindReflectionContext["transcript"],
 ): string {
   return transcript
-    .map((turn) => `${turn.role === "user" ? "User" : "Partner"}: ${turn.content}`)
+    .map(
+      (turn) => `${turn.role === "user" ? "User" : "Partner"}: ${turn.content}`,
+    )
     .join("\n");
 }
 
-function formatPriorContext(
-  context: RewindReflectionContext,
-): string {
+function formatPriorContext(context: RewindReflectionContext): string {
   const memories = context.previousSummaries
     .map((entry) => `- ${entry.dateKey}: ${entry.summary}`)
     .join("\n");
   const journals = context.journalEntries
     .map((entry) => `- ${entry.dateKey}: ${entry.content}`)
     .join("\n");
+  const activities = context.activityObservations
+    ?.map((entry) => `- [${entry.sourceType}] ${entry.description}`)
+    .join("\n");
 
   return [
-    memories ? `Private memories from ${context.personaName}:\n${memories}` : "",
+    memories
+      ? `Private memories from ${context.personaName}:\n${memories}`
+      : "",
     journals ? `The user's explicit journal entries:\n${journals}` : "",
+    activities
+      ? `Grounded activity from this local day. Use it only to clarify what the user shared; never let it override the transcript:\n${activities}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -136,7 +148,7 @@ export async function generateRewindReflection(
 
   const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
   const response = await client.models.generateContent({
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-2.5-flash",
+    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.5-flash",
     contents: [
       {
         role: "user",

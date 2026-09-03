@@ -19,6 +19,7 @@ const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
 const notification_service_1 = require("./notification.service");
 const rewind_session_finalization_service_1 = require("./rewind-session-finalization.service");
+const activity_signal_service_1 = require("./activity-signal.service");
 exports.DEFAULT_REWIND_TIMEZONE = "UTC";
 exports.MORNING_REWIND_TIME = "08:00";
 exports.EVENING_REWIND_TIME = "20:00";
@@ -206,7 +207,12 @@ async function getRewindRoutineOverview(params) {
                 userId: params.userId,
                 scheduledFor: { lte: now },
                 windowEndsAt: { gt: now },
-                status: { in: [client_1.RewindSessionStatus.SCHEDULED, client_1.RewindSessionStatus.IN_PROGRESS] },
+                status: {
+                    in: [
+                        client_1.RewindSessionStatus.SCHEDULED,
+                        client_1.RewindSessionStatus.IN_PROGRESS,
+                    ],
+                },
             },
             orderBy: { scheduledFor: "asc" },
         }),
@@ -223,10 +229,7 @@ async function getRewindRoutineOverview(params) {
                 userId: params.userId,
                 scheduledFor: { lte: now },
                 status: {
-                    in: [
-                        client_1.RewindSessionStatus.COMPLETED,
-                        client_1.RewindSessionStatus.MISSED,
-                    ],
+                    in: [client_1.RewindSessionStatus.COMPLETED, client_1.RewindSessionStatus.MISSED],
                 },
             },
             orderBy: { scheduledFor: "desc" },
@@ -392,7 +395,15 @@ async function runRewindRoutineLifecycle(params) {
                 },
                 windowEndsAt: { lte: now },
             },
-            select: { id: true, status: true },
+            select: {
+                id: true,
+                personaId: true,
+                scheduledFor: true,
+                sessionDateKey: true,
+                status: true,
+                timezone: true,
+                userId: true,
+            },
             take: 500,
         }),
     ]);
@@ -405,6 +416,20 @@ async function runRewindRoutineLifecycle(params) {
                 data: { status: client_1.RewindSessionStatus.MISSED },
             });
             missedCount += result.count;
+            if (result.count) {
+                await (0, activity_signal_service_1.recordActivitySignal)({
+                    dedupeKey: `rewind-routine:${occurrence.id}:missed`,
+                    description: `Skipped the scheduled Rewind with ${occurrence.personaId}.`,
+                    eventType: "REWIND_ROUTINE_SKIPPED",
+                    happenedAt: occurrence.scheduledFor ?? now,
+                    localDateKey: occurrence.sessionDateKey ?? undefined,
+                    personaId: occurrence.personaId,
+                    sourceId: occurrence.id,
+                    sourceType: client_1.ActivitySignalSourceType.REWIND_ROUTINE,
+                    timezone: occurrence.timezone ?? "UTC",
+                    userId: occurrence.userId,
+                });
+            }
             continue;
         }
         const result = await (0, rewind_session_finalization_service_1.finalizeRewindSession)({

@@ -3,6 +3,7 @@ import { processPendingRevenueCatWebhooks } from "./revenuecat-webhook.service";
 import { runRewindRoutineLifecycle } from "./rewind-routine.service";
 import { processGoalV2Lifecycle } from "./goal-v2.service";
 import { scheduleGoalV2Reminders } from "./goal-v2-reminder.service";
+import { refreshPendingDailyObservations } from "./daily-observation.service";
 import logger from "../utils/logger.util";
 
 class SchedulerService {
@@ -26,10 +27,15 @@ class SchedulerService {
     // Schedule goal reminders every hour
     this.scheduleGoalReminders();
     this.scheduleEngagementNotifications();
-    this.schedulingIntervalId = setInterval(() => {
-      this.scheduleGoalReminders();
-      this.scheduleEngagementNotifications();
-    }, 60 * 60 * 1000); // Every hour
+    this.refreshDailyObservations();
+    this.schedulingIntervalId = setInterval(
+      () => {
+        this.scheduleGoalReminders();
+        this.scheduleEngagementNotifications();
+        this.refreshDailyObservations();
+      },
+      60 * 60 * 1000,
+    ); // Every hour
 
     // Process pending notifications every minute
     this.processPendingNotifications();
@@ -61,7 +67,7 @@ class SchedulerService {
     }
 
     logger.info("Stopping notification scheduler...");
-    
+
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -101,6 +107,19 @@ class SchedulerService {
     }
   }
 
+  private async refreshDailyObservations(): Promise<void> {
+    try {
+      const result = await refreshPendingDailyObservations();
+      if (result.generated) {
+        logger.info("Refreshed Rewind daily observations", result);
+      }
+    } catch (error: unknown) {
+      logger.error("Error refreshing Rewind daily observations", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+
   /**
    * Process pending notifications
    */
@@ -137,7 +156,10 @@ class SchedulerService {
         lifecycle.missed ||
         reminderCount
       ) {
-        logger.info("Processed goal v2 lifecycle", { ...lifecycle, reminderCount });
+        logger.info("Processed goal v2 lifecycle", {
+          ...lifecycle,
+          reminderCount,
+        });
       }
     } catch (error) {
       logger.error("Error processing goal v2 lifecycle", {

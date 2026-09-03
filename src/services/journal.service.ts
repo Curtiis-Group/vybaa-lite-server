@@ -1,5 +1,7 @@
+import { ActivitySignalSourceType } from "@prisma/client";
 import { prisma } from "../config/db.config";
 import { geminiService } from "./gemini.service";
+import { recordActivitySignal } from "./activity-signal.service";
 import logger from "../utils/logger.util";
 
 class JournalService {
@@ -115,6 +117,24 @@ class JournalService {
       },
     });
 
+    const user = await prisma.user.findUnique({
+      select: { timezone: true },
+      where: { id: userId },
+    });
+    await recordActivitySignal({
+      dedupeKey: `journal:${journal.id}:${journal.updatedAt.getTime()}`,
+      description: mood
+        ? `Journal mood: ${mood}. ${content}`
+        : `Journal entry: ${content}`,
+      eventType: "JOURNAL_WRITTEN",
+      happenedAt: journal.updatedAt,
+      metadata: { mood: mood ?? null, tags: tags ?? [] },
+      sourceId: journal.id,
+      sourceType: ActivitySignalSourceType.JOURNAL,
+      timezone: user?.timezone ?? "UTC",
+      userId,
+    });
+
     logger.info("Journal entry created", { userId, journalId: journal.id });
     return journal;
   }
@@ -134,13 +154,37 @@ class JournalService {
     if (mood !== undefined) updateData.mood = mood;
     if (tags !== undefined) updateData.tags = tags;
 
-    return prisma.journal.updateMany({
+    const result = await prisma.journal.updateMany({
       where: {
         id: journalId,
         userId, // Ensure user owns this journal
       },
       data: updateData,
     });
+    if (!result.count) return result;
+    const [journal, user] = await Promise.all([
+      prisma.journal.findFirst({ where: { id: journalId, userId } }),
+      prisma.user.findUnique({
+        select: { timezone: true },
+        where: { id: userId },
+      }),
+    ]);
+    if (journal?.content.trim()) {
+      await recordActivitySignal({
+        dedupeKey: `journal:${journal.id}:${journal.updatedAt.getTime()}`,
+        description: journal.mood
+          ? `Journal mood: ${journal.mood}. ${journal.content}`
+          : `Journal entry: ${journal.content}`,
+        eventType: "JOURNAL_UPDATED",
+        happenedAt: journal.updatedAt,
+        metadata: { mood: journal.mood, tags: journal.tags },
+        sourceId: journal.id,
+        sourceType: ActivitySignalSourceType.JOURNAL,
+        timezone: user?.timezone ?? "UTC",
+        userId,
+      });
+    }
+    return result;
   }
 
   /**

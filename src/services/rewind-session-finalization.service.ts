@@ -1,10 +1,12 @@
 import {
+  ActivitySignalSourceType,
   RewindCompletionSource,
   RewindSessionStatus,
   RewindTurnRole,
 } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../config/db.config";
+import { recordActivitySignal } from "./activity-signal.service";
 import {
   generateRewindReflection,
   type RewindWellbeingSignals,
@@ -28,12 +30,15 @@ export type RewindFinalizationResult = {
   wellbeingSignals: RewindWellbeingSignals | null;
 };
 
-export type RewindFinalizationStage =
-  | "noticing_patterns"
-  | "saving_reflection";
+export type RewindFinalizationStage = "noticing_patterns" | "saving_reflection";
 
 function isRewindPersonaId(value: string): value is RewindPersonaId {
-  return value === "ella" || value === "lyra" || value === "jake" || value === "ariel";
+  return (
+    value === "ella" ||
+    value === "lyra" ||
+    value === "jake" ||
+    value === "ariel"
+  );
 }
 
 function getPersonaName(personaId: string): string {
@@ -42,7 +47,8 @@ function getPersonaName(personaId: string): string {
 
 function toLocalDateKey(date: Date, timezone: string | null): string {
   const localDate = DateTime.fromJSDate(date, {
-    zone: timezone && DateTime.now().setZone(timezone).isValid ? timezone : "UTC",
+    zone:
+      timezone && DateTime.now().setZone(timezone).isValid ? timezone : "UTC",
   });
   return localDate.toFormat("yyyy-LL-dd");
 }
@@ -88,7 +94,15 @@ async function loadReflectionContext(params: {
   timezone: string | null;
   userId: string;
 }) {
-  const [previousSessions, journals, turns, routine] = await Promise.all([
+  const [
+    previousSessions,
+    journals,
+    turns,
+    routine,
+    user,
+    activitySignals,
+    dailyObservation,
+  ] = await Promise.all([
     prisma.rewindSession.findMany({
       where: {
         userId: params.userId,
@@ -119,26 +133,73 @@ async function loadReflectionContext(params: {
       where: { userId: params.userId },
       select: { customIntent: true, intent: true },
     }),
+    prisma.user.findUnique({
+      select: { rewindPersonalizationEnabled: true },
+      where: { id: params.userId },
+    }),
+    params.sessionDateKey
+      ? prisma.activitySignal.findMany({
+          orderBy: { happenedAt: "desc" },
+          select: { description: true, sourceType: true },
+          take: 24,
+          where: {
+            localDateKey: params.sessionDateKey,
+            privacyEligible: true,
+            userId: params.userId,
+          },
+        })
+      : Promise.resolve([]),
+    params.sessionDateKey
+      ? prisma.dailyObservation.findUnique({
+          select: { description: true },
+          where: {
+            userId_localDateKey: {
+              localDateKey: params.sessionDateKey,
+              userId: params.userId,
+            },
+          },
+        })
+      : Promise.resolve(null),
   ]);
 
-  const intent =
-    routine?.intent === "UNDERSTAND_EMOTIONS"
+  const intent = !user?.rewindPersonalizationEnabled
+    ? null
+    : routine?.intent === "UNDERSTAND_EMOTIONS"
       ? "Understand my emotions"
       : routine?.intent === "SPOT_PATTERNS"
         ? "Spot patterns in my days"
         : routine?.intent === "BUILD_SMALL_CHANGES"
           ? "Turn reflection into small changes"
-          : routine?.customIntent ?? null;
+          : (routine?.customIntent ?? null);
 
   return {
+    activityObservations: user?.rewindPersonalizationEnabled
+      ? [
+          ...(dailyObservation
+            ? [
+                {
+                  description: dailyObservation.description,
+                  sourceType: "DAILY_OBSERVATION",
+                },
+              ]
+            : []),
+          ...activitySignals.map((signal) => ({
+            description: signal.description,
+            sourceType: signal.sourceType,
+          })),
+        ]
+      : [],
     intent,
-    journalEntries: journals
+    journalEntries: (user?.rewindPersonalizationEnabled ? journals : [])
       .map((journal) => ({
         content: journal.content.trim().slice(0, 2_400),
         dateKey: toLocalDateKey(journal.date, params.timezone),
       }))
       .filter((journal) => journal.content.length > 0),
-    previousSummaries: previousSessions
+    previousSummaries: (user?.rewindPersonalizationEnabled
+      ? previousSessions
+      : []
+    )
       .map((session) => ({
         dateKey:
           session.sessionDateKey ??
@@ -150,7 +211,9 @@ async function loadReflectionContext(params: {
   };
 }
 
-async function markMissed(sessionId: string): Promise<RewindFinalizationResult> {
+async function markMissed(
+  sessionId: string,
+): Promise<RewindFinalizationResult> {
   await prisma.$transaction([
     prisma.rewindRecommendation.deleteMany({ where: { sessionId } }),
     prisma.rewindSession.update({
@@ -269,6 +332,7 @@ export async function finalizeRewindSession(params: {
 
     params.onStage?.("noticing_patterns");
     const reflection = await generateRewindReflection({
+      activityObservations: context.activityObservations,
       intent: context.intent,
       journalEntries: context.journalEntries,
       personaName: getPersonaName(session.personaId),
@@ -307,6 +371,21 @@ export async function finalizeRewindSession(params: {
         },
       }),
     ]);
+
+    await recordActivitySignal({
+      dedupeKey: `rewind-voice:${session.id}:completed`,
+      description: `Completed a voice Rewind with ${getPersonaName(session.personaId)}: ${reflection.emotionalInsight}`,
+      eventType: "REWIND_COMPLETED",
+      happenedAt: completedAt,
+      localDateKey:
+        session.sessionDateKey ?? toLocalDateKey(completedAt, session.timezone),
+      metadata: { emotionalTags: reflection.emotionalTags },
+      personaId: session.personaId,
+      sourceId: session.id,
+      sourceType: ActivitySignalSourceType.REWIND_VOICE,
+      timezone: session.timezone ?? "UTC",
+      userId: session.userId,
+    });
 
     try {
       await notificationService.createNotification({

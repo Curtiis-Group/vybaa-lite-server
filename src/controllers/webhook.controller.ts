@@ -1,6 +1,8 @@
 import type { Request, Response } from "express";
 import crypto from "node:crypto";
+import { ActivitySignalSourceType } from "@prisma/client";
 import { prisma } from "../config/db.config";
+import { recordActivitySignal } from "../services/activity-signal.service";
 import logger from "../utils/logger.util";
 
 // NOTE: This handler expects `req.body` to be a raw Buffer.
@@ -68,6 +70,29 @@ export async function handlePaystackWebhook(req: Request, res: Response) {
                 },
               }),
             ]);
+            try {
+              const recipient = await prisma.user.findUnique({
+                select: { timezone: true },
+                where: { id: tx.recipientId },
+              });
+              await recordActivitySignal({
+                dedupeKey: `wallet-funding:${tx.id}:completed`,
+                description: `Added ${credit} real points to the wallet.`,
+                eventType: "REAL_POINTS_ADDED",
+                sourceId: tx.id,
+                sourceType: ActivitySignalSourceType.REWARD,
+                timezone: recipient?.timezone ?? "UTC",
+                userId: tx.recipientId,
+              });
+            } catch (signalError: unknown) {
+              logger.warn("Unable to record wallet funding activity signal", {
+                errorName:
+                  signalError instanceof Error
+                    ? signalError.name
+                    : "UnknownError",
+                transactionId: tx.id,
+              });
+            }
           } else {
             await prisma.transaction.update({
               where: { id: tx.id },
@@ -89,4 +114,3 @@ export async function handlePolarWebhook(_req: Request, res: Response) {
   // Stub: implement full signature verification + credit logic when Polar is configured
   return res.status(200).json({ msg: "Polar webhook received" });
 }
-

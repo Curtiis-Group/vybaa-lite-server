@@ -24,6 +24,7 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       username,
       profileImageId,
       rewindPersona,
+      rewindPersonalizationEnabled,
       timezone,
     } = req.body;
 
@@ -81,6 +82,9 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       updateData.avatarUrl = profileImageId;
     }
     if (rewindPersona !== undefined) updateData.rewindPersona = rewindPersona;
+    if (rewindPersonalizationEnabled !== undefined) {
+      updateData.rewindPersonalizationEnabled = rewindPersonalizationEnabled;
+    }
     if (timezone !== undefined) {
       if (typeof timezone !== "string" || !isValidRewindTimezone(timezone)) {
         return res

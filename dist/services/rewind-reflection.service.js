@@ -80,9 +80,17 @@ function formatPriorContext(context) {
     const journals = context.journalEntries
         .map((entry) => `- ${entry.dateKey}: ${entry.content}`)
         .join("\n");
+    const activities = context.activityObservations
+        ?.map((entry) => `- [${entry.sourceType}] ${entry.description}`)
+        .join("\n");
     return [
-        memories ? `Private memories from ${context.personaName}:\n${memories}` : "",
+        memories
+            ? `Private memories from ${context.personaName}:\n${memories}`
+            : "",
         journals ? `The user's explicit journal entries:\n${journals}` : "",
+        activities
+            ? `Grounded activity from this local day. Use it only to clarify what the user shared; never let it override the transcript:\n${activities}`
+            : "",
     ]
         .filter(Boolean)
         .join("\n\n");

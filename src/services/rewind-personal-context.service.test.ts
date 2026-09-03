@@ -20,6 +20,8 @@ const context: RewindPersonalContext = {
       summary: "The user protected their energy.",
     },
   ],
+  observations: [],
+  personalizationEnabled: true,
   recentRewards: [],
 };
 
@@ -45,4 +47,14 @@ test("personal context is bounded before entering the live prompt", () => {
   };
 
   assert.ok(formatRewindPersonalContext(oversized).length <= 14_000);
+});
+
+test("personal context is empty when activity personalization is disabled", () => {
+  assert.equal(
+    formatRewindPersonalContext({
+      ...context,
+      personalizationEnabled: false,
+    }),
+    "",
+  );
 });

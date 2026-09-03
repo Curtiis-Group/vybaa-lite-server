@@ -4,11 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.achievementService = void 0;
+const client_1 = require("@prisma/client");
 const db_config_1 = require("../config/db.config");
 const badges_config_1 = require("../config/badges.config");
 const notification_service_1 = require("./notification.service");
 const community_activity_service_1 = require("./community-activity.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const activity_signal_service_1 = require("./activity-signal.service");
 class AchievementService {
     /**
      * Check if user has already earned an achievement
@@ -53,6 +55,30 @@ class AchievementService {
                     badgeIcon: badgeDef.badgeIcon,
                 },
             });
+            try {
+                const user = await db_config_1.prisma.user.findUnique({
+                    select: { timezone: true },
+                    where: { id: userId },
+                });
+                await (0, activity_signal_service_1.recordActivitySignal)({
+                    dedupeKey: `achievement:${achievement.id}:earned`,
+                    description: `Earned “${achievement.title}”: ${achievement.description}`,
+                    eventType: "ACHIEVEMENT_EARNED",
+                    happenedAt: achievement.earnedAt,
+                    metadata: { milestone, type },
+                    sourceId: achievement.id,
+                    sourceType: client_1.ActivitySignalSourceType.ACHIEVEMENT,
+                    timezone: user?.timezone ?? "UTC",
+                    userId,
+                });
+            }
+            catch (signalError) {
+                logger_util_1.default.warn("Unable to record achievement activity signal", {
+                    achievementId: achievement.id,
+                    errorName: signalError instanceof Error ? signalError.name : "UnknownError",
+                    userId,
+                });
+            }
             // Send notification about achievement
             await notification_service_1.notificationService.createNotification({
                 userId,
@@ -221,9 +247,12 @@ class AchievementService {
             })),
             byType: {
                 streak_milestone: achievements.filter((a) => a.type === "streak_milestone").length,
-                total_goals: achievements.filter((a) => a.type === "total_goals").length,
-                total_checkins: achievements.filter((a) => a.type === "total_checkins").length,
-                perfect_week: achievements.filter((a) => a.type === "perfect_week").length,
+                total_goals: achievements.filter((a) => a.type === "total_goals")
+                    .length,
+                total_checkins: achievements.filter((a) => a.type === "total_checkins")
+                    .length,
+                perfect_week: achievements.filter((a) => a.type === "perfect_week")
+                    .length,
                 comeback: achievements.filter((a) => a.type === "comeback").length,
                 early_bird: achievements.filter((a) => a.type === "early_bird").length,
                 night_owl: achievements.filter((a) => a.type === "night_owl").length,

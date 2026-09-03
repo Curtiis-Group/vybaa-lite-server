@@ -1,7 +1,4 @@
-import {
-  GoalOccurrenceStatus,
-  GoalV2Status,
-} from "@prisma/client";
+import { GoalOccurrenceStatus, GoalV2Status } from "@prisma/client";
 import { DateTime } from "luxon";
 
 import { prisma } from "../config/db.config";
@@ -40,6 +37,12 @@ export interface RewindPersonalContext {
     partner: string;
     summary: string;
   }>;
+  observations: Array<{
+    dateKey: string;
+    description: string;
+    personaId: string | null;
+  }>;
+  personalizationEnabled: boolean;
   recentRewards: Array<{
     amount: number;
     createdAt: string;
@@ -88,68 +91,89 @@ export async function loadRewindPersonalContext(
   const today = DateTime.fromISO(localToday ?? DateTime.now().toISODate()!, {
     zone: "UTC",
   }).toJSDate();
-  const [user, goals, memories, conclusions, achievements, rewards] =
-    await Promise.all([
-      prisma.user.findUnique({
-        select: { points: true, realPointsBalance: true },
-        where: { id: userId },
-      }),
-      prisma.goalV2.findMany({
-        include: {
-          occurrences: {
-            orderBy: { dueDate: "asc" },
-            take: 1,
-            where: {
-              dueDate: { lte: today },
-              status: {
-                in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING],
-              },
+  const [
+    user,
+    goals,
+    memories,
+    conclusions,
+    achievements,
+    rewards,
+    observations,
+  ] = await Promise.all([
+    prisma.user.findUnique({
+      select: {
+        points: true,
+        realPointsBalance: true,
+        rewindPersonalizationEnabled: true,
+      },
+      where: { id: userId },
+    }),
+    prisma.goalV2.findMany({
+      include: {
+        occurrences: {
+          orderBy: { dueDate: "asc" },
+          take: 1,
+          where: {
+            dueDate: { lte: today },
+            status: {
+              in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING],
             },
           },
-          rewardPlan: { include: { awards: true } },
         },
-        orderBy: { updatedAt: "desc" },
-        take: 8,
-        where: {
-          archivedAt: null,
-          status: { in: [GoalV2Status.ACTIVE, GoalV2Status.PAUSED] },
-          userId,
-        },
-      }),
-      prisma.rewindSession.findMany({
-        orderBy: { completedAt: "desc" },
-        select: {
-          emotionalInsight: true,
-          comparisonInsight: true,
-          personaId: true,
-          sessionDateKey: true,
-          summary: true,
-        },
-        take: 10,
-        where: { completed: true, id: { not: sessionId }, userId },
-      }),
-      prisma.goalConclusion.findMany({
-        include: { goal: { select: { title: true, userId: true } } },
-        orderBy: { endedAt: "desc" },
-        take: 5,
-        where: { goal: { userId } },
-      }),
-      prisma.achievement.findMany({
-        orderBy: { earnedAt: "desc" },
-        select: { earnedAt: true, title: true },
-        take: 5,
-        where: { userId },
-      }),
-      prisma.transaction.findMany({
-        orderBy: { createdAt: "desc" },
-        select: { amount: true, createdAt: true, status: true },
-        take: 5,
-        where: {
-          metadata: { contains: '"source":"goal_v2"' },
-          recipientId: userId,
-        },
-      }),
-    ]);
+        rewardPlan: { include: { awards: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 8,
+      where: {
+        archivedAt: null,
+        status: { in: [GoalV2Status.ACTIVE, GoalV2Status.PAUSED] },
+        userId,
+      },
+    }),
+    prisma.rewindSession.findMany({
+      orderBy: { completedAt: "desc" },
+      select: {
+        emotionalInsight: true,
+        comparisonInsight: true,
+        personaId: true,
+        sessionDateKey: true,
+        summary: true,
+      },
+      take: 10,
+      where: { completed: true, id: { not: sessionId }, userId },
+    }),
+    prisma.goalConclusion.findMany({
+      include: { goal: { select: { title: true, userId: true } } },
+      orderBy: { endedAt: "desc" },
+      take: 5,
+      where: { goal: { userId } },
+    }),
+    prisma.achievement.findMany({
+      orderBy: { earnedAt: "desc" },
+      select: { earnedAt: true, title: true },
+      take: 5,
+      where: { userId },
+    }),
+    prisma.transaction.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { amount: true, createdAt: true, status: true },
+      take: 5,
+      where: {
+        metadata: { contains: '"source":"goal_v2"' },
+        recipientId: userId,
+      },
+    }),
+    prisma.dailyObservation.findMany({
+      orderBy: { localDateKey: "desc" },
+      select: {
+        description: true,
+        localDateKey: true,
+        personaId: true,
+      },
+      take: 5,
+      where: { dismissedAt: null, userId },
+    }),
+  ]);
 
   return {
     achievements: achievements.map((achievement) => ({
@@ -203,6 +227,12 @@ export async function loadRewindPersonalContext(
         partner: PARTNER_NAMES[memory.personaId] ?? memory.personaId,
         summary: memory.summary?.trim().slice(0, 1_200) ?? "",
       })),
+    observations: observations.map((observation) => ({
+      dateKey: observation.localDateKey,
+      description: observation.description,
+      personaId: observation.personaId,
+    })),
+    personalizationEnabled: user?.rewindPersonalizationEnabled ?? true,
     recentRewards: rewards.map((reward) => ({
       amount: reward.amount,
       createdAt: reward.createdAt.toISOString(),
@@ -214,6 +244,15 @@ export async function loadRewindPersonalContext(
 export function formatRewindPersonalContext(
   context: RewindPersonalContext,
 ): string {
+  if (!context.personalizationEnabled) return "";
+  const observationContext = context.observations
+    .map((observation) => {
+      const partner = observation.personaId
+        ? (PARTNER_NAMES[observation.personaId] ?? observation.personaId)
+        : "Vybaa activity";
+      return `- ${partner}, ${observation.dateKey}: ${observation.description}`;
+    })
+    .join("\n");
   return (
     `Account context (private, current, and never recited as a report):\n` +
     `- Play Points: ${context.balances.playPoints.toFixed(2)}\n` +
@@ -222,6 +261,7 @@ export function formatRewindPersonalContext(
     `- Recent goal conclusions: ${JSON.stringify(context.goalConclusions)}\n` +
     `- Recent reward events: ${JSON.stringify(context.recentRewards)}\n` +
     `- Recent achievements: ${JSON.stringify(context.achievements)}\n` +
+    `Recent grounded observations. Credit a named partner and date whenever one is used:\n${observationContext}\n` +
     `Cross-partner memories. When using one, credit the named partner and date naturally:\n` +
     context.memories
       .map(

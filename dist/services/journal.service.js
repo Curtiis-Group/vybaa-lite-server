@@ -4,8 +4,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.journalService = void 0;
+const client_1 = require("@prisma/client");
 const db_config_1 = require("../config/db.config");
 const gemini_service_1 = require("./gemini.service");
+const activity_signal_service_1 = require("./activity-signal.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 class JournalService {
     /**
@@ -98,6 +100,23 @@ class JournalService {
                 tags: tags || [],
             },
         });
+        const user = await db_config_1.prisma.user.findUnique({
+            select: { timezone: true },
+            where: { id: userId },
+        });
+        await (0, activity_signal_service_1.recordActivitySignal)({
+            dedupeKey: `journal:${journal.id}:${journal.updatedAt.getTime()}`,
+            description: mood
+                ? `Journal mood: ${mood}. ${content}`
+                : `Journal entry: ${content}`,
+            eventType: "JOURNAL_WRITTEN",
+            happenedAt: journal.updatedAt,
+            metadata: { mood: mood ?? null, tags: tags ?? [] },
+            sourceId: journal.id,
+            sourceType: client_1.ActivitySignalSourceType.JOURNAL,
+            timezone: user?.timezone ?? "UTC",
+            userId,
+        });
         logger_util_1.default.info("Journal entry created", { userId, journalId: journal.id });
         return journal;
     }
@@ -112,13 +131,38 @@ class JournalService {
             updateData.mood = mood;
         if (tags !== undefined)
             updateData.tags = tags;
-        return db_config_1.prisma.journal.updateMany({
+        const result = await db_config_1.prisma.journal.updateMany({
             where: {
                 id: journalId,
                 userId, // Ensure user owns this journal
             },
             data: updateData,
         });
+        if (!result.count)
+            return result;
+        const [journal, user] = await Promise.all([
+            db_config_1.prisma.journal.findFirst({ where: { id: journalId, userId } }),
+            db_config_1.prisma.user.findUnique({
+                select: { timezone: true },
+                where: { id: userId },
+            }),
+        ]);
+        if (journal?.content.trim()) {
+            await (0, activity_signal_service_1.recordActivitySignal)({
+                dedupeKey: `journal:${journal.id}:${journal.updatedAt.getTime()}`,
+                description: journal.mood
+                    ? `Journal mood: ${journal.mood}. ${journal.content}`
+                    : `Journal entry: ${journal.content}`,
+                eventType: "JOURNAL_UPDATED",
+                happenedAt: journal.updatedAt,
+                metadata: { mood: journal.mood, tags: journal.tags },
+                sourceId: journal.id,
+                sourceType: client_1.ActivitySignalSourceType.JOURNAL,
+                timezone: user?.timezone ?? "UTC",
+                userId,
+            });
+        }
+        return result;
     }
     /**
      * Delete a journal entry
