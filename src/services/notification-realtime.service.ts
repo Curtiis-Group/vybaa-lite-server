@@ -1,6 +1,6 @@
-import { getAblyClient } from "../config/ably.config";
 import logger from "../utils/logger.util";
 import type { NotificationPayload } from "./notification.service";
+import { publishUserRealtimeEvent } from "./realtime-websocket.service";
 
 export interface NotificationRealtimeSignal {
   latestNotification: NotificationPayload;
@@ -27,14 +27,15 @@ const DEFAULT_FLUSH_DELAY_MS = 150;
 const DEFAULT_MINIMUM_INTERVAL_MS = 1000;
 const DEFAULT_RETRY_DELAY_MS = 5000;
 
-async function publishToAbly(
+async function publishToRealtimeSocket(
   channelName: string,
   eventName: "notifications_changed",
   signal: NotificationRealtimeSignal,
 ): Promise<void> {
-  await getAblyClient()
-    .channels.get(channelName)
-    .publish(eventName, signal);
+  const userId = channelName.startsWith("user:")
+    ? channelName.slice("user:".length)
+    : channelName;
+  await publishUserRealtimeEvent(userId, eventName, signal);
 }
 
 /**
@@ -53,7 +54,7 @@ export class NotificationRealtimePublisher {
   private isFlushing = false;
 
   public constructor(
-    publish: NotificationRealtimePublish = publishToAbly,
+    publish: NotificationRealtimePublish = publishToRealtimeSocket,
     options: NotificationRealtimePublisherOptions = {},
   ) {
     this.publish = publish;
@@ -126,7 +127,8 @@ export class NotificationRealtimePublisher {
       const current = this.pendingByUser.get(pendingSignal.userId);
       this.pendingByUser.set(pendingSignal.userId, {
         latestNotification:
-          current?.latestNotification ?? pendingSignal.signal.latestNotification,
+          current?.latestNotification ??
+          pendingSignal.signal.latestNotification,
         notificationCount:
           (current?.notificationCount ?? 0) +
           pendingSignal.signal.notificationCount,
@@ -155,9 +157,7 @@ export class NotificationRealtimePublisher {
   private scheduleNextFlush(hasFailures: boolean): void {
     if (!this.pendingByUser.size) return;
 
-    const delayMs = hasFailures
-      ? this.retryDelayMs
-      : this.minimumIntervalMs;
+    const delayMs = hasFailures ? this.retryDelayMs : this.minimumIntervalMs;
     this.scheduleFlush(delayMs);
   }
 
@@ -178,4 +178,5 @@ type PendingSignalEntry = {
   userId: string;
 };
 
-export const notificationRealtimePublisher = new NotificationRealtimePublisher();
+export const notificationRealtimePublisher =
+  new NotificationRealtimePublisher();

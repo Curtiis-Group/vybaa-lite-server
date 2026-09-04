@@ -669,7 +669,9 @@ class NotificationService {
             const isSameLocalDate = (a, b, timezone) => {
                 const first = luxon_1.DateTime.fromJSDate(a, { zone: timezone });
                 const second = luxon_1.DateTime.fromJSDate(b, { zone: timezone });
-                return first.isValid && second.isValid && first.toISODate() === second.toISODate();
+                return (first.isValid &&
+                    second.isValid &&
+                    first.toISODate() === second.toISODate());
             };
             const skippedNotificationIds = [];
             const deliverableNotificationIds = [];

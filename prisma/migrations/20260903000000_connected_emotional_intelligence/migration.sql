@@ -69,6 +69,7 @@ CREATE TABLE "daily_observations" (
     "source_types" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "confidence" DOUBLE PRECISION NOT NULL,
     "persona_id" TEXT,
+    "home_greeting" TEXT,
     "reflection" TEXT,
     "journal_draft" TEXT,
     "generation_version" INTEGER NOT NULL DEFAULT 1,

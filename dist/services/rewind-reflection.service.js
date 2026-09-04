@@ -101,7 +101,7 @@ async function generateRewindReflection(context) {
     }
     const client = new genai_1.GoogleGenAI({ apiKey: env_util_1.Env.GEMINI_API_KEY });
     const response = await client.models.generateContent({
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-2.5-flash",
+        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
         contents: [
             {
                 role: "user",

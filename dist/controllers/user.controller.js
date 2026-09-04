@@ -20,7 +20,7 @@ const auth_controller_1 = require("./auth.controller");
 async function updateProfile(req, res) {
     try {
         const userId = req.userId;
-        const { firstName, lastName, username, profileImageId, rewindPersona, rewindPersonalizationEnabled, timezone, } = req.body;
+        const { firstName, lastName, username, profileImageId, rewindPersona, rewindPersonalizationEnabled, rewindProactiveChatEnabled, rewindProactiveChatExplainedAt, timezone, } = req.body;
         const updateData = {};
         // Handle username change with 7-day cooldown
         if (username !== undefined) {
@@ -71,6 +71,14 @@ async function updateProfile(req, res) {
             updateData.rewindPersona = rewindPersona;
         if (rewindPersonalizationEnabled !== undefined) {
             updateData.rewindPersonalizationEnabled = rewindPersonalizationEnabled;
+        }
+        if (rewindProactiveChatEnabled !== undefined) {
+            updateData.rewindProactiveChatEnabled = rewindProactiveChatEnabled;
+        }
+        if (rewindProactiveChatExplainedAt !== undefined) {
+            updateData.rewindProactiveChatExplainedAt = rewindProactiveChatExplainedAt
+                ? new Date(rewindProactiveChatExplainedAt)
+                : null;
         }
         if (timezone !== undefined) {
             if (typeof timezone !== "string" || !(0, rewind_routine_service_1.isValidRewindTimezone)(timezone)) {

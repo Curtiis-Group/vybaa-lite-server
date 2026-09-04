@@ -16,6 +16,15 @@ import {
 
 process.env.JWT_SECRET = "test-secret-that-is-not-a-production-default";
 
+const REWIND_PROMPT_TEST_USER = {
+  currentMood: null,
+  emotionSummary: null,
+  firstName: "Nia",
+  id: "user-1",
+  lastName: null,
+  username: "niawrites",
+};
+
 test("Rewind insights are available from the first valid reflection", () => {
   const signals = averageRewindSignals([
     {
@@ -36,10 +45,7 @@ test("Rewind insights are available from the first valid reflection", () => {
     emotionalSteadiness: 61,
     energy: 49,
   });
-  assert.equal(
-    averageRewindSignals([{ wellbeingSignals: null }]),
-    null,
-  );
+  assert.equal(averageRewindSignals([{ wellbeingSignals: null }]), null);
 });
 
 test("opening is relaxed and does not require a scripted question", () => {
@@ -117,18 +123,78 @@ test("identity and private memory are included in every Live system instruction"
   assert.doesNotMatch(prompt, /Open by asking how their day went/i);
 });
 
-test("Rewind closing instructions require a spoken farewell before saving", () => {
-  const prompt = getRewindSystemInstruction(
-    "jake",
-    {
-      currentMood: null,
-      emotionSummary: null,
-      firstName: "Nia",
-      id: "user-1",
-      lastName: null,
-      username: "niawrites",
-    },
+test("Live system instructions keep all four partner personalities distinct", () => {
+  const ellaPrompt = getRewindSystemInstruction(
+    "ella",
+    REWIND_PROMPT_TEST_USER,
   );
+  const lyraPrompt = getRewindSystemInstruction(
+    "lyra",
+    REWIND_PROMPT_TEST_USER,
+  );
+  const jakePrompt = getRewindSystemInstruction(
+    "jake",
+    REWIND_PROMPT_TEST_USER,
+  );
+  const arielPrompt = getRewindSystemInstruction(
+    "ariel",
+    REWIND_PROMPT_TEST_USER,
+  );
+
+  assert.match(
+    ellaPrompt,
+    /intensely emotional, expressive, and deeply feeling/i,
+  );
+  assert.match(
+    ellaPrompt,
+    /genuine warmth, concern, delight, frustration, or hurt/i,
+  );
+  assert.match(ellaPrompt, /never perform emotion/i);
+
+  assert.match(lyraPrompt, /nonchalant, low-key, dry, and hard to rattle/i);
+  assert.match(lyraPrompt, /occasional wry aside/i);
+  assert.match(lyraPrompt, /never gush, chase, pressure, or over-explain/i);
+
+  assert.match(jakePrompt, /very blunt, unsentimental, and concise/i);
+  assert.match(jakePrompt, /call out excuses, avoidance, and contradictions/i);
+  assert.match(jakePrompt, /do not sugarcoat/i);
+
+  assert.match(arielPrompt, /grounded big-sibling figure/i);
+  assert.match(arielPrompt, /protective, practical, steady/i);
+  assert.match(arielPrompt, /needed reality check/i);
+  assert.match(arielPrompt, /without coddling or trying to control/i);
+});
+
+test("every Live partner is independent and never deferential or flattering", () => {
+  const prompts = [
+    getRewindSystemInstruction("ella", REWIND_PROMPT_TEST_USER),
+    getRewindSystemInstruction("lyra", REWIND_PROMPT_TEST_USER),
+    getRewindSystemInstruction("jake", REWIND_PROMPT_TEST_USER),
+    getRewindSystemInstruction("ariel", REWIND_PROMPT_TEST_USER),
+  ];
+
+  for (const prompt of prompts) {
+    assert.match(prompt, /independent peer/i);
+    assert.match(
+      prompt,
+      /not the user's attendant, fan, therapist, subordinate/i,
+    );
+    assert.match(prompt, /user is not always right/i);
+    assert.match(prompt, /disagree, challenge/i);
+    assert.match(prompt, /never flatter, worship/i);
+    assert.match(prompt, /without centering every utterance on pleasing them/i);
+  }
+});
+
+test("Rewind closing instructions require a spoken farewell before saving", () => {
+  const prompt = getRewindSystemInstruction("jake", {
+    currentMood: null,
+    emotionSummary: null,
+    firstName: "Nia",
+    id: "user-1",
+    lastName: null,
+    username: "niawrites",
+  });
 
   assert.match(prompt, /short flowing recap-farewell/i);
   assert.match(prompt, /ending this Rewind now/i);

@@ -10,7 +10,9 @@ const rewind_routine_service_1 = require("./rewind-routine.service");
 const goal_v2_service_1 = require("./goal-v2.service");
 const goal_v2_reminder_service_1 = require("./goal-v2-reminder.service");
 const daily_observation_service_1 = require("./daily-observation.service");
+const rewind_chat_v2_service_1 = require("./rewind-chat-v2.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const env_util_1 = require("../utils/env.util");
 class SchedulerService {
     constructor() {
         this.intervalId = null;
@@ -41,10 +43,12 @@ class SchedulerService {
         this.processPendingNotifications();
         this.processRevenueCatWebhooks();
         this.processGoalV2Lifecycle();
+        this.processRewindChatJobs();
         this.intervalId = setInterval(() => {
             this.processPendingNotifications();
             this.processRevenueCatWebhooks();
             this.processGoalV2Lifecycle();
+            this.processRewindChatJobs();
         }, 60 * 1000); // Every minute
         // Rewind slots are account-local, so their lifecycle must be evaluated
         // every minute instead of against a server-wide UTC day.
@@ -171,6 +175,22 @@ class SchedulerService {
         }
         catch (error) {
             logger_util_1.default.error("Error in Rewind routine lifecycle", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+        }
+    }
+    async processRewindChatJobs() {
+        if (env_util_1.Env.REWIND_ASYNC_CHAT_ENABLED !== "true")
+            return;
+        try {
+            await Promise.all([
+                (0, rewind_chat_v2_service_1.processQueuedRewindChatRuns)(),
+                (0, rewind_chat_v2_service_1.processDueRewindPartnerMinds)(),
+                (0, rewind_chat_v2_service_1.processRewindChatOutbox)(),
+            ]);
+        }
+        catch (error) {
+            logger_util_1.default.error("Error processing Rewind v2 chat jobs", {
                 errorName: error instanceof Error ? error.name : "UnknownError",
             });
         }

@@ -25,6 +25,8 @@ export async function updateProfile(req: AuthRequest, res: Response) {
       profileImageId,
       rewindPersona,
       rewindPersonalizationEnabled,
+      rewindProactiveChatEnabled,
+      rewindProactiveChatExplainedAt,
       timezone,
     } = req.body;
 
@@ -84,6 +86,14 @@ export async function updateProfile(req: AuthRequest, res: Response) {
     if (rewindPersona !== undefined) updateData.rewindPersona = rewindPersona;
     if (rewindPersonalizationEnabled !== undefined) {
       updateData.rewindPersonalizationEnabled = rewindPersonalizationEnabled;
+    }
+    if (rewindProactiveChatEnabled !== undefined) {
+      updateData.rewindProactiveChatEnabled = rewindProactiveChatEnabled;
+    }
+    if (rewindProactiveChatExplainedAt !== undefined) {
+      updateData.rewindProactiveChatExplainedAt = rewindProactiveChatExplainedAt
+        ? new Date(rewindProactiveChatExplainedAt)
+        : null;
     }
     if (timezone !== undefined) {
       if (typeof timezone !== "string" || !isValidRewindTimezone(timezone)) {

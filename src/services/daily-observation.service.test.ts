@@ -25,6 +25,7 @@ test("daily observation parsing is bounded and rejects incomplete output", () =>
   const parsed = parseGeneratedDailyObservation({
     confidence: 4,
     description: "  You seemed to protect your time today.  ",
+    homeGreeting: "Ese, I liked how you protected your time today",
     journalDraft: "I protected my time by declining an extra commitment.",
     observations: ["You completed the goal you had paused earlier."],
     reflection: "A smaller commitment may have made follow-through easier.",
@@ -32,6 +33,10 @@ test("daily observation parsing is bounded and rejects incomplete output", () =>
 
   assert.equal(parsed.confidence, 1);
   assert.equal(parsed.description, "You seemed to protect your time today.");
+  assert.equal(
+    parsed.homeGreeting,
+    "Ese, I liked how you protected your time today",
+  );
   assert.throws(
     () => parseGeneratedDailyObservation({ confidence: 0.5 }),
     /omitted required content/,

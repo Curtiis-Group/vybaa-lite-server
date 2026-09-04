@@ -31,7 +31,7 @@ function getAllowedOrigins() {
         "https://localhost",
         "http://localhost:3005",
         "http://localhost:3001",
-        "ionic://localhost"
+        "ionic://localhost",
     ];
 }
 exports.securityConfig = {
@@ -44,6 +44,7 @@ exports.securityConfig = {
     rewindMaxMessageBytes: getPositiveInteger("REWIND_MAX_MESSAGE_BYTES", 65536),
     rewindMessageRateLimit: getPositiveInteger("REWIND_MESSAGE_RATE_LIMIT", 200),
     rewindMessageRateWindowMs: getPositiveInteger("REWIND_MESSAGE_RATE_WINDOW_MS", 10000),
+    realtimeMaxConnectionsPerUser: getPositiveInteger("REALTIME_MAX_CONNECTIONS_PER_USER", 4),
 };
 function getJwtSecret() {
     return getRequiredSecret("JWT_SECRET");

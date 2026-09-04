@@ -5,11 +5,13 @@ import {
   Prisma,
   RewindChatMessageRole,
   RewindSessionStatus,
+  RewindPartnerMindState,
   TransactionType,
 } from "@prisma/client";
 import { DateTime } from "luxon";
 
 import { prisma } from "../config/db.config";
+import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
 
 type DatabaseClient = Prisma.TransactionClient | typeof prisma;
@@ -94,6 +96,18 @@ export async function recordActivitySignal(
       ],
       skipDuplicates: true,
     });
+    if (Env.REWIND_ASYNC_CHAT_ENABLED === "true") {
+      await client.rewindPartnerMind.updateMany({
+        data: {
+          nextConsiderAt: new Date(),
+          state: RewindPartnerMindState.WATCHING,
+        },
+        where: {
+          userId: input.userId,
+          state: { not: RewindPartnerMindState.DORMANT },
+        },
+      });
+    }
   } catch (error: unknown) {
     logger.warn("Unable to record Rewind activity signal", {
       dedupeKey: input.dedupeKey,

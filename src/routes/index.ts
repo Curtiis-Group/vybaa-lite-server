@@ -13,6 +13,8 @@ import communityRoutes from "./community.routes";
 import adminRoutes from "./admin.routes";
 import webhookRoutes from "./webhook.routes";
 import rewindRoutes from "./rewind.routes";
+import rewindChatV2Routes from "./rewind-chat-v2.routes";
+import realtimeRoutes from "./realtime.routes";
 import subscriptionRoutes from "./subscription.routes";
 import moderationRoutes from "./moderation.routes";
 import logger from "../utils/logger.util";
@@ -74,6 +76,8 @@ router.use("/v1/admin", adminRoutes);
 
 // Mount rewind routes at /api/v1/rewind
 router.use("/v1/rewind", rewindRoutes);
+router.use("/v2/rewind", rewindChatV2Routes);
+router.use("/v2/realtime", realtimeRoutes);
 
 // Mount subscription routes at /api/v1/subscriptions
 router.use("/v1/subscriptions", subscriptionRoutes);

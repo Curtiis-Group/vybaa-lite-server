@@ -57,6 +57,13 @@ router.get(
   rewindIntelligenceController.listChatMessages,
 );
 router.post(
+  "/chats/:chatId/messages/stream",
+  authMiddleware,
+  validate(rewindChatIdSchema, "params"),
+  validate(sendRewindChatMessageSchema),
+  rewindIntelligenceController.streamChatMessage,
+);
+router.post(
   "/chats/:chatId/messages",
   authMiddleware,
   validate(rewindChatIdSchema, "params"),

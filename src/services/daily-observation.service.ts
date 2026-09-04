@@ -7,13 +7,14 @@ import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
 import { syncDerivedActivitySignals } from "./activity-signal.service";
 
-const OBSERVATION_GENERATION_VERSION = 1;
+const OBSERVATION_GENERATION_VERSION = 2;
 const MAX_OBSERVATION_SIGNALS = 40;
 const MAX_EVIDENCE_ITEMS = 8;
 
 interface GeneratedDailyObservation {
   confidence: number;
   description: string;
+  homeGreeting: string;
   journalDraft: string;
   observations: string[];
   reflection: string;
@@ -45,6 +46,7 @@ export interface SerializedDailyObservation {
   description: string;
   dismissedAt: string | null;
   evidence: DailyObservationEvidence[];
+  homeGreeting: string | null;
   id: string;
   journalDraft: string | null;
   localDateKey: string;
@@ -83,12 +85,14 @@ export function parseGeneratedDailyObservation(
     throw new Error("Daily observation response was not an object");
   }
   const description = normalizeText(value.description, 700);
+  const homeGreeting = normalizeText(value.homeGreeting, 100);
   const observations = normalizeTextList(value.observations);
   const reflection = normalizeText(value.reflection, 1_500);
   const journalDraft = normalizeText(value.journalDraft, 2_400);
   const rawConfidence = value.confidence;
   if (
     !description ||
+    !homeGreeting ||
     !observations.length ||
     !reflection ||
     !journalDraft ||
@@ -100,6 +104,7 @@ export function parseGeneratedDailyObservation(
   return {
     confidence: Math.max(0, Math.min(1, rawConfidence)),
     description,
+    homeGreeting,
     journalDraft,
     observations,
     reflection,
@@ -128,13 +133,7 @@ export function hasSubstantiveSignalDescriptions(
 async function generateDailyObservation(
   localDateKey: string,
   signals: ActivitySignal[],
-  {
-    userFirstName,
-    userLastName
-  }: {
-     userFirstName: string,
-    userLastName: string
-  }
+  userDisplayName: string,
 ): Promise<GeneratedDailyObservation> {
   if (!Env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is not configured");
@@ -150,17 +149,13 @@ async function generateDailyObservation(
               `Infer carefully: use tentative language such as “seemed”, “may”, or “suggests”. ` +
               `Do not diagnose, label personality, invent events, or make medical claims. ` +
               `The description should sound like a perceptive friend and be at most two sentences. ` +
+              `The homeGreeting must address ${userDisplayName} by first name, sound like a real friend, and fit in two short visual lines (maximum 100 characters). ` +
+              `Use plain language in the spirit of “${userDisplayName}, hope today feels a little better” or “${userDisplayName}, I liked how you spoke yesterday”, but ground it in the evidence and do not copy those examples mechanically. ` +
               `Observations must each point to a real pattern in the evidence. ` +
               `When using a partner-attributed signal, credit that partner naturally. ` +
               `The reflection should summarize what the day may have meant. ` +
               `The journalDraft must be first-person, editable, and must not claim certainty beyond the evidence.\n\n` +
-              `Activity evidence:\n${formatSignals(signals)}` + `
-              
-              keep  messages short and concise to two lines. and it should be stuff like
-
-
-"${userFirstName} ${userLastName}, hope today youre doing better" ""${userFirstName} ${userLastName} i liked the way you spoke yesterday"`,
-
+              `Activity evidence:\n${formatSignals(signals)}`,
           },
         ],
         role: "user",
@@ -172,6 +167,7 @@ async function generateDailyObservation(
         properties: {
           confidence: { type: Type.NUMBER },
           description: { type: Type.STRING },
+          homeGreeting: { type: Type.STRING },
           journalDraft: { type: Type.STRING },
           observations: { items: { type: Type.STRING }, type: Type.ARRAY },
           reflection: { type: Type.STRING },
@@ -179,6 +175,7 @@ async function generateDailyObservation(
         required: [
           "confidence",
           "description",
+          "homeGreeting",
           "journalDraft",
           "observations",
           "reflection",
@@ -187,7 +184,7 @@ async function generateDailyObservation(
       },
       temperature: 0.25,
     },
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.5-flash",
+    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
   });
   if (!response.text) {
     throw new Error("Daily observation response was empty");
@@ -254,6 +251,7 @@ export function serializeDailyObservation(
     description: observation.description,
     dismissedAt: observation.dismissedAt?.toISOString() ?? null,
     evidence: normalizeStoredEvidence(observation.evidence),
+    homeGreeting: observation.homeGreeting,
     id: observation.id,
     journalDraft: observation.journalDraft,
     localDateKey: observation.localDateKey,
@@ -272,7 +270,11 @@ export async function ensureDailyObservation(params: {
   userId: string;
 }): Promise<SerializedDailyObservation | null> {
   const user = await prisma.user.findUnique({
-    select: { rewindPersonalizationEnabled: true, firstName: true, lastName: true },
+    select: {
+      firstName: true,
+      rewindPersonalizationEnabled: true,
+      username: true,
+    },
     where: { id: params.userId },
   });
   if (!user?.rewindPersonalizationEnabled) return null;
@@ -321,10 +323,7 @@ export async function ensureDailyObservation(params: {
   const generated = await generateDailyObservation(
     params.localDateKey,
     signals,
-    {
-      userFirstName: user.firstName!,
-      userLastName: user.lastName!
-    }
+    user.firstName ?? user.username ?? "Hey",
   );
   if (generated.confidence < 0.35) return null;
   const sourceTypes = [...new Set(signals.map((signal) => signal.sourceType))];
@@ -337,6 +336,7 @@ export async function ensureDailyObservation(params: {
       description: generated.description,
       evidence: getEvidenceInput(signals),
       generationVersion: OBSERVATION_GENERATION_VERSION,
+      homeGreeting: generated.homeGreeting,
       journalDraft: generated.journalDraft,
       localDateKey: params.localDateKey,
       observations: generated.observations,
@@ -350,6 +350,7 @@ export async function ensureDailyObservation(params: {
       description: generated.description,
       evidence: getEvidenceInput(signals),
       generationVersion: OBSERVATION_GENERATION_VERSION,
+      homeGreeting: generated.homeGreeting,
       journalDraft: generated.journalDraft,
       observations: generated.observations,
       personaId: attributedPersona,

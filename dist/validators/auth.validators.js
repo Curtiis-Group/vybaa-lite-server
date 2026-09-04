@@ -96,6 +96,8 @@ exports.updateProfileSchema = zod_1.z.object({
         .nullable()
         .optional(),
     rewindPersonalizationEnabled: zod_1.z.boolean().optional(),
+    rewindProactiveChatEnabled: zod_1.z.boolean().optional(),
+    rewindProactiveChatExplainedAt: zod_1.z.string().datetime().nullable().optional(),
     timezone: zod_1.z.string().min(1).max(64).optional(),
 });
 // Params validators

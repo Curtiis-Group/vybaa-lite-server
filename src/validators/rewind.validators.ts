@@ -26,6 +26,14 @@ export const updateRewindChatSchema = z.object({
   archived: z.boolean(),
 });
 
+export const rewindV2ChatPreferencesSchema = z.object({
+  proactiveMuted: z.boolean(),
+});
+
+export const rewindV2ReadChatSchema = z.object({
+  throughMessageId: z.string().trim().min(1).max(128),
+});
+
 export const recordRewindActivitySchema = z.object({
   description: z.string().trim().min(1).max(500),
   eventType: z.enum(["FLEXX_CREATED", "FLEXX_SHARED"]),

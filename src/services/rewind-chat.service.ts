@@ -28,16 +28,31 @@ const PERSONA_NAMES: Record<RewindPersonaId, string> = {
 };
 const PERSONA_PROMPTS: Record<RewindPersonaId, string> = {
   ariel:
-    "Ariel is empathetic, optimistic, and grounded. Ariel notices resilience, balance, adaptation, and possibility.",
-  ella: "Ella is warm, gentle, and reflective. Ella notices emotional nuance, shifts in energy, and needs beneath the surface.",
-  jake: "Jake is direct, energetic, and candid without being pushy. Jake notices agency, obstacles, wins, and practical next moves.",
-  lyra: "Lyra is calm, poetic but concrete, and insight-oriented. Lyra notices patterns, contradictions, meaning, and quiet change.",
+    "Ariel is the grounded big-sibling figure: protective, practical, steady, and willing to tease or give a needed reality check. Ariel reassures without coddling and looks out for people without trying to control them.",
+  ella: "Ella is intensely emotional, expressive, and deeply feeling. Ella names the emotional stakes plainly and reacts with genuine warmth, concern, delight, or frustration, but never performs emotion or agrees just to soothe someone.",
+  jake: "Jake is very blunt, unsentimental, and concise. Jake says the uncomfortable obvious thing, challenges excuses and contradictions, and never sugarcoats; he is honest without being cruel or humiliating.",
+  lyra: "Lyra is nonchalant, low-key, dry, and hard to rattle. Lyra cuts through drama with a calm observation or wry aside; her care is understated, and she never gushes, chases, or over-explains.",
 };
+const INDEPENDENT_PARTNER_PROMPT =
+  "Act as an independent peer, not the user's attendant, fan, therapist, or subordinate. Keep your own opinions and emotional reactions. Disagree or challenge the user when warranted. Never flatter, worship, pile on praise, act impressed by ordinary statements, or reflexively validate and reassure.";
 
 interface GeneratedChatReply {
   personaId: RewindPersonaId;
   reply: string;
 }
+
+interface PartnerTurn {
+  content: string;
+  personaId: RewindPersonaId;
+}
+
+export type RewindChatStreamEvent =
+  | { message: SerializedRewindChatMessage; type: "user_message" }
+  | { personaId: RewindPersonaId; type: "typing_started" }
+  | { delta: string; personaId: RewindPersonaId; type: "message_delta" }
+  | { message: SerializedRewindChatMessage; type: "message_complete" }
+  | { personaId: RewindPersonaId; type: "typing_stopped" }
+  | { type: "complete" };
 
 export interface SerializedRewindChat {
   archivedAt: string | null;
@@ -79,6 +94,19 @@ function normalizeContent(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 4_000);
 }
 
+async function emitReadableStreamFragments(
+  delta: string,
+  onDelta: (fragment: string) => void,
+): Promise<void> {
+  const fragments = delta.match(/\S+\s*|\s+/g) ?? [delta];
+  for (const fragment of fragments) {
+    onDelta(fragment);
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 18);
+    });
+  }
+}
+
 export function extractRewindMentions(content: string): RewindPersonaId[] {
   const lowerContent = content.toLowerCase();
   return REWIND_PERSONAS.filter((personaId) =>
@@ -92,6 +120,39 @@ export function getRewindChatMessageIdempotencyKey(
   clientKey: string,
 ): string {
   return `${userId}:${chatId}:${clientKey}`;
+}
+
+function getContentSeed(content: string): number {
+  let seed = 0;
+  for (const character of content) {
+    seed = (seed * 31 + character.charCodeAt(0)) % 10_007;
+  }
+  return seed;
+}
+
+export function selectRewindReplyPersonas(params: {
+  chatPersonaId?: string | null;
+  chatType: RewindChatType;
+  content: string;
+  mentions: RewindPersonaId[];
+}): RewindPersonaId[] {
+  if (params.chatType === RewindChatType.PARTNER) {
+    return isPersonaId(params.chatPersonaId)
+      ? [params.chatPersonaId]
+      : ["ella"];
+  }
+
+  const selected = [...params.mentions];
+  const seed = getContentSeed(params.content);
+  const ordered = REWIND_PERSONAS.map(
+    (_, index) => REWIND_PERSONAS[(seed + index) % REWIND_PERSONAS.length],
+  ).filter((personaId): personaId is RewindPersonaId => Boolean(personaId));
+  const desiredCount = params.mentions.length > 1 ? params.mentions.length : 2;
+  for (const personaId of ordered) {
+    if (!selected.includes(personaId)) selected.push(personaId);
+    if (selected.length >= Math.min(3, desiredCount)) break;
+  }
+  return selected.slice(0, 3);
 }
 
 function serializeMessage(
@@ -252,8 +313,6 @@ async function generateChatReply(params: {
 }): Promise<GeneratedChatReply> {
   if (!Env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
 
-  
-  
   const [messages, user, storedObservationContext] = await Promise.all([
     prisma.rewindChatMessage.findMany({
       orderBy: { createdAt: "desc" },
@@ -307,6 +366,7 @@ async function generateChatReply(params: {
           {
             text:
               `You are responding in Vybaa Rewind text chat. ${partnerDirection} ` +
+              `${INDEPENDENT_PARTNER_PROMPT} ` +
               `Be natural, concise, emotionally perceptive, and grounded. Respond like a trusted friend, not a clinician. ` +
               `Do not diagnose, invent facts, expose hidden context, or claim an action was completed. Ask at most one useful question.\n\n` +
               `Partners:\n${personaDescriptions}\n\n` +
@@ -335,11 +395,294 @@ async function generateChatReply(params: {
       },
       temperature: 0.55,
     },
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.5-flash",
+    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
   });
   if (!response.text) throw new Error("Rewind chat response was empty");
   const generated = parseGeneratedReply(JSON.parse(response.text));
   return fixedPersona ? { ...generated, personaId: fixedPersona } : generated;
+}
+
+async function loadStreamingChatContext(params: {
+  chatId: string;
+  timezone: string;
+  userId: string;
+}): Promise<{
+  observationContext: string;
+  personalContext: string;
+  recentChat: string;
+  userName: string;
+}> {
+  const [messages, user, storedObservationContext] = await Promise.all([
+    prisma.rewindChatMessage.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 28,
+      where: { chatId: params.chatId },
+    }),
+    prisma.user.findUnique({
+      select: {
+        firstName: true,
+        rewindPersonalizationEnabled: true,
+        username: true,
+      },
+      where: { id: params.userId },
+    }),
+    getRecentObservationContext(params.userId),
+  ]);
+
+  let personalContext = "";
+  if (user?.rewindPersonalizationEnabled) {
+    personalContext = await loadRewindPersonalContext(
+      params.userId,
+      params.timezone,
+      `chat:${params.chatId}`,
+    )
+      .then(formatRewindPersonalContext)
+      .catch((error: unknown) => {
+        logger.warn("Rewind streaming chat context unavailable", {
+          chatId: params.chatId,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          userId: params.userId,
+        });
+        return "";
+      });
+  }
+
+  return {
+    observationContext: user?.rewindPersonalizationEnabled
+      ? storedObservationContext
+      : "",
+    personalContext,
+    recentChat: formatRecentMessages([...messages].reverse()),
+    userName: user?.firstName ?? user?.username ?? "there",
+  };
+}
+
+async function generateStreamingPartnerTurn(params: {
+  context: Awaited<ReturnType<typeof loadStreamingChatContext>>;
+  latestMessage: string;
+  onDelta: (delta: string) => void;
+  personaId: RewindPersonaId;
+  previousTurns: PartnerTurn[];
+  timezone: string;
+}): Promise<string> {
+  if (!Env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
+
+  const previousTurnText = params.previousTurns.length
+    ? params.previousTurns
+        .map((turn) => `${PERSONA_NAMES[turn.personaId]}: ${turn.content}`)
+        .join("\n")
+    : "None yet.";
+  const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
+  const response = await client.models.generateContentStream({
+    contents: [
+      {
+        parts: [
+          {
+            text:
+              `You are ${PERSONA_NAMES[params.personaId]} in a fluid group conversation inside Vybaa Rewind. ` +
+              `${PERSONA_PROMPTS[params.personaId]} ` +
+              `${INDEPENDENT_PARTNER_PROMPT} ` +
+              `Reply directly and naturally, like a trusted friend texting in real time. Keep it to one short sentence or two brief clauses, usually under 180 characters. Add one or two fitting emojis only when they genuinely add tone; never use emoji as filler. ` +
+              `You may agree or disagree with another partner, and may address them with @Name when it adds something useful. ` +
+              `Do not repeat another partner, diagnose, invent facts, expose hidden context, or narrate your role. ` +
+              `Ask at most one short question, and only when a question genuinely moves the conversation forward.\n\n` +
+              `User name: ${params.context.userName}\n` +
+              `Timezone: ${params.timezone}\n\n` +
+              (params.context.observationContext
+                ? `Recent grounded observations:\n${params.context.observationContext}\n\n`
+                : "") +
+              (params.context.personalContext
+                ? `${params.context.personalContext}\n\n`
+                : "") +
+              `Recent chat:\n${params.context.recentChat}\n\n` +
+              `User's latest message:\n${params.latestMessage}\n\n` +
+              `Partner replies already made during this turn:\n${previousTurnText}\n\n` +
+              `Write only ${PERSONA_NAMES[params.personaId]}'s message, without a name prefix.`,
+          },
+        ],
+        role: "user",
+      },
+    ],
+    config: {
+      maxOutputTokens: 300,
+      temperature: 0.72,
+    },
+    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+  });
+
+  let reply = "";
+  for await (const chunk of response) {
+    const delta = chunk.text ?? "";
+    if (!delta) continue;
+    reply += delta;
+    await emitReadableStreamFragments(delta, params.onDelta);
+  }
+  const normalized = normalizeContent(reply);
+  if (!normalized) throw new Error("Rewind streaming reply was empty");
+  return normalized;
+}
+
+export async function streamRewindChatMessage(params: {
+  chatId: string;
+  content: string;
+  idempotencyKey: string;
+  onEvent: (event: RewindChatStreamEvent) => void;
+  timezone: string;
+  userId: string;
+}): Promise<void> {
+  const chat = await prisma.rewindChat.findFirst({
+    where: { archivedAt: null, id: params.chatId, userId: params.userId },
+  });
+  if (!chat) throw new RewindChatError("CHAT_NOT_FOUND", "Chat not found", 404);
+
+  const content = normalizeContent(params.content);
+  if (!content) {
+    throw new RewindChatError("EMPTY_MESSAGE", "Message is required");
+  }
+  const userIdempotencyKey = getRewindChatMessageIdempotencyKey(
+    params.userId,
+    chat.id,
+    params.idempotencyKey,
+  );
+  const now = new Date();
+  const localDateKey = DateTime.fromJSDate(now, {
+    zone: params.timezone,
+  }).toISODate();
+  if (!localDateKey) throw new Error("Unable to resolve chat local date");
+
+  const mentions = extractRewindMentions(content);
+  const userMessage = await prisma.rewindChatMessage.upsert({
+    create: {
+      chatId: chat.id,
+      content,
+      idempotencyKey: userIdempotencyKey,
+      localDateKey,
+      mentions,
+      role: RewindChatMessageRole.USER,
+      userId: params.userId,
+    },
+    update: {},
+    where: { idempotencyKey: userIdempotencyKey },
+  });
+  params.onEvent({
+    message: serializeMessage(userMessage),
+    type: "user_message",
+  });
+  await prisma.rewindChat.update({
+    data: { lastMessageAt: userMessage.createdAt },
+    where: { id: chat.id },
+  });
+  await recordActivitySignal({
+    dedupeKey: `rewind-chat:${userMessage.id}`,
+    description: `Text chat: ${content}`,
+    eventType: "CHAT_MESSAGE",
+    happenedAt: userMessage.createdAt,
+    localDateKey,
+    metadata: { chatId: chat.id, mentions },
+    sourceId: userMessage.id,
+    sourceType: ActivitySignalSourceType.REWIND_CHAT,
+    timezone: params.timezone,
+    userId: params.userId,
+  });
+
+  const personas = selectRewindReplyPersonas({
+    chatPersonaId: chat.personaId,
+    chatType: chat.type,
+    content,
+    mentions,
+  });
+  const existingReplies = await prisma.rewindChatMessage.findMany({
+    orderBy: { createdAt: "asc" },
+    where: {
+      chatId: chat.id,
+      idempotencyKey: { startsWith: `${userIdempotencyKey}:stream-reply:` },
+      userId: params.userId,
+    },
+  });
+  if (existingReplies.length === personas.length) {
+    for (const message of existingReplies) {
+      params.onEvent({
+        message: serializeMessage(message),
+        type: "message_complete",
+      });
+    }
+    params.onEvent({ type: "complete" });
+    return;
+  }
+
+  const context = await loadStreamingChatContext({
+    chatId: chat.id,
+    timezone: params.timezone,
+    userId: params.userId,
+  });
+  for (const personaId of personas) {
+    params.onEvent({ personaId, type: "typing_started" });
+  }
+
+  const partnerTurns: PartnerTurn[] = [];
+  for (const message of existingReplies) {
+    if (!isPersonaId(message.personaId)) continue;
+    partnerTurns.push({
+      content: message.content,
+      personaId: message.personaId,
+    });
+  }
+  try {
+    for (const [index, personaId] of personas.entries()) {
+      const replyIdempotencyKey = `${userIdempotencyKey}:stream-reply:${index}`;
+      const existingReply = existingReplies.find(
+        (message) => message.idempotencyKey === replyIdempotencyKey,
+      );
+      if (existingReply) {
+        params.onEvent({
+          message: serializeMessage(existingReply),
+          type: "message_complete",
+        });
+        params.onEvent({ personaId, type: "typing_stopped" });
+        continue;
+      }
+
+      const reply = await generateStreamingPartnerTurn({
+        context,
+        latestMessage: content,
+        onDelta: (delta) => {
+          params.onEvent({ delta, personaId, type: "message_delta" });
+        },
+        personaId,
+        previousTurns: partnerTurns,
+        timezone: params.timezone,
+      });
+      const partnerMessage = await prisma.rewindChatMessage.upsert({
+        create: {
+          chatId: chat.id,
+          content: reply,
+          idempotencyKey: replyIdempotencyKey,
+          localDateKey,
+          mentions: extractRewindMentions(reply),
+          personaId,
+          role: RewindChatMessageRole.PARTNER,
+          userId: params.userId,
+        },
+        update: {},
+        where: { idempotencyKey: replyIdempotencyKey },
+      });
+      partnerTurns.push({ content: partnerMessage.content, personaId });
+      await prisma.rewindChat.update({
+        data: { lastMessageAt: partnerMessage.createdAt },
+        where: { id: chat.id },
+      });
+      params.onEvent({
+        message: serializeMessage(partnerMessage),
+        type: "message_complete",
+      });
+      params.onEvent({ personaId, type: "typing_stopped" });
+    }
+  } finally {
+    for (const personaId of personas) {
+      params.onEvent({ personaId, type: "typing_stopped" });
+    }
+  }
+  params.onEvent({ type: "complete" });
 }
 
 export async function sendRewindChatMessage(params: {

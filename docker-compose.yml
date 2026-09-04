@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # PostgreSQL Database
@@ -19,6 +19,21 @@ services:
       - vybaa-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vybaa}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Realtime fan-out for multi-instance WebSocket delivery
+  redis:
+    image: redis:7-alpine
+    container_name: vybaa-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - vybaa-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,7 +59,10 @@ services:
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
       FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
-      ABLY_API_KEY: ${ABLY_API_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REALTIME_MAX_CONNECTIONS_PER_USER: ${REALTIME_MAX_CONNECTIONS_PER_USER:-4}
+      REWIND_ASYNC_CHAT_ENABLED: ${REWIND_ASYNC_CHAT_ENABLED:-true}
+      REWIND_AUTONOMOUS_CHAT_ENABLED: ${REWIND_AUTONOMOUS_CHAT_ENABLED:-true}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       REVENUECAT_REST_API_KEY: ${REVENUECAT_REST_API_KEY}
     ports:
@@ -53,6 +71,8 @@ services:
       - ./logs:/app/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - vybaa-network
@@ -79,7 +99,10 @@ services:
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
       FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
-      ABLY_API_KEY: ${ABLY_API_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REALTIME_MAX_CONNECTIONS_PER_USER: ${REALTIME_MAX_CONNECTIONS_PER_USER:-4}
+      REWIND_ASYNC_CHAT_ENABLED: ${REWIND_ASYNC_CHAT_ENABLED:-true}
+      REWIND_AUTONOMOUS_CHAT_ENABLED: ${REWIND_AUTONOMOUS_CHAT_ENABLED:-true}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       REVENUECAT_REST_API_KEY: ${REVENUECAT_REST_API_KEY}
     ports:
@@ -90,6 +113,8 @@ services:
       - ./logs:/app/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - vybaa-network
@@ -102,4 +127,6 @@ networks:
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
     driver: local

@@ -4,16 +4,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.notificationRealtimePublisher = exports.NotificationRealtimePublisher = void 0;
-const ably_config_1 = require("../config/ably.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const realtime_websocket_service_1 = require("./realtime-websocket.service");
 const DEFAULT_BATCH_SIZE = 20;
 const DEFAULT_FLUSH_DELAY_MS = 150;
 const DEFAULT_MINIMUM_INTERVAL_MS = 1000;
 const DEFAULT_RETRY_DELAY_MS = 5000;
-async function publishToAbly(channelName, eventName, signal) {
-    await (0, ably_config_1.getAblyClient)()
-        .channels.get(channelName)
-        .publish(eventName, signal);
+async function publishToRealtimeSocket(channelName, eventName, signal) {
+    const userId = channelName.startsWith("user:")
+        ? channelName.slice("user:".length)
+        : channelName;
+    await (0, realtime_websocket_service_1.publishUserRealtimeEvent)(userId, eventName, signal);
 }
 /**
  * Converts individual notification writes into a bounded, source-of-truth
@@ -21,7 +22,7 @@ async function publishToAbly(channelName, eventName, signal) {
  * continues to deliver the individual native push messages.
  */
 class NotificationRealtimePublisher {
-    constructor(publish = publishToAbly, options = {}) {
+    constructor(publish = publishToRealtimeSocket, options = {}) {
         this.pendingByUser = new Map();
         this.flushTimer = null;
         this.isFlushing = false;
@@ -77,7 +78,8 @@ class NotificationRealtimePublisher {
             failed += 1;
             const current = this.pendingByUser.get(pendingSignal.userId);
             this.pendingByUser.set(pendingSignal.userId, {
-                latestNotification: current?.latestNotification ?? pendingSignal.signal.latestNotification,
+                latestNotification: current?.latestNotification ??
+                    pendingSignal.signal.latestNotification,
                 notificationCount: (current?.notificationCount ?? 0) +
                     pendingSignal.signal.notificationCount,
             });
@@ -102,9 +104,7 @@ class NotificationRealtimePublisher {
     scheduleNextFlush(hasFailures) {
         if (!this.pendingByUser.size)
             return;
-        const delayMs = hasFailures
-            ? this.retryDelayMs
-            : this.minimumIntervalMs;
+        const delayMs = hasFailures ? this.retryDelayMs : this.minimumIntervalMs;
         this.scheduleFlush(delayMs);
     }
     takePendingSignals() {

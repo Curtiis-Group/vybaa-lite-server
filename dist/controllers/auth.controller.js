@@ -38,6 +38,8 @@ function formatUserResponse(user) {
         currentMood: user.currentMood || undefined,
         rewindPersona: user.rewindPersona || undefined,
         rewindPersonalizationEnabled: user.rewindPersonalizationEnabled ?? true,
+        rewindProactiveChatEnabled: user.rewindProactiveChatEnabled ?? true,
+        rewindProactiveChatExplainedAt: user.rewindProactiveChatExplainedAt?.toISOString() || undefined,
         timezone: user.timezone || "UTC",
         isConfirmed: user.isConfirmed,
         isFirstTime: user.isFirstTime,

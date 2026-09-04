@@ -112,6 +112,8 @@ export const updateProfileSchema = z.object({
     .nullable()
     .optional(),
   rewindPersonalizationEnabled: z.boolean().optional(),
+  rewindProactiveChatEnabled: z.boolean().optional(),
+  rewindProactiveChatExplainedAt: z.string().datetime().nullable().optional(),
   timezone: z.string().min(1).max(64).optional(),
 });
 

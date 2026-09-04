@@ -3,40 +3,25 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAblyAuth = getAblyAuth;
 exports.getNotifications = getNotifications;
 exports.getUnreadCount = getUnreadCount;
 exports.markAsRead = markAsRead;
 exports.markAllAsRead = markAllAsRead;
 exports.deleteNotification = deleteNotification;
 const notification_service_1 = require("../services/notification.service");
-const ably_config_1 = require("../config/ably.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
-/**
- * Get Ably auth token for real-time notifications
- */
-async function getAblyAuth(req, res) {
-    try {
-        const userId = req.userId;
-        const tokenRequest = await (0, ably_config_1.generateAblyToken)(userId);
-        res.json({
-            msg: "Ably token generated successfully",
-            data: tokenRequest,
-        });
-    }
-    catch (error) {
-        logger_util_1.default.error("Get Ably auth error:", { error, userId: req.userId });
-        res.status(500).json({ msg: "Internal server error" });
-    }
-}
 /**
  * Get all notifications for the authenticated user
  */
 async function getNotifications(req, res) {
     try {
         const userId = req.userId;
-        const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-        const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+        const pageParam = Array.isArray(req.query.page)
+            ? req.query.page[0]
+            : req.query.page;
+        const limitParam = Array.isArray(req.query.limit)
+            ? req.query.limit[0]
+            : req.query.limit;
         const page = parseInt(String(pageParam || "1")) || 1;
         const limit = parseInt(String(limitParam || "50")) || 50;
         // Validate pagination parameters

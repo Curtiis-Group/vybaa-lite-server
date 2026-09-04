@@ -21,6 +21,7 @@ export interface CreateNotificationData {
     | "goal_completed"
     | "goal_reminder"
     | "goal_v2_reminder"
+    | "rewind_chat_message"
     | "streak_milestone"
     | "system";
   title: string;
@@ -865,7 +866,11 @@ class NotificationService {
       const isSameLocalDate = (a: Date, b: Date, timezone: string): boolean => {
         const first = DateTime.fromJSDate(a, { zone: timezone });
         const second = DateTime.fromJSDate(b, { zone: timezone });
-        return first.isValid && second.isValid && first.toISODate() === second.toISODate();
+        return (
+          first.isValid &&
+          second.isValid &&
+          first.toISODate() === second.toISODate()
+        );
       };
 
       const skippedNotificationIds: string[] = [];

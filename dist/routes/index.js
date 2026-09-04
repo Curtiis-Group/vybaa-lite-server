@@ -18,6 +18,8 @@ const community_routes_1 = __importDefault(require("./community.routes"));
 const admin_routes_1 = __importDefault(require("./admin.routes"));
 const webhook_routes_1 = __importDefault(require("./webhook.routes"));
 const rewind_routes_1 = __importDefault(require("./rewind.routes"));
+const rewind_chat_v2_routes_1 = __importDefault(require("./rewind-chat-v2.routes"));
+const realtime_routes_1 = __importDefault(require("./realtime.routes"));
 const subscription_routes_1 = __importDefault(require("./subscription.routes"));
 const moderation_routes_1 = __importDefault(require("./moderation.routes"));
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
@@ -63,6 +65,8 @@ router.use("/v1/communities", community_routes_1.default);
 router.use("/v1/admin", admin_routes_1.default);
 // Mount rewind routes at /api/v1/rewind
 router.use("/v1/rewind", rewind_routes_1.default);
+router.use("/v2/rewind", rewind_chat_v2_routes_1.default);
+router.use("/v2/realtime", realtime_routes_1.default);
 // Mount subscription routes at /api/v1/subscriptions
 router.use("/v1/subscriptions", subscription_routes_1.default);
 router.use("/v1/moderation", moderation_routes_1.default);

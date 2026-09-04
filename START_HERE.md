@@ -5,11 +5,13 @@ Your Vybaa server now has a complete, production-ready Docker setup!
 ## 📋 Prerequisites
 
 **Install Docker Desktop first:**
+
 - **Mac**: https://www.docker.com/products/docker-desktop
 - **Windows**: https://www.docker.com/products/docker-desktop
 - **Linux**: https://docs.docker.com/engine/install/
 
 After installation, verify Docker is running:
+
 ```bash
 docker --version
 docker-compose --version
@@ -18,6 +20,7 @@ docker-compose --version
 ## ⚡ Quick Start (Choose One)
 
 ### Option 1: Fastest Start (3 Commands)
+
 ```bash
 make setup    # Creates .env file
 # Edit .env with your API keys
@@ -25,6 +28,7 @@ make install  # Builds, starts, and migrates everything
 ```
 
 ### Option 2: Step by Step
+
 ```bash
 cp env.template .env
 # Edit .env with your credentials
@@ -34,6 +38,7 @@ docker-compose exec server npx prisma migrate deploy
 ```
 
 ### Option 3: Using npm scripts
+
 ```bash
 cp env.template .env
 # Edit .env
@@ -59,23 +64,27 @@ curl http://localhost:4000/api/health
 We've created comprehensive documentation for every use case:
 
 ### 🚀 Getting Started
+
 - **[DOCKER_QUICK_START.md](./DOCKER_QUICK_START.md)** ← Start here if new to Docker
   - 5-minute setup guide
   - Common commands
   - Troubleshooting
 
 ### 📖 Reference Docs
+
 - **[README.md](./README.md)** - Main project documentation
 - **[README.docker.md](./README.docker.md)** - Detailed Docker guide
 - **[DOCKER_ARCHITECTURE.md](./DOCKER_ARCHITECTURE.md)** - Visual architecture guide
 
 ### 🚢 Deployment
+
 - **[DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md)** - Production deployment
   - AWS, GCP, DigitalOcean guides
   - CI/CD setup
   - Monitoring & backups
 
 ### 📋 Summary
+
 - **[DOCKER_SETUP_SUMMARY.md](./DOCKER_SETUP_SUMMARY.md)** - What's included
 
 ## 🛠️ Essential Commands
@@ -125,12 +134,14 @@ server/
 ## 🎯 What You Get
 
 ✅ **Development Environment**
+
 - Hot-reload with `tsx watch`
 - Source code mounted as volume
 - Instant code changes
 - Full debugging support
 
 ✅ **Production Environment**
+
 - Optimized Docker image (~150MB)
 - Multi-stage build
 - Security hardened
@@ -138,6 +149,7 @@ server/
 - Auto-restart
 
 ✅ **Database**
+
 - PostgreSQL 16
 - Automatic migrations
 - Data persistence
@@ -145,12 +157,14 @@ server/
 - Prisma Studio access
 
 ✅ **DevOps Tools**
+
 - Makefile for easy commands
 - CI/CD workflow template
 - Cloud deployment guides
 - Monitoring setup
 
 ✅ **Documentation**
+
 - Comprehensive guides
 - Visual architecture
 - Troubleshooting tips
@@ -159,11 +173,13 @@ server/
 ## 🔐 Before You Start
 
 ### 1. Create .env file
+
 ```bash
 cp env.template .env
 ```
 
 ### 2. Generate JWT Secrets
+
 ```bash
 node scripts/generate-secrets.js
 ```
@@ -173,13 +189,14 @@ Copy the output to your `.env` file.
 ### 3. Add API Credentials
 
 Edit `.env` and add your credentials for:
+
 - Google OAuth (`GOOGLE_CLIENT_ID`)
 - Cloudinary (`CLOUDINARY_*`)
 - Firebase (`FIREBASE_*`)
-- Ably (`ABLY_API_KEY`)
 - Gemini AI (`GEMINI_API_KEY`)
 
 ### 4. Start Everything
+
 ```bash
 make install
 ```
@@ -187,18 +204,21 @@ make install
 ## 🎓 Learning Path
 
 ### New to Docker?
+
 1. Read [DOCKER_QUICK_START.md](./DOCKER_QUICK_START.md)
 2. Run `make install`
 3. Experiment with `make dev`
 4. Check [DOCKER_ARCHITECTURE.md](./DOCKER_ARCHITECTURE.md) for visuals
 
 ### Familiar with Docker?
+
 1. Review [README.docker.md](./README.docker.md)
 2. Check `docker-compose.yml` configuration
 3. Customize `docker-compose.override.yml` if needed
 4. Deploy using [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md)
 
 ### Ready for Production?
+
 1. Read [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md)
 2. Setup CI/CD from `.github/workflows/docker-build.yml.example`
 3. Configure monitoring and backups
@@ -207,6 +227,7 @@ make install
 ## 🚨 Common First-Time Issues
 
 ### ❌ "Port 4000 already in use"
+
 ```bash
 # Kill the process using port 4000
 lsof -ti:4000 | xargs kill -9
@@ -216,12 +237,14 @@ PORT=4001
 ```
 
 ### ❌ "Cannot connect to database"
+
 ```bash
 # Make sure DATABASE_URL uses 'postgres' not 'localhost'
 DATABASE_URL=postgresql://vybaa:password@postgres:5432/vybaa_db
 ```
 
 ### ❌ "Missing environment variables"
+
 ```bash
 # Make sure .env file exists and has all required variables
 cp env.template .env
@@ -229,6 +252,7 @@ cp env.template .env
 ```
 
 ### ❌ "Prisma client not generated"
+
 ```bash
 docker-compose exec server npx prisma generate
 ```
@@ -243,7 +267,11 @@ docker-compose exec server npx prisma generate
 │  │   Server     │◄───┤  PostgreSQL  │  │
 │  │  (Node.js)   │    │  (Database)  │  │
 │  │  Port: 4000  │    │  Port: 5432  │  │
-│  └──────────────┘    └──────────────┘  │
+│  └──────┬───────┘    └──────────────┘  │
+│         │                                │
+│  ┌──────▼───────┐                       │
+│  │    Redis     │ Realtime fan-out      │
+│  └──────────────┘                       │
 │         │                    │           │
 │         └────────┬───────────┘           │
 │            vybaa-network                 │
@@ -256,6 +284,7 @@ docker-compose exec server npx prisma generate
 ## 🎉 You're All Set!
 
 Your server is now:
+
 - ✅ Dockerized and portable
 - ✅ Development-ready with hot-reload
 - ✅ Production-ready with optimization
@@ -266,16 +295,19 @@ Your server is now:
 ## 🚀 Next Steps
 
 1. **Start developing:**
+
    ```bash
    make dev
    ```
 
 2. **Test the API:**
+
    ```bash
    curl http://localhost:4000/api/health
    ```
 
 3. **View logs:**
+
    ```bash
    make logs
    ```
@@ -337,6 +369,7 @@ make help            # Show all commands
 You now have a professional, production-ready Docker setup for your Vybaa server!
 
 **Ready to start?** Run:
+
 ```bash
 make setup
 # Edit .env with your credentials
@@ -347,4 +380,4 @@ make install
 
 ---
 
-*For detailed information, check the documentation files listed above.*
+_For detailed information, check the documentation files listed above._

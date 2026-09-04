@@ -20,7 +20,8 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
-    "docker:dev": "docker-compose --profile dev up server-dev"
+    "docker:dev": "docker-compose --profile dev up server-dev",
+    "kill": "kill -9 $(lsof -t -i :4000)"
   },
   "keywords": [],
   "author": "",
@@ -36,7 +37,6 @@
     "@shopify/shopify-api": "^13.0.0",
     "@types/express-ws": "^3.0.6",
     "@types/ws": "^8.18.1",
-    "ably": "^2.17.1",
     "bcryptjs": "^2.4.3",
     "chalk": "^5.6.2",
     "cloudinary": "^2.9.0",

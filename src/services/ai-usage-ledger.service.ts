@@ -1,0 +1,89 @@
+import { AiUsageOperation } from "@prisma/client";
+
+import { prisma } from "../config/db.config";
+import logger from "../utils/logger.util";
+
+const DEFAULT_INPUT_RATE = 0.75;
+const DEFAULT_OUTPUT_RATE = 3.75;
+
+export type GeminiUsageMetadata = {
+  candidatesTokenCount?: number;
+  promptTokenCount?: number;
+  thoughtsTokenCount?: number;
+  totalTokenCount?: number;
+};
+
+function positiveInteger(value: number | undefined): number {
+  return Number.isFinite(value) && value && value > 0 ? Math.floor(value) : 0;
+}
+
+function getRate(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+export async function recordGeminiUsage(params: {
+  metadata: GeminiUsageMetadata | undefined;
+  model: string;
+  operation: AiUsageOperation;
+  runId?: string;
+  turnId?: string;
+  userId: string;
+  idempotencyKey: string;
+}): Promise<void> {
+  const inputTokens = positiveInteger(params.metadata?.promptTokenCount);
+  const outputTokens = positiveInteger(
+    (params.metadata?.candidatesTokenCount ?? 0) +
+      (params.metadata?.thoughtsTokenCount ?? 0),
+  );
+  const totalTokens =
+    positiveInteger(params.metadata?.totalTokenCount) ||
+    inputTokens + outputTokens;
+  const inputRateUsdPerMillion = getRate(
+    "GEMINI_INPUT_USD_PER_MILLION",
+    DEFAULT_INPUT_RATE,
+  );
+  const outputRateUsdPerMillion = getRate(
+    "GEMINI_OUTPUT_USD_PER_MILLION",
+    DEFAULT_OUTPUT_RATE,
+  );
+  const estimatedCostUsd =
+    (inputTokens * inputRateUsdPerMillion +
+      outputTokens * outputRateUsdPerMillion) /
+    1_000_000;
+
+  try {
+    await prisma.aiUsageLedger.upsert({
+      create: {
+        estimatedCostUsd,
+        idempotencyKey: params.idempotencyKey,
+        inputRateUsdPerMillion,
+        inputTokens,
+        metadata: params.metadata ?? undefined,
+        model: params.model,
+        operation: params.operation,
+        ...(params.runId ? { runId: params.runId } : {}),
+        ...(params.turnId ? { turnId: params.turnId } : {}),
+        outputRateUsdPerMillion,
+        outputTokens,
+        provider: "GOOGLE_GEMINI",
+        totalTokens,
+        userId: params.userId,
+      },
+      update: {},
+      where: { idempotencyKey: params.idempotencyKey },
+    });
+  } catch (error: unknown) {
+    logger.error("Unable to persist AI usage ledger entry", {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorStack: error instanceof Error ? error.stack : undefined,
+      idempotencyKey: params.idempotencyKey,
+      model: params.model,
+      operation: params.operation,
+      runId: params.runId,
+      turnId: params.turnId,
+      userId: params.userId,
+    });
+  }
+}
