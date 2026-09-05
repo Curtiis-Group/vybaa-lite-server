@@ -209,6 +209,9 @@ function formatRecentMessages(messages) {
 async function generateChatReply(params) {
     if (!env_util_1.Env.GEMINI_API_KEY)
         throw new Error("GEMINI_API_KEY is not configured");
+    const fixedPersona = isPersonaId(params.chat.personaId)
+        ? params.chat.personaId
+        : params.mentions[0];
     const [messages, user, storedObservationContext] = await Promise.all([
         db_config_1.prisma.rewindChatMessage.findMany({
             orderBy: { createdAt: "desc" },
@@ -227,7 +230,7 @@ async function generateChatReply(params) {
     ]);
     let personalContext = "";
     if (user?.rewindPersonalizationEnabled) {
-        personalContext = await (0, rewind_personal_context_service_1.loadRewindPersonalContext)(params.userId, params.timezone, `chat:${params.chat.id}`)
+        personalContext = await (0, rewind_personal_context_service_1.loadRewindPersonalContext)(params.userId, params.timezone, `chat:${params.chat.id}`, fixedPersona)
             .then(rewind_personal_context_service_1.formatRewindPersonalContext)
             .catch((error) => {
             logger_util_1.default.warn("Rewind chat personal context unavailable", {
@@ -241,9 +244,6 @@ async function generateChatReply(params) {
     const observationContext = user?.rewindPersonalizationEnabled
         ? storedObservationContext
         : "";
-    const fixedPersona = isPersonaId(params.chat.personaId)
-        ? params.chat.personaId
-        : params.mentions[0];
     const partnerDirection = fixedPersona
         ? `Reply only as ${PERSONA_NAMES[fixedPersona]}.`
         : "Choose exactly one partner whose perspective best fits the user’s latest message.";

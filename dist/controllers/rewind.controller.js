@@ -28,6 +28,7 @@ const luxon_1 = require("luxon");
 const node_crypto_1 = require("node:crypto");
 const db_config_1 = require("../config/db.config");
 const metrics_service_1 = require("../services/metrics.service");
+const daily_observation_service_1 = require("../services/daily-observation.service");
 const rewind_routine_service_1 = require("../services/rewind-routine.service");
 const rewind_session_finalization_service_1 = require("../services/rewind-session-finalization.service");
 const rewind_recommendation_service_1 = require("../services/rewind-recommendation.service");
@@ -426,6 +427,7 @@ function getRewindVoiceName(personaId) {
 async function getPaginatedRewindSessions(req, res) {
     try {
         const userId = req.userId;
+        await (0, rewind_routine_service_1.markExpiredRewindOccurrencesMissed)({ userId });
         const pageParam = getSingleQueryParam(req.query.page);
         const limitParam = getSingleQueryParam(req.query.limit);
         const filters = getRewindSessionFilters(req.query);
@@ -552,6 +554,20 @@ async function getRewindSession(req, res) {
             res.status(404).json({ msg: "Rewind session not found" });
             return;
         }
+        const dailyObservation = session.sessionDateKey
+            ? await (0, daily_observation_service_1.ensureDailyObservation)({
+                localDateKey: session.sessionDateKey,
+                timezone: session.timezone ?? "UTC",
+                userId,
+            }).catch((error) => {
+                logger_util_1.default.warn("Unable to attach daily observation to Rewind detail", {
+                    errorName: error instanceof Error ? error.name : "UnknownError",
+                    sessionId,
+                    userId,
+                });
+                return null;
+            })
+            : null;
         if (session.recommendations.length) {
             void metrics_service_1.metricsService.record("rewind_recommendation_impression", session.recommendations.length, { sessionId });
         }
@@ -559,6 +575,7 @@ async function getRewindSession(req, res) {
             msg: "Rewind session retrieved successfully",
             data: {
                 ...session,
+                dailyObservation,
                 summary: normalizeSummary(session.summary, session.personaId),
                 transcriptAvailable: session.turns.length > 0,
             },
@@ -850,7 +867,7 @@ function getRewindSystemInstruction(personaId, user, previousSessions, journalEn
             .join("\n");
         if (historyList) {
             historyContext =
-                `These are memories from this partner's prior completed Rewinds with the user. Cross-partner memories may also appear in the attributed account context below. ` +
+                `These are memories from this partner's prior completed Rewinds with the user. They belong only to this partner. ` +
                     `Use them only when they genuinely clarify a pattern or change. Do not mention them as stored notes.\n${historyList}\n\n`;
         }
     }
@@ -870,11 +887,11 @@ function getRewindSystemInstruction(personaId, user, previousSessions, journalEn
         `Use the local time guidance above to choose a fitting opening. Acknowledge and briefly reflect what they say before probing. Keep spoken replies short. ` +
         `Ask at most one useful, contextual question at a time. Accept silence, hesitation, topic changes, and short answers without filling the space or repeating questions. ` +
         `Compare with yesterday, a prior Rewind, or a Journal only when it adds clear value. Do not diagnose or make clinical claims. ` +
-        `When an attributed cross-partner memory genuinely helps, credit that partner and date rather than presenting the observation as your own. ` +
+        `When shared group context or an attributed observation genuinely helps, preserve the original speaker and date rather than presenting it as your own private memory. ` +
         `You have tools available to manage the session:\n` +
         `- end_session: Use this only when the user explicitly signals they are done or the conversation has reached a natural, meaningful conclusion. Include zero to three strongly supported recommendations, never more than one of each type. After the tool succeeds, speak one short flowing recap-farewell: reflect what mattered, acknowledge the user, say naturally that you are ending this Rewind now, and remind them they can return next time. Do not ask another question. Mention at most one approved recommendation.\n` +
         `- pause_session: Call this when the user explicitly says they need to leave, pause, or return later. It saves the unfinished conversation without concluding it, so it can continue when they return. Do not use it for a brief silence.\n` +
-        `- open_history: Call this if the user specifically asks to see their transcript archive or past Rewinds.\n` +
+        `- open_history: Call this if the user specifically asks to see their saved Reflections or past Rewinds.\n` +
         `- update_conversation_state: Call this after setup, then only when the conversation meaningfully moves to a new stage. Include the stage and one short user-visible note. This appears under "This conversation", so never include private hidden reasoning, exact transcripts, diagnoses, or sensitive details. Do not call it repeatedly within the same stage.\n` +
         `Use account balances only after a relevant reward event, a direct question, or a genuinely helpful connection. Keep Play Points and real-points separate. Never imply that you can spend or move either balance. Goal progress and new-goal actions always require a tap in the app; never claim an action was completed merely because it was suggested.`);
 }
@@ -1082,7 +1099,7 @@ async function handleLiveConnection(ws, req) {
             : Promise.resolve([]),
         db_config_1.prisma.rewindRoutine.findUnique({ where: { userId: auth.userId } }),
         personalizationEnabled
-            ? (0, rewind_personal_context_service_1.loadRewindPersonalContext)(auth.userId, connectionTimezone, sessionState?.sessionId).catch((error) => {
+            ? (0, rewind_personal_context_service_1.loadRewindPersonalContext)(auth.userId, connectionTimezone, sessionState?.sessionId, personaId).catch((error) => {
                 logger_util_1.default.warn("Rewind personal context unavailable", {
                     errorName: error instanceof Error ? error.name : "UnknownError",
                     sessionId: sessionState?.sessionId,
@@ -1650,7 +1667,7 @@ async function handleLiveConnection(ws, req) {
                                 },
                                 {
                                     name: "open_history",
-                                    description: "Navigates the user to their Rewind history.",
+                                    description: "Navigates the user to their saved Reflections.",
                                 },
                                 {
                                     name: "update_conversation_state",

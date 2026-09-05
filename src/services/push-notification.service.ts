@@ -10,6 +10,70 @@ function isInternalAppRoute(route: string): boolean {
   return route.startsWith("/") && !route.startsWith("//");
 }
 
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (isRecord(value)) return value;
+  if (typeof value !== "string") return null;
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export type CommunicationNotificationMetadata = {
+  avatarUrl: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+};
+
+function getTrustedPartnerAvatarUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  try {
+    const url = new URL(value);
+    const trustedCloudinaryAsset =
+      url.hostname === "res.cloudinary.com" &&
+      url.pathname.startsWith("/dqdtazdda/image/upload/");
+    return url.protocol === "https:" && trustedCloudinaryAsset
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getCommunicationNotificationMetadata(
+  payload: Record<string, unknown>,
+): CommunicationNotificationMetadata | null {
+  if (payload.type !== "rewind_chat_message") return null;
+
+  const notificationData = parseRecord(payload.data) ?? payload;
+  const sender = parseRecord(notificationData.notificationSender);
+  const avatarUrl = getTrustedPartnerAvatarUrl(sender?.avatarUrl);
+  const conversationId = notificationData.chatId;
+  const senderId = sender?.personaId;
+  const senderName = sender?.name;
+  if (
+    !avatarUrl ||
+    typeof conversationId !== "string" ||
+    typeof senderId !== "string" ||
+    typeof senderName !== "string"
+  ) {
+    return null;
+  }
+
+  return { avatarUrl, conversationId, senderId, senderName };
+}
+
+export function getNotificationSenderAvatarUrl(
+  payload: Record<string, unknown>,
+): string | null {
+  return getCommunicationNotificationMetadata(payload)?.avatarUrl ?? null;
+}
+
 function getNotificationRoute(payload: Record<string, unknown>): string | null {
   const directRoute = payload.route;
   if (typeof directRoute === "string" && isInternalAppRoute(directRoute)) {
@@ -38,6 +102,14 @@ export function serializePushPayload(
     data.route = route;
   }
 
+  const communication = getCommunicationNotificationMetadata(payload);
+  if (communication) {
+    data.avatarUrl = communication.avatarUrl;
+    data.conversationId = communication.conversationId;
+    data.senderId = communication.senderId;
+    data.senderName = communication.senderName;
+  }
+
   return data;
 }
 
@@ -50,16 +122,23 @@ export class PushNotificationService {
     silent = false,
   ) {
     const data = serializePushPayload(payload);
+    const communication = silent
+      ? null
+      : getCommunicationNotificationMetadata(payload);
+    const avatarUrl = communication?.avatarUrl ?? null;
 
     return {
       data,
-      notification: silent ? undefined : { title, body },
+      notification: silent
+        ? undefined
+        : { title, body, imageUrl: avatarUrl ?? undefined },
       webpush: {
         headers: { Urgency: "high" },
         notification: {
           body,
           requireInteraction: true,
           badge: "/badge-icon.png",
+          icon: avatarUrl ?? undefined,
         },
       },
       android: {
@@ -69,14 +148,17 @@ export class PushNotificationService {
             : clientApp === "mycove"
               ? "mycove_notifications"
               : "vybaa_notifications",
+          imageUrl: avatarUrl ?? undefined,
           sound: silent ? undefined : "default",
         },
       },
       apns: {
+        fcmOptions: avatarUrl ? { imageUrl: avatarUrl } : undefined,
         payload: {
           aps: {
             sound: silent ? undefined : "default",
             badge: 1,
+            mutableContent: Boolean(communication),
           },
         },
       },

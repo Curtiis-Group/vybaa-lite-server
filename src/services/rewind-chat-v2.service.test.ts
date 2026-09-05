@@ -6,9 +6,11 @@ import {
   constrainImmediateRelationshipSoftening,
   decayRewindRelationshipState,
   getRewindBetweenWavesDelayMs,
+  getRewindChatDeliveryContext,
   getRewindDeliveredToSeenDelayMs,
   getRewindSeenToTypingDelayMs,
   getRewindWaveTypingDelays,
+  parseRewindContextCompactionResponse,
   parseRewindDirectorResponse,
   parseRewindPartnerResponse,
   resolveRewindDirectorDecision,
@@ -325,6 +327,7 @@ test("v2 partner rejects malformed, wrapped, extra, empty, and overlong output",
     JSON.stringify({ message: "   " }),
     createPartnerResponse("x".repeat(1_201)),
     createPartnerResponse("x".repeat(421)),
+    createPartnerResponse(Array.from({ length: 25 }, () => "word").join(" ")),
     createPartnerResponse("2. **Analyze the user's response."),
     createPartnerResponse('") as Lyra.'),
     createPartnerResponse("* Wait, `"),
@@ -349,26 +352,82 @@ test("v2 partner rejects malformed, wrapped, extra, empty, and overlong output",
   }
 });
 
+test("v2 context compaction accepts only one bounded JSON summary", () => {
+  assert.equal(
+    parseRewindContextCompactionResponse(
+      JSON.stringify({
+        summary:
+          "Lyra asked whether the user was still working; the question remains unanswered.",
+      }),
+    ),
+    "Lyra asked whether the user was still working; the question remains unanswered.",
+  );
+
+  const malformedResponses = [
+    "not JSON",
+    "null",
+    "[]",
+    '```json\n{"summary":"hello"}\n```',
+    '{"summary":"hello"} trailing prose',
+    JSON.stringify({ extra: true, summary: "hello" }),
+    JSON.stringify({ summary: "   " }),
+    JSON.stringify({ summary: "x".repeat(3_601) }),
+  ];
+  for (const response of malformedResponses) {
+    assert.throws(() => parseRewindContextCompactionResponse(response));
+  }
+});
+
+test("v2 only calls an unanswered partner message left on read when confirmed", () => {
+  const partnerMessage = {
+    createdAt: new Date("2026-09-05T18:00:00.000Z"),
+    role: "PARTNER" as const,
+  };
+  assert.match(
+    getRewindChatDeliveryContext(
+      [partnerMessage],
+      new Date("2026-09-05T18:01:00.000Z"),
+    ),
+    /was read by the user/,
+  );
+  assert.match(
+    getRewindChatDeliveryContext([partnerMessage], null),
+    /not marked read/,
+  );
+  assert.equal(
+    getRewindChatDeliveryContext(
+      [
+        {
+          createdAt: new Date("2026-09-05T18:02:00.000Z"),
+          role: "USER",
+        },
+      ],
+      null,
+    ),
+    "The user sent the latest message.",
+  );
+});
+
 test("v2 seen-to-typing jitter always stays within the intended range", () => {
   for (let sample = 0; sample < 1_000; sample += 1) {
     const deliveredToSeenDelay = getRewindDeliveredToSeenDelayMs();
     const delay = getRewindSeenToTypingDelayMs();
     const betweenWavesDelay = getRewindBetweenWavesDelayMs();
-    assert.ok(deliveredToSeenDelay >= 650);
-    assert.ok(deliveredToSeenDelay <= 1_800);
-    assert.ok(delay >= 650);
-    assert.ok(delay <= 1_900);
-    assert.ok(betweenWavesDelay >= 900);
-    assert.ok(betweenWavesDelay <= 2_200);
+    assert.ok(deliveredToSeenDelay >= 1_400);
+    assert.ok(deliveredToSeenDelay <= 4_200);
+    assert.ok(delay >= 850);
+    assert.ok(delay <= 2_400);
+    assert.ok(betweenWavesDelay >= 1_200);
+    assert.ok(betweenWavesDelay <= 3_200);
 
     const waveDelays = getRewindWaveTypingDelays(4);
     assert.equal(waveDelays.length, 4);
-    assert.ok((waveDelays[0] ?? 0) >= 650);
-    assert.ok((waveDelays[0] ?? 0) <= 1_900);
+    assert.ok((waveDelays[0] ?? 0) >= 850);
+    assert.ok((waveDelays[0] ?? 0) <= 2_400);
     for (let index = 1; index < waveDelays.length; index += 1) {
       const stagger = (waveDelays[index] ?? 0) - (waveDelays[index - 1] ?? 0);
-      assert.ok(stagger >= 550);
-      assert.ok(stagger <= 1_400);
+      assert.ok(stagger >= 700);
+      assert.ok(stagger <= 1_800);
     }
   }
 });

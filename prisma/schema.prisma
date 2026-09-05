@@ -26,6 +26,7 @@ model User {
   avatarUrl                      String?   @map("avatar_url")
   currentMood                    String?   @map("current_mood")
   rewindPersona                  String?   @map("rewind_persona")
+  rewindPersonaChangedAt         DateTime? @map("rewind_persona_changed_at")
   rewindPersonalizationEnabled   Boolean   @default(true) @map("rewind_personalization_enabled")
   rewindProactiveChatEnabled     Boolean   @default(true) @map("rewind_proactive_chat_enabled")
   rewindProactiveChatExplainedAt DateTime? @map("rewind_proactive_chat_explained_at")
@@ -394,21 +395,24 @@ model RewindChat {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  threadKey       String              @map("thread_key")
-  type            RewindChatType
-  personaId       String?             @map("persona_id")
-  title           String
-  archivedAt      DateTime?           @map("archived_at")
-  lastMessageAt   DateTime?           @map("last_message_at")
-  lastReadAt      DateTime?           @map("last_read_at")
-  unreadCount     Int                 @default(0) @map("unread_count")
-  proactiveMuted  Boolean             @default(false) @map("proactive_muted")
-  contextRevision Int                 @default(0) @map("context_revision")
-  messages        RewindChatMessage[]
-  partnerMinds    RewindPartnerMind[]
-  runs            RewindChatRun[]
-  turns           RewindChatTurn[]
-  outbox          RewindChatOutbox[]
+  threadKey                      String              @map("thread_key")
+  type                           RewindChatType
+  personaId                      String?             @map("persona_id")
+  title                          String
+  archivedAt                     DateTime?           @map("archived_at")
+  lastMessageAt                  DateTime?           @map("last_message_at")
+  lastReadAt                     DateTime?           @map("last_read_at")
+  unreadCount                    Int                 @default(0) @map("unread_count")
+  proactiveMuted                 Boolean             @default(false) @map("proactive_muted")
+  contextRevision                Int                 @default(0) @map("context_revision")
+  contextSummary                 String?             @map("context_summary") @db.Text
+  contextSummaryThroughMessageId String?             @map("context_summary_through_message_id")
+  contextSummaryUpdatedAt        DateTime?           @map("context_summary_updated_at")
+  messages                       RewindChatMessage[]
+  partnerMinds                   RewindPartnerMind[]
+  runs                           RewindChatRun[]
+  turns                          RewindChatTurn[]
+  outbox                         RewindChatOutbox[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
@@ -603,6 +607,7 @@ model RewindChatOutbox {
 }
 
 enum AiUsageOperation {
+  REWIND_CONTEXT_COMPACTION
   REWIND_DIRECTOR
   REWIND_PARTNER_TURN
 }

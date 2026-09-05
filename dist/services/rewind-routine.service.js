@@ -1,4 +1,7 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RewindRoutineAvailabilityError = exports.REWIND_MINIMUM_GAP_MINUTES = exports.REWIND_WINDOW_MINUTES = exports.EVENING_REWIND_TIME = exports.MORNING_REWIND_TIME = exports.DEFAULT_REWIND_TIMEZONE = void 0;
 exports.isValidRewindTimezone = isValidRewindTimezone;
@@ -8,6 +11,8 @@ exports.getRoutineTimes = getRoutineTimes;
 exports.validateRewindRoutineInput = validateRewindRoutineInput;
 exports.getRewindIntentLabel = getRewindIntentLabel;
 exports.getRoutineOccurrenceStarts = getRoutineOccurrenceStarts;
+exports.isExpiredUnstartedRewindOccurrence = isExpiredUnstartedRewindOccurrence;
+exports.markExpiredRewindOccurrencesMissed = markExpiredRewindOccurrencesMissed;
 exports.materializeRewindOccurrences = materializeRewindOccurrences;
 exports.getRewindRoutineOverview = getRewindRoutineOverview;
 exports.startOrResumeRewindOccurrence = startOrResumeRewindOccurrence;
@@ -17,6 +22,7 @@ exports.refreshFutureRewindOccurrences = refreshFutureRewindOccurrences;
 const client_1 = require("@prisma/client");
 const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
+const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const notification_service_1 = require("./notification.service");
 const rewind_session_finalization_service_1 = require("./rewind-session-finalization.service");
 const activity_signal_service_1 = require("./activity-signal.service");
@@ -150,6 +156,62 @@ function getRoutineOccurrenceStarts(params) {
 function getPersonaId(user) {
     return user.rewindPersona ?? "ella";
 }
+function isExpiredUnstartedRewindOccurrence(status, windowEndsAt, now = new Date()) {
+    return (status === client_1.RewindSessionStatus.SCHEDULED &&
+        Boolean(windowEndsAt && windowEndsAt <= now));
+}
+async function markExpiredRewindOccurrencesMissed(params) {
+    const now = params?.now ?? new Date();
+    const occurrences = await db_config_1.prisma.rewindSession.findMany({
+        where: {
+            ...(params?.userId ? { userId: params.userId } : {}),
+            status: client_1.RewindSessionStatus.SCHEDULED,
+            windowEndsAt: { lte: now },
+        },
+        select: {
+            id: true,
+            personaId: true,
+            scheduledFor: true,
+            sessionDateKey: true,
+            timezone: true,
+            userId: true,
+        },
+        ...(!params?.userId ? { take: 500 } : {}),
+    });
+    let missedCount = 0;
+    for (const occurrence of occurrences) {
+        const result = await db_config_1.prisma.rewindSession.updateMany({
+            where: {
+                id: occurrence.id,
+                status: client_1.RewindSessionStatus.SCHEDULED,
+                windowEndsAt: { lte: now },
+            },
+            data: { status: client_1.RewindSessionStatus.MISSED },
+        });
+        if (!result.count)
+            continue;
+        missedCount += result.count;
+        await (0, activity_signal_service_1.recordActivitySignal)({
+            dedupeKey: `rewind-routine:${occurrence.id}:missed`,
+            description: `Skipped the scheduled Rewind with ${occurrence.personaId}.`,
+            eventType: "REWIND_ROUTINE_SKIPPED",
+            happenedAt: occurrence.scheduledFor ?? now,
+            localDateKey: occurrence.sessionDateKey ?? undefined,
+            personaId: occurrence.personaId,
+            sourceId: occurrence.id,
+            sourceType: client_1.ActivitySignalSourceType.REWIND_ROUTINE,
+            timezone: occurrence.timezone ?? "UTC",
+            userId: occurrence.userId,
+        }).catch((error) => {
+            logger_util_1.default.warn("Unable to record missed Rewind activity", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+                sessionId: occurrence.id,
+                userId: occurrence.userId,
+            });
+        });
+    }
+    return missedCount;
+}
 async function materializeRewindOccurrences(params) {
     const routine = await db_config_1.prisma.rewindRoutine.findUnique({
         where: { userId: params.user.id },
@@ -200,6 +262,7 @@ async function getRewindRoutineOverview(params) {
         return null;
     await materializeRewindOccurrences({ now: params.now, user });
     const now = params.now ?? new Date();
+    await markExpiredRewindOccurrencesMissed({ now, userId: params.userId });
     const [routine, currentSession, nextSession, latestSession] = await Promise.all([
         db_config_1.prisma.rewindRoutine.findUnique({ where: { userId: params.userId } }),
         db_config_1.prisma.rewindSession.findFirst({
@@ -264,19 +327,10 @@ async function startOrResumeRewindOccurrence(params) {
         !occurrence.windowEndsAt ||
         occurrence.scheduledFor > now ||
         occurrence.windowEndsAt <= now) {
-        if (occurrence.status === client_1.RewindSessionStatus.SCHEDULED ||
-            occurrence.status === client_1.RewindSessionStatus.IN_PROGRESS) {
-            await db_config_1.prisma.rewindSession.updateMany({
-                where: {
-                    id: occurrence.id,
-                    status: {
-                        in: [
-                            client_1.RewindSessionStatus.SCHEDULED,
-                            client_1.RewindSessionStatus.IN_PROGRESS,
-                        ],
-                    },
-                },
-                data: { status: client_1.RewindSessionStatus.MISSED },
+        if (occurrence.status === client_1.RewindSessionStatus.SCHEDULED) {
+            await markExpiredRewindOccurrencesMissed({
+                now,
+                userId: params.userId,
             });
         }
         throw new RewindRoutineAvailabilityError("expired");
@@ -382,17 +436,13 @@ async function runRewindRoutineLifecycle(params) {
         if (users.length < 100)
             break;
     } while (cursor);
-    const [startNotificationCount, reminderNotificationCount, expired] = await Promise.all([
+    const [startNotificationCount, reminderNotificationCount, scheduledMissedCount, expired,] = await Promise.all([
         scheduleRewindStartNotifications(now),
         scheduleLateRewindReminders(now),
+        markExpiredRewindOccurrencesMissed({ now }),
         db_config_1.prisma.rewindSession.findMany({
             where: {
-                status: {
-                    in: [
-                        client_1.RewindSessionStatus.SCHEDULED,
-                        client_1.RewindSessionStatus.IN_PROGRESS,
-                    ],
-                },
+                status: client_1.RewindSessionStatus.IN_PROGRESS,
                 windowEndsAt: { lte: now },
             },
             select: {
@@ -407,31 +457,9 @@ async function runRewindRoutineLifecycle(params) {
             take: 500,
         }),
     ]);
-    let missedCount = 0;
     let finalizedCount = 0;
+    let missedCount = scheduledMissedCount;
     for (const occurrence of expired) {
-        if (occurrence.status === client_1.RewindSessionStatus.SCHEDULED) {
-            const result = await db_config_1.prisma.rewindSession.updateMany({
-                where: { id: occurrence.id, status: client_1.RewindSessionStatus.SCHEDULED },
-                data: { status: client_1.RewindSessionStatus.MISSED },
-            });
-            missedCount += result.count;
-            if (result.count) {
-                await (0, activity_signal_service_1.recordActivitySignal)({
-                    dedupeKey: `rewind-routine:${occurrence.id}:missed`,
-                    description: `Skipped the scheduled Rewind with ${occurrence.personaId}.`,
-                    eventType: "REWIND_ROUTINE_SKIPPED",
-                    happenedAt: occurrence.scheduledFor ?? now,
-                    localDateKey: occurrence.sessionDateKey ?? undefined,
-                    personaId: occurrence.personaId,
-                    sourceId: occurrence.id,
-                    sourceType: client_1.ActivitySignalSourceType.REWIND_ROUTINE,
-                    timezone: occurrence.timezone ?? "UTC",
-                    userId: occurrence.userId,
-                });
-            }
-            continue;
-        }
         const result = await (0, rewind_session_finalization_service_1.finalizeRewindSession)({
             sessionId: occurrence.id,
             source: client_1.RewindCompletionSource.AUTO_TIMEOUT,

@@ -21,6 +21,12 @@ const daily_observation_service_1 = require("../services/daily-observation.servi
 const rewind_chat_service_1 = require("../services/rewind-chat.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const CHAT_MESSAGES_PER_MINUTE = 12;
+function isRewindPersonaId(value) {
+    return (value === "ariel" ||
+        value === "ella" ||
+        value === "jake" ||
+        value === "lyra");
+}
 async function getUserTimezone(userId) {
     const user = await db_config_1.prisma.user.findUnique({
         select: { timezone: true },
@@ -91,6 +97,7 @@ async function getHomeGreeting(req, res) {
         const user = await db_config_1.prisma.user.findUnique({
             select: {
                 firstName: true,
+                rewindPersona: true,
                 rewindPersonalizationEnabled: true,
                 username: true,
             },
@@ -121,7 +128,9 @@ async function getHomeGreeting(req, res) {
             data: {
                 date: serialized.localDateKey,
                 message: (serialized.homeGreeting ?? fallbackMessage).slice(0, 100),
-                personaId: serialized.personaId,
+                personaId: isRewindPersonaId(user.rewindPersona)
+                    ? user.rewindPersona
+                    : serialized.personaId,
                 sourceTypes: serialized.sourceTypes,
                 title: "",
             },

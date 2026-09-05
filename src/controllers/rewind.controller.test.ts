@@ -116,7 +116,8 @@ test("identity and private memory are included in every Live system instruction"
 
   assert.match(prompt, /preferred name is Nia/i);
   assert.match(prompt, /memories from this partner/i);
-  assert.match(prompt, /Cross-partner memories/i);
+  assert.match(prompt, /belong only to this partner/i);
+  assert.doesNotMatch(prompt, /Cross-partner memories/i);
   assert.match(prompt, /explicit Journal entries/i);
   assert.match(prompt, /local time is/i);
   assert.match(prompt, /pause_session/i);

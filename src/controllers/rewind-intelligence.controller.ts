@@ -28,6 +28,15 @@ import logger from "../utils/logger.util";
 
 const CHAT_MESSAGES_PER_MINUTE = 12;
 
+function isRewindPersonaId(value: unknown): boolean {
+  return (
+    value === "ariel" ||
+    value === "ella" ||
+    value === "jake" ||
+    value === "lyra"
+  );
+}
+
 async function getUserTimezone(userId: string): Promise<string> {
   const user = await prisma.user.findUnique({
     select: { timezone: true },
@@ -124,6 +133,7 @@ export async function getHomeGreeting(
     const user = await prisma.user.findUnique({
       select: {
         firstName: true,
+        rewindPersona: true,
         rewindPersonalizationEnabled: true,
         username: true,
       },
@@ -154,7 +164,9 @@ export async function getHomeGreeting(
       data: {
         date: serialized.localDateKey,
         message: (serialized.homeGreeting ?? fallbackMessage).slice(0, 100),
-        personaId: serialized.personaId,
+        personaId: isRewindPersonaId(user.rewindPersona)
+          ? user.rewindPersona
+          : serialized.personaId,
         sourceTypes: serialized.sourceTypes,
         title: "",
       },

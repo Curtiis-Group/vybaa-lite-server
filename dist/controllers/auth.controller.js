@@ -21,13 +21,15 @@ exports.getSuggestions = getSuggestions;
 exports.completeOnboarding = completeOnboarding;
 const db_config_1 = require("../config/db.config");
 const email_service_1 = require("../services/email.service");
+const rewind_partner_switch_service_1 = require("../services/rewind-partner-switch.service");
+const user_mood_service_1 = require("../services/user-mood.service");
 const auth_util_1 = require("../utils/auth.util");
 const cloudinary_util_1 = require("../utils/cloudinary.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const username_util_1 = require("../utils/username.util");
-const user_mood_service_1 = require("../services/user-mood.service");
 // Helper function to format user response
 function formatUserResponse(user) {
+    const partnerSwitch = (0, rewind_partner_switch_service_1.getRewindPartnerSwitchAvailability)(user.rewindPersonaChangedAt, user.timezone);
     return {
         id: user.id,
         email: user.email,
@@ -37,6 +39,8 @@ function formatUserResponse(user) {
         avatarUrl: user.avatarUrl || undefined,
         currentMood: user.currentMood || undefined,
         rewindPersona: user.rewindPersona || undefined,
+        rewindPersonaCanChange: partnerSwitch.canChange,
+        rewindPersonaNextChangeAt: partnerSwitch.nextAvailableAt?.toISOString() || undefined,
         rewindPersonalizationEnabled: user.rewindPersonalizationEnabled ?? true,
         rewindProactiveChatEnabled: user.rewindProactiveChatEnabled ?? true,
         rewindProactiveChatExplainedAt: user.rewindProactiveChatExplainedAt?.toISOString() || undefined,

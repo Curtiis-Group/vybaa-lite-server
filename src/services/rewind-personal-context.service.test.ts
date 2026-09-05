@@ -21,6 +21,7 @@ const context: RewindPersonalContext = {
     },
   ],
   observations: [],
+  partnerContinuity: null,
   personalizationEnabled: true,
   recentRewards: [],
 };
@@ -57,4 +58,40 @@ test("personal context is empty when activity personalization is disabled", () =
     }),
     "",
   );
+});
+
+test("personal context keeps one partner's private memory isolated", () => {
+  const formatted = formatRewindPersonalContext({
+    ...context,
+    memories: [
+      {
+        comparisonInsight: null,
+        dateKey: "2026-09-04",
+        emotionalInsight: null,
+        partner: "Lyra",
+        summary: "The user was anxious about a deadline.",
+      },
+    ],
+    partnerContinuity: {
+      directChat: ["User: dont tell the group", "Lyra: course not"],
+      directChatSummary: "The deadline concern is private.",
+      groupChat: ["Jake: we still going tomorrow?", "User: yh"],
+      groupChatSummary: "The group planned to meet tomorrow.",
+      partner: "Lyra",
+      personaId: "lyra",
+      relationship: {
+        anger: 2,
+        hate: 0,
+        jealousy: 1,
+        love: 34,
+        malice: 0,
+        memorySummary: "Still worried the user is avoiding the deadline.",
+      },
+    },
+  });
+
+  assert.match(formatted, /belongs only to Lyra/);
+  assert.match(formatted, /dont tell the group/);
+  assert.match(formatted, /Group messages are shared facts only/);
+  assert.doesNotMatch(formatted, /Cross-partner memories/);
 });

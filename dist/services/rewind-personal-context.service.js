@@ -1,5 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.loadRewindPartnerContinuityContext = loadRewindPartnerContinuityContext;
+exports.formatRewindPartnerContinuityContext = formatRewindPartnerContinuityContext;
 exports.loadRewindPersonalContext = loadRewindPersonalContext;
 exports.formatRewindPersonalContext = formatRewindPersonalContext;
 const client_1 = require("@prisma/client");
@@ -28,12 +30,86 @@ function getPendingPoints(awards) {
     }
     return pending;
 }
-async function loadRewindPersonalContext(userId, timezone, sessionId) {
+function formatContinuityMessages(messages) {
+    return [...messages].reverse().map((message) => {
+        let speaker = "User";
+        if (message.role !== "USER") {
+            speaker = message.personaId
+                ? (PARTNER_NAMES[message.personaId] ?? message.personaId)
+                : "Partner";
+        }
+        return `${speaker}: ${message.content.replace(/\s+/g, " ").trim().slice(0, 360)}`;
+    });
+}
+async function loadRewindPartnerContinuityContext(userId, personaId) {
+    const [relationship, chats] = await Promise.all([
+        db_config_1.prisma.rewindPartnerRelationship.findUnique({
+            where: { userId_personaId: { personaId, userId } },
+        }),
+        db_config_1.prisma.rewindChat.findMany({
+            include: {
+                messages: {
+                    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+                    select: { content: true, personaId: true, role: true },
+                    take: 18,
+                },
+            },
+            where: {
+                threadKey: { in: [`partner:${personaId}`, "group"] },
+                userId,
+            },
+        }),
+    ]);
+    const directChat = chats.find((chat) => chat.threadKey === `partner:${personaId}`);
+    const groupChat = chats.find((chat) => chat.threadKey === "group");
+    return {
+        directChat: formatContinuityMessages(directChat?.messages ?? []),
+        directChatSummary: directChat?.contextSummary ?? null,
+        groupChat: formatContinuityMessages(groupChat?.messages ?? []),
+        groupChatSummary: groupChat?.contextSummary ?? null,
+        partner: PARTNER_NAMES[personaId] ?? personaId,
+        personaId,
+        relationship: relationship
+            ? {
+                anger: relationship.anger,
+                hate: relationship.hate,
+                jealousy: relationship.jealousy,
+                love: relationship.love,
+                malice: relationship.malice,
+                memorySummary: relationship.memorySummary,
+            }
+            : null,
+    };
+}
+function formatRewindPartnerContinuityContext(context) {
+    const relationship = context.relationship
+        ? `Private relationship state: love ${context.relationship.love}, anger ${context.relationship.anger}, hate ${context.relationship.hate}, jealousy ${context.relationship.jealousy}, malice ${context.relationship.malice}. Unresolved memory: ${context.relationship.memorySummary ?? "none"}.`
+        : "Private relationship state: no established history yet.";
+    const directChat = context.directChat.length
+        ? context.directChat.join("\n")
+        : "No recent direct messages.";
+    const groupChat = context.groupChat.length
+        ? context.groupChat.join("\n")
+        : "No recent group messages.";
+    return (`${context.partner}'s private continuity across text chat, greetings, and Live Rewind. ` +
+        `This belongs only to ${context.partner}. Do not inherit another partner's private feelings or claim another partner's direct memories. ` +
+        `Group messages are shared facts only and retain their speaker attribution. Never recite memory storage or relationship scores.\n` +
+        `${relationship}\n` +
+        (context.directChatSummary
+            ? `Earlier direct-chat memory: ${context.directChatSummary}\n`
+            : "") +
+        `Recent direct chat:\n${directChat}\n` +
+        (context.groupChatSummary
+            ? `Earlier shared group context: ${context.groupChatSummary}\n`
+            : "") +
+        `Recent shared group chat:\n${groupChat}`).slice(0, 8000);
+}
+async function loadRewindPersonalContext(userId, timezone, sessionId, personaId) {
     const localToday = luxon_1.DateTime.now().setZone(timezone).toISODate();
     const today = luxon_1.DateTime.fromISO(localToday ?? luxon_1.DateTime.now().toISODate(), {
         zone: "UTC",
     }).toJSDate();
-    const [user, goals, memories, conclusions, achievements, rewards, observations,] = await Promise.all([
+    const [user, goals, memories, conclusions, achievements, rewards, observations, partnerContinuity,] = await Promise.all([
         db_config_1.prisma.user.findUnique({
             select: {
                 points: true,
@@ -74,7 +150,12 @@ async function loadRewindPersonalContext(userId, timezone, sessionId) {
                 summary: true,
             },
             take: 10,
-            where: { completed: true, id: { not: sessionId }, userId },
+            where: {
+                completed: true,
+                id: { not: sessionId },
+                personaId: personaId ?? "__no_partner__",
+                userId,
+            },
         }),
         db_config_1.prisma.goalConclusion.findMany({
             include: { goal: { select: { title: true, userId: true } } },
@@ -107,6 +188,9 @@ async function loadRewindPersonalContext(userId, timezone, sessionId) {
             take: 5,
             where: { dismissedAt: null, userId },
         }),
+        personaId
+            ? loadRewindPartnerContinuityContext(userId, personaId)
+            : Promise.resolve(null),
     ]);
     return {
         achievements: achievements.map((achievement) => ({
@@ -164,6 +248,7 @@ async function loadRewindPersonalContext(userId, timezone, sessionId) {
             description: observation.description,
             personaId: observation.personaId,
         })),
+        partnerContinuity,
         personalizationEnabled: user?.rewindPersonalizationEnabled ?? true,
         recentRewards: rewards.map((reward) => ({
             amount: reward.amount,
@@ -183,16 +268,22 @@ function formatRewindPersonalContext(context) {
         return `- ${partner}, ${observation.dateKey}: ${observation.description}`;
     })
         .join("\n");
-    return (`Account context (private, current, and never recited as a report):\n` +
+    const partnerContinuityContext = context.partnerContinuity
+        ? `${formatRewindPartnerContinuityContext(context.partnerContinuity)}\n`
+        : "";
+    const memoryContext = context.memories.length
+        ? `This partner's own prior completed Rewinds:\n${context.memories
+            .map((memory) => `- ${memory.partner}, ${memory.dateKey}: ${memory.summary}${memory.emotionalInsight ? ` Insight: ${memory.emotionalInsight}` : ""}${memory.comparisonInsight ? ` Pattern: ${memory.comparisonInsight}` : ""}`)
+            .join("\n")}\n`
+        : "";
+    return (partnerContinuityContext +
+        memoryContext +
+        `Account context (private, current, and never recited as a report):\n` +
         `- Play Points: ${context.balances.playPoints.toFixed(2)}\n` +
         `- Real-points balance: ${context.balances.realPoints}\n` +
         `- Current goals: ${JSON.stringify(context.goals)}\n` +
         `- Recent goal conclusions: ${JSON.stringify(context.goalConclusions)}\n` +
         `- Recent reward events: ${JSON.stringify(context.recentRewards)}\n` +
         `- Recent achievements: ${JSON.stringify(context.achievements)}\n` +
-        `Recent grounded observations. Credit a named partner and date whenever one is used:\n${observationContext}\n` +
-        `Cross-partner memories. When using one, credit the named partner and date naturally:\n` +
-        context.memories
-            .map((memory) => `- ${memory.partner}, ${memory.dateKey}: ${memory.summary}${memory.emotionalInsight ? ` Insight: ${memory.emotionalInsight}` : ""}${memory.comparisonInsight ? ` Pattern: ${memory.comparisonInsight}` : ""}`)
-            .join("\n")).slice(0, 14000);
+        `Recent grounded observations. These are shared factual context; credit a named partner and date whenever one is used:\n${observationContext}\n`).slice(0, 14000);
 }

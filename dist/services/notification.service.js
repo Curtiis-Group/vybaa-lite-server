@@ -12,6 +12,7 @@ const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const goal_reminder_util_1 = require("../utils/goal-reminder.util");
 const notification_dedupe_util_1 = require("../utils/notification-dedupe.util");
+const rewind_notification_personalization_util_1 = require("../utils/rewind-notification-personalization.util");
 const cache_service_1 = require("./cache.service");
 const metrics_service_1 = require("./metrics.service");
 const notification_realtime_service_1 = require("./notification-realtime.service");
@@ -235,6 +236,7 @@ class NotificationService {
                         fcmDevices: { select: { clientApp: true, token: true } },
                         fcmTokens: true,
                         firstName: true,
+                        rewindPersona: true,
                         username: true,
                     },
                 },
@@ -258,13 +260,13 @@ class NotificationService {
             },
         });
     }
-    toPayload(notification) {
+    toPayload(notification, presentation) {
         return {
             id: notification.id,
             type: notification.type,
-            title: notification.title,
-            message: notification.message,
-            data: parseNotificationData(notification.data),
+            title: presentation.title,
+            message: presentation.message,
+            data: presentation.data,
             createdAt: notification.createdAt.toISOString(),
         };
     }
@@ -277,7 +279,14 @@ class NotificationService {
             const pushMessages = [];
             const realtimeSignals = [];
             for (const notification of claim.notifications) {
-                const payload = this.toPayload(notification);
+                const presentation = (0, rewind_notification_personalization_util_1.personalizeRewindNotification)({
+                    data: parseNotificationData(notification.data),
+                    message: notification.message,
+                    selectedPersonaId: notification.user.rewindPersona,
+                    title: notification.title,
+                    type: notification.type,
+                });
+                const payload = this.toPayload(notification, presentation);
                 const sharedTargetKeys = sharedTargetsByUser.get(notification.userId) ?? new Set();
                 const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
                 for (const target of this.getFcmTargets(notification.user)) {
@@ -286,9 +295,9 @@ class NotificationService {
                         clientApp: target.clientApp,
                         token: target.token,
                         title: sharedTargetKeys.has(targetKey)
-                            ? `${titlePrefix} ${notification.title}`
-                            : notification.title,
-                        body: notification.message,
+                            ? `${titlePrefix} ${presentation.title}`
+                            : presentation.title,
+                        body: presentation.message,
                         payload,
                         silent: false,
                     });
@@ -331,7 +340,7 @@ class NotificationService {
      */
     async getUserNotifications(userId, limit = 50, page = 1) {
         const skip = (page - 1) * limit;
-        const [notifications, totalCount] = await Promise.all([
+        const [notifications, totalCount, user] = await Promise.all([
             db_config_1.prisma.notification.findMany({
                 where: { userId },
                 orderBy: { createdAt: "desc" },
@@ -339,12 +348,27 @@ class NotificationService {
                 skip,
             }),
             db_config_1.prisma.notification.count({ where: { userId } }),
+            db_config_1.prisma.user.findUnique({
+                select: { rewindPersona: true },
+                where: { id: userId },
+            }),
         ]);
         return {
-            notifications: notifications.map((n) => ({
-                ...n,
-                data: n.data ? JSON.parse(n.data) : null,
-            })),
+            notifications: notifications.map((notification) => {
+                const presentation = (0, rewind_notification_personalization_util_1.personalizeRewindNotification)({
+                    data: parseNotificationData(notification.data),
+                    message: notification.message,
+                    selectedPersonaId: user?.rewindPersona ?? null,
+                    title: notification.title,
+                    type: notification.type,
+                });
+                return {
+                    ...notification,
+                    data: presentation.data ?? null,
+                    message: presentation.message,
+                    title: presentation.title,
+                };
+            }),
             pagination: {
                 page,
                 limit,

@@ -313,6 +313,10 @@ async function generateChatReply(params: {
 }): Promise<GeneratedChatReply> {
   if (!Env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
 
+  const fixedPersona = isPersonaId(params.chat.personaId)
+    ? params.chat.personaId
+    : params.mentions[0];
+
   const [messages, user, storedObservationContext] = await Promise.all([
     prisma.rewindChatMessage.findMany({
       orderBy: { createdAt: "desc" },
@@ -335,6 +339,7 @@ async function generateChatReply(params: {
       params.userId,
       params.timezone,
       `chat:${params.chat.id}`,
+      fixedPersona,
     )
       .then(formatRewindPersonalContext)
       .catch((error: unknown) => {
@@ -349,9 +354,6 @@ async function generateChatReply(params: {
   const observationContext = user?.rewindPersonalizationEnabled
     ? storedObservationContext
     : "";
-  const fixedPersona = isPersonaId(params.chat.personaId)
-    ? params.chat.personaId
-    : params.mentions[0];
   const partnerDirection = fixedPersona
     ? `Reply only as ${PERSONA_NAMES[fixedPersona]}.`
     : "Choose exactly one partner whose perspective best fits the user’s latest message.";

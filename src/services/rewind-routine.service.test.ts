@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RewindFrequency, RewindIntent } from "@prisma/client";
+import {
+  RewindFrequency,
+  RewindIntent,
+  RewindSessionStatus,
+} from "@prisma/client";
 import {
   EVENING_REWIND_TIME,
   MORNING_REWIND_TIME,
   getRewindIntentLabel,
   getRoutineOccurrenceStarts,
   getRoutineTimes,
+  isExpiredUnstartedRewindOccurrence,
   normalizeRewindTimezone,
   validateRewindRoutineInput,
 } from "./rewind-routine.service";
@@ -67,7 +72,10 @@ test("occurrences preserve user wall-clock schedules across timezones and DST", 
     times: ["08:00"],
     timezone: "Africa/Lagos",
   });
-  assert.equal(lagosStarts[0]?.toFormat("yyyy-LL-dd HH:mm"), "2026-07-18 08:00");
+  assert.equal(
+    lagosStarts[0]?.toFormat("yyyy-LL-dd HH:mm"),
+    "2026-07-18 08:00",
+  );
 
   const newYorkStarts = getRoutineOccurrenceStarts({
     now: new Date("2026-03-08T00:00:00.000Z"),
@@ -101,5 +109,34 @@ test("routine intention labels stay meaningful in reflection prompts", () => {
       intent: RewindIntent.CUSTOM,
     }),
     "Notice when I feel most like myself",
+  );
+});
+
+test("only elapsed, unstarted Rewind occurrences become missed", () => {
+  const now = new Date("2026-09-05T20:00:00.000Z");
+
+  assert.equal(
+    isExpiredUnstartedRewindOccurrence(
+      RewindSessionStatus.SCHEDULED,
+      new Date("2026-09-05T19:59:59.000Z"),
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    isExpiredUnstartedRewindOccurrence(
+      RewindSessionStatus.SCHEDULED,
+      new Date("2026-09-05T20:00:01.000Z"),
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    isExpiredUnstartedRewindOccurrence(
+      RewindSessionStatus.IN_PROGRESS,
+      new Date("2026-09-05T19:59:59.000Z"),
+      now,
+    ),
+    false,
   );
 });
