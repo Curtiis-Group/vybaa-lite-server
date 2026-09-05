@@ -1,6 +1,9 @@
 import logger from "../utils/logger.util";
 import { publishUserRealtimeEvent } from "./realtime-websocket.service";
-import type { SerializedRewindChatMessage } from "./rewind-chat-serialization.service";
+import type {
+  SerializedRewindChatMessage,
+  SerializedRewindChatReaction,
+} from "./rewind-chat-serialization.service";
 
 export type RewindChatRealtimeEvent =
   | {
@@ -37,6 +40,19 @@ export type RewindChatRealtimeEvent =
       chatId: string;
       messageId: string;
       type: "user_message_committed";
+    }
+  | {
+      chatId: string;
+      messageId: string;
+      reactions: SerializedRewindChatReaction[];
+      type: "reaction_updated";
+    }
+  | {
+      chatId: string;
+      messageId: string;
+      runId: string;
+      seenAt: string;
+      type: "user_message_seen";
     }
   | {
       chatId: string;

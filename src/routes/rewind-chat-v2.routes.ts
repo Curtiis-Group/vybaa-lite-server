@@ -6,7 +6,9 @@ import { validate } from "../middleware/validation.middleware";
 import {
   listRewindRecordsSchema,
   rewindChatIdSchema,
+  rewindChatMessageIdSchema,
   rewindV2ChatPreferencesSchema,
+  rewindV2ReactionSchema,
   rewindV2ReadChatSchema,
   sendRewindChatMessageSchema,
 } from "../validators/rewind.validators";
@@ -34,6 +36,13 @@ router.post(
   validate(rewindChatIdSchema, "params"),
   validate(sendRewindChatMessageSchema),
   controller.enqueueMessage,
+);
+router.put(
+  "/chats/:chatId/messages/:messageId/reaction",
+  authMiddleware,
+  validate(rewindChatMessageIdSchema, "params"),
+  validate(rewindV2ReactionSchema),
+  controller.updateReaction,
 );
 router.post(
   "/chats/:chatId/read",

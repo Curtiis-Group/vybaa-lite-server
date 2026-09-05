@@ -52,7 +52,7 @@ test("group chats invite multiple unique partners while direct chats stay focuse
 test("v2 group direction does not require a mention to answer", () => {
   const decision = resolveRewindDirectorDecision({
     allowed: ["ella", "lyra", "jake", "ariel"],
-    decision: { nextConsiderInMinutes: 90, turns: [] },
+    decision: { nextConsiderInMinutes: 90, reactions: [], turns: [] },
     mentions: [],
     minimumTurns: 1,
     roomEnergy: [
@@ -70,7 +70,7 @@ test("v2 group direction does not require a mention to answer", () => {
 test("v2 group direction uses a mention as a preference, not a gate", () => {
   const decision = resolveRewindDirectorDecision({
     allowed: ["ella", "lyra", "jake", "ariel"],
-    decision: { nextConsiderInMinutes: 90, turns: [] },
+    decision: { nextConsiderInMinutes: 90, reactions: [], turns: [] },
     mentions: ["jake"],
     minimumTurns: 1,
     roomEnergy: [

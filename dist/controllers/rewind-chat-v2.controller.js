@@ -8,6 +8,7 @@ exports.listChats = listChats;
 exports.listMessages = listMessages;
 exports.enqueueMessage = enqueueMessage;
 exports.markRead = markRead;
+exports.updateReaction = updateReaction;
 exports.updatePreferences = updatePreferences;
 exports.getLiveState = getLiveState;
 const client_1 = require("@prisma/client");
@@ -117,7 +118,11 @@ async function listChats(req, res) {
         await (0, rewind_chat_service_1.ensureDefaultRewindChats)(req.userId);
         const chats = await db_config_1.prisma.rewindChat.findMany({
             include: {
-                messages: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
+                messages: {
+                    include: { reactions: true },
+                    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+                    take: 1,
+                },
                 turns: {
                     where: { status: client_1.RewindChatTurnStatus.GENERATING },
                     select: { personaId: true },
@@ -144,6 +149,7 @@ async function listMessages(req, res) {
         const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
         const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 30)));
         const rows = await db_config_1.prisma.rewindChatMessage.findMany({
+            include: { reactions: true },
             orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
             take: limit + 1,
@@ -190,6 +196,9 @@ async function enqueueMessage(req, res) {
             chatId: String(req.params.chatId),
             content: String(req.body.content),
             idempotencyKey: String(req.body.idempotencyKey),
+            replyToMessageId: typeof req.body.replyToMessageId === "string"
+                ? req.body.replyToMessageId
+                : null,
             timezone: user?.timezone ?? "UTC",
             userId,
         });
@@ -219,6 +228,20 @@ async function markRead(req, res) {
             data: { lastReadAt: message.createdAt.toISOString(), unreadCount: 0 },
             msg: "Chat marked as read",
         });
+    }
+    catch (error) {
+        handleError(error, res, req);
+    }
+}
+async function updateReaction(req, res) {
+    try {
+        const reactions = await (0, rewind_chat_v2_service_1.setUserRewindChatReaction)({
+            chatId: String(req.params.chatId),
+            kind: req.body.reaction,
+            messageId: String(req.params.messageId),
+            userId: req.userId,
+        });
+        res.json({ data: { reactions }, msg: "Reaction updated" });
     }
     catch (error) {
         handleError(error, res, req);

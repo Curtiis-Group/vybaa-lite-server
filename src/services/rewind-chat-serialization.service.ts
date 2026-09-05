@@ -1,6 +1,7 @@
 import type {
   RewindChat,
   RewindChatMessage,
+  RewindChatReaction,
   RewindChatTurn,
 } from "@prisma/client";
 
@@ -8,6 +9,7 @@ type RewindChatMessageSource = Pick<
   RewindChatMessage,
   | "content"
   | "createdAt"
+  | "deliveredAt"
   | "id"
   | "localDateKey"
   | "mentions"
@@ -15,8 +17,18 @@ type RewindChatMessageSource = Pick<
   | "replyToMessageId"
   | "role"
   | "runId"
+  | "seenAt"
   | "turnId"
 >;
+
+type RewindChatReactionSource = Pick<
+  RewindChatReaction,
+  "actor" | "kind" | "personaId"
+>;
+
+type RewindChatMessageWithReactions = RewindChatMessageSource & {
+  reactions?: RewindChatReactionSource[];
+};
 
 type RewindChatSummarySource = Pick<
   RewindChat,
@@ -33,21 +45,42 @@ type RewindChatSummarySource = Pick<
   | "unreadCount"
   | "updatedAt"
 > & {
-  messages: RewindChatMessageSource[];
+  messages: RewindChatMessageWithReactions[];
   turns: Array<Pick<RewindChatTurn, "personaId">>;
 };
 
-export function serializeRewindChatMessage(message: RewindChatMessageSource) {
+export type SerializedRewindChatReaction = {
+  actor: RewindChatReactionSource["actor"];
+  kind: RewindChatReactionSource["kind"];
+  personaId: string | null;
+};
+
+export function serializeRewindChatReaction(
+  reaction: RewindChatReactionSource,
+): SerializedRewindChatReaction {
+  return {
+    actor: reaction.actor,
+    kind: reaction.kind,
+    personaId: reaction.personaId,
+  };
+}
+
+export function serializeRewindChatMessage(
+  message: RewindChatMessageWithReactions,
+) {
   return {
     content: message.content,
     createdAt: message.createdAt.toISOString(),
+    deliveredAt: message.deliveredAt?.toISOString() ?? null,
     id: message.id,
     localDateKey: message.localDateKey,
     mentions: message.mentions,
     personaId: message.personaId,
+    reactions: (message.reactions ?? []).map(serializeRewindChatReaction),
     replyToMessageId: message.replyToMessageId,
     role: message.role,
     runId: message.runId,
+    seenAt: message.seenAt?.toISOString() ?? null,
     turnId: message.turnId,
   };
 }

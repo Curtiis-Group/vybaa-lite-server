@@ -15,3 +15,4 @@ import "./services/rewind-routine.service.test";
 import "./services/rewind-session-finalization.service.test";
 import "./utils/notification-dedupe.util.test";
 import "./utils/goal-reminder.util.test";
+import "./validators/rewind.validators.test";

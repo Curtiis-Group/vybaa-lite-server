@@ -8,6 +8,11 @@ export const rewindChatIdSchema = z.object({
   chatId: z.string().trim().min(1).max(128),
 });
 
+export const rewindChatMessageIdSchema = z.object({
+  chatId: z.string().trim().min(1).max(128),
+  messageId: z.string().trim().min(1).max(128),
+});
+
 export const rewindObservationIdSchema = z.object({
   observationId: z.string().trim().min(1).max(128),
 });
@@ -20,6 +25,7 @@ export const listRewindRecordsSchema = z.object({
 export const sendRewindChatMessageSchema = z.object({
   content: z.string().trim().min(1).max(4_000),
   idempotencyKey: z.string().trim().min(8).max(160),
+  replyToMessageId: z.string().trim().min(1).max(128).nullable().optional(),
 });
 
 export const updateRewindChatSchema = z.object({
@@ -32,6 +38,10 @@ export const rewindV2ChatPreferencesSchema = z.object({
 
 export const rewindV2ReadChatSchema = z.object({
   throughMessageId: z.string().trim().min(1).max(128),
+});
+
+export const rewindV2ReactionSchema = z.object({
+  reaction: z.enum(["LOVE", "LAUGH", "CRY", "LIKE"]).nullable(),
 });
 
 export const recordRewindActivitySchema = z.object({

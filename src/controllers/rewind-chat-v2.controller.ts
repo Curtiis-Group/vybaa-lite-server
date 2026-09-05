@@ -7,6 +7,7 @@ import {
   enqueueRewindChatMessage,
   ensureRewindPartnerMinds,
   RewindV2ChatError,
+  setUserRewindChatReaction,
 } from "../services/rewind-chat-v2.service";
 import {
   serializeRewindChatMessage,
@@ -127,7 +128,11 @@ export async function listChats(
     await ensureDefaultRewindChats(req.userId!);
     const chats = await prisma.rewindChat.findMany({
       include: {
-        messages: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
+        messages: {
+          include: { reactions: true },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 1,
+        },
         turns: {
           where: { status: RewindChatTurnStatus.GENERATING },
           select: { personaId: true },
@@ -167,6 +172,7 @@ export async function listMessages(
       typeof req.query.cursor === "string" ? req.query.cursor : undefined;
     const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 30)));
     const rows = await prisma.rewindChatMessage.findMany({
+      include: { reactions: true },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       take: limit + 1,
@@ -216,6 +222,10 @@ export async function enqueueMessage(
       chatId: String(req.params.chatId),
       content: String(req.body.content),
       idempotencyKey: String(req.body.idempotencyKey),
+      replyToMessageId:
+        typeof req.body.replyToMessageId === "string"
+          ? req.body.replyToMessageId
+          : null,
       timezone: user?.timezone ?? "UTC",
       userId,
     });
@@ -249,6 +259,23 @@ export async function markRead(req: AuthRequest, res: Response): Promise<void> {
       data: { lastReadAt: message.createdAt.toISOString(), unreadCount: 0 },
       msg: "Chat marked as read",
     });
+  } catch (error: unknown) {
+    handleError(error, res, req);
+  }
+}
+
+export async function updateReaction(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const reactions = await setUserRewindChatReaction({
+      chatId: String(req.params.chatId),
+      kind: req.body.reaction,
+      messageId: String(req.params.messageId),
+      userId: req.userId!,
+    });
+    res.json({ data: { reactions }, msg: "Reaction updated" });
   } catch (error: unknown) {
     handleError(error, res, req);
   }
