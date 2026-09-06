@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.quickSetup = quickSetup;
 exports.create = create;
 exports.list = list;
 exports.detail = detail;
@@ -27,6 +28,7 @@ const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
 const goal_v2_service_1 = require("../services/goal-v2.service");
 const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
+const quick_goal_setup_service_1 = require("../services/quick-goal-setup.service");
 const subscription_access_service_1 = require("../services/subscription-access.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 async function resolveTimezone(req, userId) {
@@ -57,11 +59,34 @@ function handleControllerError(error, req, res, operation) {
         res.status(error.status).json({ code: error.code, msg: error.message });
         return;
     }
+    if (error instanceof quick_goal_setup_service_1.QuickGoalSetupError) {
+        res
+            .status(error.status)
+            .json({ code: "QUICK_GOAL_SETUP_FAILED", msg: error.message });
+        return;
+    }
     logger_util_1.default.error(`Goal v2 ${operation} error`, {
         errorName: error instanceof Error ? error.name : "UnknownError",
         userId: req.userId,
     });
     res.status(500).json({ msg: "Internal server error" });
+}
+async function quickSetup(req, res) {
+    try {
+        const userId = req.userId;
+        const [timezone, user] = await Promise.all([
+            resolveTimezone(req, userId),
+            db_config_1.prisma.user.findUnique({
+                select: { rewindPersona: true },
+                where: { id: userId },
+            }),
+        ]);
+        const draft = await (0, quick_goal_setup_service_1.generateQuickGoalSetup)(timezone, req.body, user?.rewindPersona ?? null);
+        res.json({ data: draft, msg: "Goal setup generated" });
+    }
+    catch (error) {
+        handleControllerError(error, req, res, "quick setup");
+    }
 }
 async function create(req, res) {
     try {
@@ -88,7 +113,11 @@ async function list(req, res) {
             timezone,
             userId,
         });
-        res.json({ data: result.goals, msg: "Goals retrieved successfully", pagination: result.pagination });
+        res.json({
+            data: result.goals,
+            msg: "Goals retrieved successfully",
+            pagination: result.pagination,
+        });
     }
     catch (error) {
         handleControllerError(error, req, res, "list");
@@ -297,7 +326,9 @@ async function reopenLegacy(req, res) {
             },
             title: legacyGoal.goalText,
         });
-        res.status(201).json({ data: goal, msg: "New goal started from legacy goal" });
+        res
+            .status(201)
+            .json({ data: goal, msg: "New goal started from legacy goal" });
     }
     catch (error) {
         handleControllerError(error, req, res, "reopen legacy");

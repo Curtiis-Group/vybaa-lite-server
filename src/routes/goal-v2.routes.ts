@@ -9,6 +9,7 @@ import {
   goalV2IdParamSchema,
   listGoalOccurrencesQuerySchema,
   listGoalsV2QuerySchema,
+  quickGoalSetupSchema,
   occurrenceIdParamSchema,
   recordGoalProgressSchema,
   rescheduleOccurrenceSchema,
@@ -20,6 +21,11 @@ const router: Router = Router();
 
 router.use(authMiddleware);
 router.get("/", validate(listGoalsV2QuerySchema, "query"), goalController.list);
+router.post(
+  "/quick-setup",
+  validate(quickGoalSetupSchema),
+  goalController.quickSetup,
+);
 router.post("/", validate(createGoalV2Schema), goalController.create);
 router.get("/legacy", goalController.listLegacy);
 router.post(
@@ -37,7 +43,11 @@ router.delete(
   validate(goalV2IdParamSchema, "params"),
   goalController.deleteLegacy,
 );
-router.get("/:goalId", validate(goalV2IdParamSchema, "params"), goalController.detail);
+router.get(
+  "/:goalId",
+  validate(goalV2IdParamSchema, "params"),
+  goalController.detail,
+);
 router.patch(
   "/:goalId",
   validate(goalV2IdParamSchema, "params"),
@@ -78,16 +88,32 @@ router.patch(
   validate(rescheduleOccurrenceSchema),
   goalController.reschedule,
 );
-router.post("/:goalId/pause", validate(goalV2IdParamSchema, "params"), goalController.pause);
+router.post(
+  "/:goalId/pause",
+  validate(goalV2IdParamSchema, "params"),
+  goalController.pause,
+);
 router.post(
   "/:goalId/resume",
   validate(goalV2IdParamSchema, "params"),
   validate(resumeGoalSchema),
   goalController.resume,
 );
-router.post("/:goalId/abandon", validate(goalV2IdParamSchema, "params"), goalController.abandon);
-router.post("/:goalId/archive", validate(goalV2IdParamSchema, "params"), goalController.archive);
-router.post("/:goalId/reopen", validate(goalV2IdParamSchema, "params"), goalController.reopen);
+router.post(
+  "/:goalId/abandon",
+  validate(goalV2IdParamSchema, "params"),
+  goalController.abandon,
+);
+router.post(
+  "/:goalId/archive",
+  validate(goalV2IdParamSchema, "params"),
+  goalController.archive,
+);
+router.post(
+  "/:goalId/reopen",
+  validate(goalV2IdParamSchema, "params"),
+  goalController.reopen,
+);
 router.patch(
   "/:goalId/conclusion/review",
   validate(goalV2IdParamSchema, "params"),

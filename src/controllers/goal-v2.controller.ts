@@ -24,12 +24,19 @@ import {
 } from "../services/goal-v2.service";
 import { refreshGoalV2RemindersForUser } from "../services/goal-v2-reminder.service";
 import {
+  generateQuickGoalSetup,
+  QuickGoalSetupError,
+} from "../services/quick-goal-setup.service";
+import {
   assertCanCreateGoal,
   handleSubscriptionAccessError,
 } from "../services/subscription-access.service";
 import logger from "../utils/logger.util";
 
-async function resolveTimezone(req: AuthRequest, userId: string): Promise<string> {
+async function resolveTimezone(
+  req: AuthRequest,
+  userId: string,
+): Promise<string> {
   const headerTimezone = req.headers["x-user-tz"];
   const candidate =
     typeof headerTimezone === "string" ? headerTimezone.trim() : "";
@@ -63,11 +70,41 @@ function handleControllerError(
     res.status(error.status).json({ code: error.code, msg: error.message });
     return;
   }
+  if (error instanceof QuickGoalSetupError) {
+    res
+      .status(error.status)
+      .json({ code: "QUICK_GOAL_SETUP_FAILED", msg: error.message });
+    return;
+  }
   logger.error(`Goal v2 ${operation} error`, {
     errorName: error instanceof Error ? error.name : "UnknownError",
     userId: req.userId,
   });
   res.status(500).json({ msg: "Internal server error" });
+}
+
+export async function quickSetup(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const userId = req.userId!;
+    const [timezone, user] = await Promise.all([
+      resolveTimezone(req, userId),
+      prisma.user.findUnique({
+        select: { rewindPersona: true },
+        where: { id: userId },
+      }),
+    ]);
+    const draft = await generateQuickGoalSetup(
+      timezone,
+      req.body,
+      user?.rewindPersona ?? null,
+    );
+    res.json({ data: draft, msg: "Goal setup generated" });
+  } catch (error) {
+    handleControllerError(error, req, res, "quick setup");
+  }
 }
 
 export async function create(req: AuthRequest, res: Response): Promise<void> {
@@ -87,16 +124,22 @@ export async function list(req: AuthRequest, res: Response): Promise<void> {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
     const result = await listGoalsV2({
-      cursor: typeof req.query.cursor === "string" ? req.query.cursor : undefined,
+      cursor:
+        typeof req.query.cursor === "string" ? req.query.cursor : undefined,
       filter:
         typeof req.query.filter === "string"
-          ? req.query.filter as "ACTIVE" | "ARCHIVED" | "DUE" | "ENDED" | "OVERDUE" | "PAUSED"
+          ? (req.query.filter as
+              "ACTIVE" | "ARCHIVED" | "DUE" | "ENDED" | "OVERDUE" | "PAUSED")
           : "ACTIVE",
       limit: Number(req.query.limit ?? 20),
       timezone,
       userId,
     });
-    res.json({ data: result.goals, msg: "Goals retrieved successfully", pagination: result.pagination });
+    res.json({
+      data: result.goals,
+      msg: "Goals retrieved successfully",
+      pagination: result.pagination,
+    });
   } catch (error) {
     handleControllerError(error, req, res, "list");
   }
@@ -113,7 +156,10 @@ export async function detail(req: AuthRequest, res: Response): Promise<void> {
   }
 }
 
-export async function occurrences(req: AuthRequest, res: Response): Promise<void> {
+export async function occurrences(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const result = await listGoalOccurrences(
       String(req.params.goalId),
@@ -143,7 +189,10 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
   }
 }
 
-export async function recordProgress(req: AuthRequest, res: Response): Promise<void> {
+export async function recordProgress(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
@@ -160,7 +209,10 @@ export async function recordProgress(req: AuthRequest, res: Response): Promise<v
   }
 }
 
-export async function correctProgress(req: AuthRequest, res: Response): Promise<void> {
+export async function correctProgress(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
@@ -177,7 +229,10 @@ export async function correctProgress(req: AuthRequest, res: Response): Promise<
   }
 }
 
-export async function undoProgress(req: AuthRequest, res: Response): Promise<void> {
+export async function undoProgress(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
@@ -193,7 +248,10 @@ export async function undoProgress(req: AuthRequest, res: Response): Promise<voi
   }
 }
 
-export async function reschedule(req: AuthRequest, res: Response): Promise<void> {
+export async function reschedule(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
@@ -241,7 +299,11 @@ export async function abandon(req: AuthRequest, res: Response): Promise<void> {
   try {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
-    const goal = await abandonGoalV2(String(req.params.goalId), userId, timezone);
+    const goal = await abandonGoalV2(
+      String(req.params.goalId),
+      userId,
+      timezone,
+    );
     res.json({ data: goal, msg: "Goal abandoned" });
   } catch (error) {
     handleControllerError(error, req, res, "abandon");
@@ -252,7 +314,11 @@ export async function archive(req: AuthRequest, res: Response): Promise<void> {
   try {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
-    const goal = await archiveGoalV2(String(req.params.goalId), userId, timezone);
+    const goal = await archiveGoalV2(
+      String(req.params.goalId),
+      userId,
+      timezone,
+    );
     res.json({ data: goal, msg: "Goal archived successfully" });
   } catch (error) {
     handleControllerError(error, req, res, "archive");
@@ -264,14 +330,21 @@ export async function reopen(req: AuthRequest, res: Response): Promise<void> {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
     await assertCanCreateGoal(userId, req.clientApp);
-    const goal = await reopenGoalV2(String(req.params.goalId), userId, timezone);
+    const goal = await reopenGoalV2(
+      String(req.params.goalId),
+      userId,
+      timezone,
+    );
     res.status(201).json({ data: goal, msg: "New goal run created" });
   } catch (error) {
     handleControllerError(error, req, res, "reopen");
   }
 }
 
-export async function updateReview(req: AuthRequest, res: Response): Promise<void> {
+export async function updateReview(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const userId = req.userId!;
     const timezone = await resolveTimezone(req, userId);
@@ -287,7 +360,10 @@ export async function updateReview(req: AuthRequest, res: Response): Promise<voi
   }
 }
 
-export async function permanentlyDelete(req: AuthRequest, res: Response): Promise<void> {
+export async function permanentlyDelete(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     await permanentlyDeleteGoalV2(String(req.params.goalId), req.userId!);
     res.json({ msg: "Goal permanently deleted" });
@@ -296,7 +372,10 @@ export async function permanentlyDelete(req: AuthRequest, res: Response): Promis
   }
 }
 
-export async function listLegacy(req: AuthRequest, res: Response): Promise<void> {
+export async function listLegacy(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const goals = await prisma.goal.findMany({
       include: { community: { select: { id: true, name: true } } },
@@ -324,7 +403,10 @@ export async function listLegacy(req: AuthRequest, res: Response): Promise<void>
   }
 }
 
-export async function reopenLegacy(req: AuthRequest, res: Response): Promise<void> {
+export async function reopenLegacy(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const userId = req.userId!;
     await assertCanCreateGoal(userId, req.clientApp);
@@ -348,13 +430,18 @@ export async function reopenLegacy(req: AuthRequest, res: Response): Promise<voi
       },
       title: legacyGoal.goalText,
     });
-    res.status(201).json({ data: goal, msg: "New goal started from legacy goal" });
+    res
+      .status(201)
+      .json({ data: goal, msg: "New goal started from legacy goal" });
   } catch (error) {
     handleControllerError(error, req, res, "reopen legacy");
   }
 }
 
-export async function archiveLegacy(req: AuthRequest, res: Response): Promise<void> {
+export async function archiveLegacy(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const result = await prisma.goal.updateMany({
       data: { archivedAt: new Date() },
@@ -370,7 +457,10 @@ export async function archiveLegacy(req: AuthRequest, res: Response): Promise<vo
   }
 }
 
-export async function deleteLegacy(req: AuthRequest, res: Response): Promise<void> {
+export async function deleteLegacy(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
   try {
     const result = await prisma.goal.deleteMany({
       where: {
