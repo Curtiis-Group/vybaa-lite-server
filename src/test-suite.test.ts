@@ -1,6 +1,7 @@
 import "./controllers/rewind.controller.test";
 import "./middleware/client-app.middleware.test";
 import "./services/milestone.service.test";
+import "./services/elevenlabs-rewind-live.service.test";
 import "./services/daily-observation.service.test";
 import "./services/notification-realtime.service.test";
 import "./services/push-notification.service.test";
@@ -14,6 +15,7 @@ import "./services/quick-goal-setup.service.test";
 import "./services/rewind-personal-context.service.test";
 import "./services/rewind-partner-switch.service.test";
 import "./services/rewind-routine.service.test";
+import "./services/rewind-voice-provider.service.test";
 import "./services/rewind-session-finalization.service.test";
 import "./utils/notification-dedupe.util.test";
 import "./utils/rewind-notification-personalization.util.test";

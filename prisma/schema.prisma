@@ -185,6 +185,8 @@ model RewindSession {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   personaId            String                  @map("persona_id")
+  voiceProvider        RewindVoiceProvider     @default(GEMINI) @map("voice_provider")
+  isTestSession        Boolean                 @default(false) @map("is_test_session")
   sessionDateKey       String?                 @map("session_date_key")
   timezone             String?                 @map("timezone")
   scheduledFor         DateTime?               @map("scheduled_for")
@@ -219,6 +221,7 @@ model RewindSession {
   @@index([userId, personaId, updatedAt])
   @@index([userId, completed, sessionDateKey])
   @@index([status, windowEndsAt])
+  @@index([userId, isTestSession, updatedAt])
   @@index([journalId])
   @@map("rewind_sessions")
 }
@@ -306,6 +309,11 @@ enum RewindSessionStatus {
   FINALIZING
   COMPLETED
   MISSED
+}
+
+enum RewindVoiceProvider {
+  GEMINI
+  ELEVENLABS
 }
 
 enum RewindCompletionSource {

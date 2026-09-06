@@ -3,12 +3,14 @@ import test from "node:test";
 import jwt from "jsonwebtoken";
 import {
   averageRewindSignals,
+  buildElevenLabsFirstMessage,
   buildDraftSessionSummary,
   buildOpeningPrompt,
   buildResumePrompt,
   createRewindWsToken,
   getRewindTemporalContext,
   getRewindSystemInstruction,
+  isExplicitRewindEndRequest,
   normalizeRewindTimezone,
   shouldResumeGeminiLiveSession,
   verifyRewindWsToken,
@@ -54,6 +56,37 @@ test("opening is relaxed and does not require a scripted question", () => {
   assert.match(prompt, /low-pressure/i);
   assert.doesNotMatch(prompt, /exactly two/i);
   assert.doesNotMatch(prompt, /ask exactly/i);
+});
+
+test("ElevenLabs Live opens as the selected partner without scripted copy", () => {
+  assert.equal(
+    buildElevenLabsFirstMessage("tobi", REWIND_PROMPT_TEST_USER, false),
+    "how far Nia, Tobi here. what's up?",
+  );
+  assert.match(
+    buildElevenLabsFirstMessage("lyra", REWIND_PROMPT_TEST_USER, true),
+    /welcome back/i,
+  );
+});
+
+test("spoken end requests close Rewind without matching negated or ordinary speech", () => {
+  assert.equal(isExplicitRewindEndRequest("please end this session"), true);
+  assert.equal(isExplicitRewindEndRequest("I'm done"), true);
+  assert.equal(isExplicitRewindEndRequest("let's finish"), true);
+  assert.equal(isExplicitRewindEndRequest("can we end here?"), true);
+  assert.equal(isExplicitRewindEndRequest("I want to wrap it up"), true);
+  assert.equal(isExplicitRewindEndRequest("that's all for tonight"), true);
+
+  assert.equal(isExplicitRewindEndRequest("don't end this session"), false);
+  assert.equal(
+    isExplicitRewindEndRequest("I don't want to end this session"),
+    false,
+  );
+  assert.equal(
+    isExplicitRewindEndRequest("not yet, let's keep talking"),
+    false,
+  );
+  assert.equal(isExplicitRewindEndRequest("work was finished at five"), false);
 });
 
 test("opening context respects the user's local time instead of assuming a finished day", () => {

@@ -15,6 +15,7 @@
     "db:studio": "prisma studio",
     "seed:communities": "tsx src/scripts/seed-community-density.ts",
     "test:fcm": "tsx src/scripts/test-fcm.ts",
+    "test:elevenlabs": "tsx src/scripts/test-elevenlabs-rewind.ts",
     "generate-secrets": "node scripts/generate-secrets.js",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
