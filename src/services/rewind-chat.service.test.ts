@@ -18,6 +18,10 @@ test("Rewind group chat recognizes explicit partner mentions", () => {
     "lyra",
     "jake",
   ]);
+  assert.deepEqual(extractRewindMentions("@Tobi ask @neeja too"), [
+    "tobi",
+    "neeja",
+  ]);
   assert.deepEqual(extractRewindMentions("I spoke with Ellaine today"), []);
 });
 

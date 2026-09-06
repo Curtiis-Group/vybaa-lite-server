@@ -1,9 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordRewindActivitySchema = exports.rewindV2ReactionSchema = exports.rewindV2ReadChatSchema = exports.rewindV2ChatPreferencesSchema = exports.updateRewindChatSchema = exports.sendRewindChatMessageSchema = exports.listRewindRecordsSchema = exports.rewindObservationIdSchema = exports.rewindChatMessageIdSchema = exports.rewindChatIdSchema = exports.createLiveTokenSchema = void 0;
+exports.recordRewindActivitySchema = exports.rewindV2ReactionSchema = exports.rewindV2ReadChatSchema = exports.rewindV2ChatTitleSchema = exports.rewindV2ChatPreferencesSchema = exports.updateRewindChatSchema = exports.sendRewindChatMessageSchema = exports.listRewindRecordsSchema = exports.rewindObservationIdSchema = exports.rewindChatMessageIdSchema = exports.rewindChatIdSchema = exports.createLiveTokenSchema = void 0;
 const zod_1 = require("zod");
 exports.createLiveTokenSchema = zod_1.z.object({
-    personaId: zod_1.z.enum(["ella", "lyra", "jake", "ariel"]),
+    personaId: zod_1.z.enum(["ella", "lyra", "jake", "ariel", "tobi", "neeja"]),
 });
 exports.rewindChatIdSchema = zod_1.z.object({
     chatId: zod_1.z.string().trim().min(1).max(128),
@@ -29,6 +29,9 @@ exports.updateRewindChatSchema = zod_1.z.object({
 });
 exports.rewindV2ChatPreferencesSchema = zod_1.z.object({
     proactiveMuted: zod_1.z.boolean(),
+});
+exports.rewindV2ChatTitleSchema = zod_1.z.object({
+    title: zod_1.z.string().trim().min(1).max(60),
 });
 exports.rewindV2ReadChatSchema = zod_1.z.object({
     throughMessageId: zod_1.z.string().trim().min(1).max(128),

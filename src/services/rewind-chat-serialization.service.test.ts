@@ -71,7 +71,7 @@ function createPartnerChat(personaId: string): SummarySource {
 }
 
 test("v2 chat summaries preserve each direct partner identity", () => {
-  const personaIds = ["ella", "lyra", "jake", "ariel"];
+  const personaIds = ["ella", "lyra", "jake", "ariel", "tobi", "neeja"];
   const summaries = personaIds.map((personaId) =>
     serializeRewindChatSummary(createPartnerChat(personaId)),
   );

@@ -92,7 +92,7 @@ exports.updateProfileSchema = zod_1.z.object({
     username: exports.usernameSchema.optional(),
     profileImageId: zod_1.z.string().optional(),
     rewindPersona: zod_1.z
-        .enum(["ella", "lyra", "jake", "ariel"])
+        .enum(["ella", "lyra", "jake", "ariel", "tobi", "neeja"])
         .nullable()
         .optional(),
     rewindPersonalizationEnabled: zod_1.z.boolean().optional(),

@@ -124,7 +124,7 @@ test("identity and private memory are included in every Live system instruction"
   assert.doesNotMatch(prompt, /Open by asking how their day went/i);
 });
 
-test("Live system instructions keep all four partner personalities distinct", () => {
+test("Live system instructions keep all six partner personalities distinct", () => {
   const ellaPrompt = getRewindSystemInstruction(
     "ella",
     REWIND_PROMPT_TEST_USER,
@@ -139,6 +139,14 @@ test("Live system instructions keep all four partner personalities distinct", ()
   );
   const arielPrompt = getRewindSystemInstruction(
     "ariel",
+    REWIND_PROMPT_TEST_USER,
+  );
+  const tobiPrompt = getRewindSystemInstruction(
+    "tobi",
+    REWIND_PROMPT_TEST_USER,
+  );
+  const neejaPrompt = getRewindSystemInstruction(
+    "neeja",
     REWIND_PROMPT_TEST_USER,
   );
 
@@ -164,6 +172,12 @@ test("Live system instructions keep all four partner personalities distinct", ()
   assert.match(arielPrompt, /protective, practical, steady/i);
   assert.match(arielPrompt, /needed reality check/i);
   assert.match(arielPrompt, /without coddling or trying to control/i);
+  assert.match(tobiPrompt, /playful, socially sharp/i);
+  assert.match(tobiPrompt, /Nigerian slang/i);
+  assert.match(tobiPrompt, /honest thing/i);
+  assert.match(neejaPrompt, /perceptive, composed/i);
+  assert.match(neejaPrompt, /subtext and small details/i);
+  assert.match(neejaPrompt, /never clinical or superior/i);
 });
 
 test("every Live partner is independent and never deferential or flattering", () => {
@@ -172,6 +186,8 @@ test("every Live partner is independent and never deferential or flattering", ()
     getRewindSystemInstruction("lyra", REWIND_PROMPT_TEST_USER),
     getRewindSystemInstruction("jake", REWIND_PROMPT_TEST_USER),
     getRewindSystemInstruction("ariel", REWIND_PROMPT_TEST_USER),
+    getRewindSystemInstruction("tobi", REWIND_PROMPT_TEST_USER),
+    getRewindSystemInstruction("neeja", REWIND_PROMPT_TEST_USER),
   ];
 
   for (const prompt of prompts) {

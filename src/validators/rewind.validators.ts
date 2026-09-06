@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const createLiveTokenSchema = z.object({
-  personaId: z.enum(["ella", "lyra", "jake", "ariel"]),
+  personaId: z.enum(["ella", "lyra", "jake", "ariel", "tobi", "neeja"]),
 });
 
 export const rewindChatIdSchema = z.object({
@@ -34,6 +34,10 @@ export const updateRewindChatSchema = z.object({
 
 export const rewindV2ChatPreferencesSchema = z.object({
   proactiveMuted: z.boolean(),
+});
+
+export const rewindV2ChatTitleSchema = z.object({
+  title: z.string().trim().min(1).max(60),
 });
 
 export const rewindV2ReadChatSchema = z.object({

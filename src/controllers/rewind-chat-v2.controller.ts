@@ -10,6 +10,10 @@ import {
   setUserRewindChatReaction,
 } from "../services/rewind-chat-v2.service";
 import {
+  deleteRewindChatMessages,
+  renameRewindGroupChat,
+} from "../services/rewind-chat-management.service";
+import {
   serializeRewindChatMessage,
   serializeRewindChatSummary,
 } from "../services/rewind-chat-serialization.service";
@@ -295,6 +299,53 @@ export async function updatePreferences(
       data: { proactiveMuted: updated.proactiveMuted },
       msg: "Chat preferences updated",
     });
+  } catch (error: unknown) {
+    handleError(error, res, req);
+  }
+}
+
+export async function renameChat(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const result = await renameRewindGroupChat({
+      chatId: String(req.params.chatId),
+      title: String(req.body.title).trim(),
+      userId: req.userId!,
+    });
+    res.json({ data: result, msg: "Group name updated" });
+  } catch (error: unknown) {
+    handleError(error, res, req);
+  }
+}
+
+export async function deleteMessage(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const result = await deleteRewindChatMessages({
+      chatId: String(req.params.chatId),
+      messageId: String(req.params.messageId),
+      userId: req.userId!,
+    });
+    res.json({ data: result, msg: "Message deleted" });
+  } catch (error: unknown) {
+    handleError(error, res, req);
+  }
+}
+
+export async function clearChat(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const result = await deleteRewindChatMessages({
+      chatId: String(req.params.chatId),
+      userId: req.userId!,
+    });
+    res.json({ data: result, msg: "Chat cleared" });
   } catch (error: unknown) {
     handleError(error, res, req);
   }

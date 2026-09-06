@@ -13,12 +13,12 @@ import {
   dismissDailyObservation,
   getDailyObservation,
   listDailyObservations,
-  serializeDailyObservation,
 } from "../services/daily-observation.service";
 import {
   ensureDefaultRewindChats,
   getRewindChatMessageIdempotencyKey,
   listRewindChatMessages,
+  type RewindPersonaId,
   RewindChatError,
   sendRewindChatMessage,
   setRewindChatArchived,
@@ -28,12 +28,14 @@ import logger from "../utils/logger.util";
 
 const CHAT_MESSAGES_PER_MINUTE = 12;
 
-function isRewindPersonaId(value: unknown): boolean {
+function isRewindPersonaId(value: unknown): value is RewindPersonaId {
   return (
     value === "ariel" ||
     value === "ella" ||
     value === "jake" ||
-    value === "lyra"
+    value === "lyra" ||
+    value === "tobi" ||
+    value === "neeja"
   );
 }
 
@@ -130,47 +132,66 @@ export async function getHomeGreeting(
   res: Response,
 ): Promise<void> {
   try {
+    const userId = req.userId!;
     const user = await prisma.user.findUnique({
       select: {
-        firstName: true,
         rewindPersona: true,
         rewindPersonalizationEnabled: true,
-        username: true,
       },
-      where: { id: req.userId! },
+      where: { id: userId },
     });
     if (!user?.rewindPersonalizationEnabled) {
       res.json({ data: null, msg: "Generic greeting preferred" });
       return;
     }
-    const observation = await prisma.dailyObservation.findFirst({
-      orderBy: { localDateKey: "desc" },
-      where: {
-        confidence: { gte: 0.45 },
-        dismissedAt: null,
-        userId: req.userId!,
-      },
-    });
-    if (!observation) {
-      res.json({ data: null, msg: "No contextual greeting available" });
+    if (!isRewindPersonaId(user.rewindPersona)) {
+      res.json({ data: null, msg: "No Rewind partner selected" });
       return;
     }
-    const serialized = serializeDailyObservation(observation);
-    const userName = user.firstName ?? user.username ?? "Hey";
-    const fallbackMessage = `${userName}, ${serialized.description
-      .replace(/^you\s+/i, "you ")
-      .replace(/\.$/, "")}`;
+
+    const personaId = user.rewindPersona;
+    await ensureDefaultRewindChats(userId);
+    const chat = await prisma.rewindChat.findFirst({
+      select: {
+        id: true,
+        messages: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            content: true,
+            id: true,
+            localDateKey: true,
+          },
+          take: 1,
+          where: {
+            personaId,
+            role: RewindChatMessageRole.PARTNER,
+          },
+        },
+      },
+      where: {
+        archivedAt: null,
+        threadKey: `partner:${personaId}`,
+        userId,
+      },
+    });
+    if (!chat) {
+      res.json({ data: null, msg: "Partner chat unavailable" });
+      return;
+    }
+    const message = chat.messages[0] ?? null;
     res.json({
       data: {
-        date: serialized.localDateKey,
-        message: (serialized.homeGreeting ?? fallbackMessage).slice(0, 100),
-        personaId: isRewindPersonaId(user.rewindPersona)
-          ? user.rewindPersona
-          : serialized.personaId,
-        sourceTypes: serialized.sourceTypes,
+        chatId: chat.id,
+        date: message?.localDateKey ?? null,
+        message: message?.content ?? null,
+        messageId: message?.id ?? null,
+        personaId,
+        sourceTypes: [],
         title: "",
       },
-      msg: "Contextual greeting retrieved",
+      msg: message
+        ? "Latest partner message retrieved"
+        : "Partner chat has no messages yet",
     });
   } catch (error: unknown) {
     handleIntelligenceError(error, "get home greeting", req, res);

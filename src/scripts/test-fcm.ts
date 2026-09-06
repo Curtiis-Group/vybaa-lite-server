@@ -16,6 +16,8 @@ const TEST_PERSONA_NAMES: Record<NotificationPersonaId, string> = {
   ella: "Ella",
   jake: "Jake",
   lyra: "Lyra",
+  neeja: "Neeja",
+  tobi: "Tobi",
 };
 
 interface ScriptOptions {
@@ -89,10 +91,14 @@ function parseOptions(args: string[]): ScriptOptions {
     personaValue === "ariel" ||
     personaValue === "ella" ||
     personaValue === "jake" ||
-    personaValue === "lyra"
+    personaValue === "lyra" ||
+    personaValue === "tobi" ||
+    personaValue === "neeja"
       ? personaValue
       : (() => {
-          throw new Error("--persona must be ariel, ella, jake, or lyra");
+          throw new Error(
+            "--persona must be ariel, ella, jake, lyra, tobi, or neeja",
+          );
         })();
 
   return {
@@ -172,7 +178,7 @@ Options:
   --all                      Allow all users as the target scope
   --client-app vybaa|mycove|all
   --kind delivery|rewind-chat
-  --persona ariel|ella|jake|lyra  Used by rewind-chat tests
+  --persona ariel|ella|jake|lyra|tobi|neeja  Used by rewind-chat tests
   --mode visible|silent      Visible notification is the default
   --body "message"           Override the test message
   --send                     Actually send; preview is the default

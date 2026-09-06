@@ -31,6 +31,8 @@ test("uses the selected partner's voice without exposing their identity", () => 
     personalizeRewindNotification({ ...base, selectedPersonaId: "lyra" }),
     personalizeRewindNotification({ ...base, selectedPersonaId: "jake" }),
     personalizeRewindNotification({ ...base, selectedPersonaId: "ariel" }),
+    personalizeRewindNotification({ ...base, selectedPersonaId: "tobi" }),
+    personalizeRewindNotification({ ...base, selectedPersonaId: "neeja" }),
   ];
 
   assert.deepEqual(
@@ -50,6 +52,14 @@ test("uses the selected partner's voice without exposing their identity", () => 
       },
       {
         message: "hey, your end-of-day summary is ready.",
+        title: "End-of-Day Summary",
+      },
+      {
+        message: "yo, your end-of-day summary is ready.",
+        title: "End-of-Day Summary",
+      },
+      {
+        message: "btw, your end-of-day summary is ready. 👀",
         title: "End-of-Day Summary",
       },
     ],

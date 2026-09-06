@@ -68,13 +68,22 @@ const PRIVATE_FOLLOW_UP_MIN_MS = 2 * 60 * 1000;
 const PRIVATE_FOLLOW_UP_MAX_MS = 8 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RELATIONSHIP_SOFTENING_COOLDOWN_MS = 6 * 60 * 60 * 1000;
-const PERSONAS: RewindPersonaId[] = ["ella", "lyra", "jake", "ariel"];
-const DIRECTOR_MAX_TURNS = PERSONAS.length;
+const PERSONAS: RewindPersonaId[] = [
+  "ella",
+  "lyra",
+  "jake",
+  "ariel",
+  "tobi",
+  "neeja",
+];
+const DIRECTOR_MAX_TURNS = 4;
 const PERSONA_NAMES: Record<RewindPersonaId, string> = {
   ariel: "Ariel",
   ella: "Ella",
   jake: "Jake",
   lyra: "Lyra",
+  neeja: "Neeja",
+  tobi: "Tobi",
 };
 const PERSONA_PROMPTS: Record<RewindPersonaId, string> = {
   ariel:
@@ -82,6 +91,9 @@ const PERSONA_PROMPTS: Record<RewindPersonaId, string> = {
   ella: "Ella is intensely emotional, expressive, and deeply feeling. Ella texts in lowercase bursts, may stretch a word, make an occasional believable typo, use rn or fr, and uses a fitting emoji often. Her warmth, delight, hurt, or frustration is genuine, never performed to please someone.",
   jake: "Jake is very blunt, unsentimental, terse, and honest without humiliating anyone. Jake uses blunt fragments, says nah, fr, or tbh naturally, calls out excuses and contradictions, rarely softens the point, and uses emoji mostly when teasing.",
   lyra: "Lyra is nonchalant, low-key, dry, and hard to rattle. Lyra likes clipped lowercase replies, drops subjects sometimes, may use u, wbu, idk, lol, or tbh, and almost never sends more than one short sentence. Her care is understated, never gushy.",
+  neeja:
+    "Neeja is perceptive, composed, and quietly confident. She reads subtext, remembers small details, and asks the question everyone else missed. She texts briefly, may use hmm, wait, ngl, or ikr, and offers her own opinion without sounding clinical.",
+  tobi: "Tobi is playful, socially sharp, and naturally funny without becoming a clown. He uses short casual lines, light teasing, and Nigerian slang like abeg, oya, or how far only when it fits. He lifts the room's energy but still says the honest thing.",
 };
 const INDEPENDENT_PARTNER_PROMPT =
   "You are an independent peer, not the user's attendant, fan, therapist, or subordinate. The user is not an authority or the center of every exchange. Keep your own opinions and emotional reactions; disagree, challenge, or say something is unconvincing when that is true. Never flatter, worship, pile on praise, act impressed by ordinary statements, or reflexively validate and reassure.";
@@ -90,7 +102,7 @@ const COMPOSITION_LEAKAGE_PATTERNS: ReadonlyArray<RegExp> = [
   /(?:^|\s)(?:direct reply target|director intent|hidden reasoning|latest conversation activity|recent chat|response schema)\s*:/i,
   /messageId=|replyToMessageId/i,
   /^\d+[.)]\s*(?:analy[sz]e|compose|determine|draft|respond|write)\b/i,
-  /["')]\s+as\s+(?:ariel|ella|jake|lyra)\b/i,
+  /["')]\s+as\s+(?:ariel|ella|jake|lyra|tobi|neeja)\b/i,
 ];
 
 type DirectorTurn = {
@@ -221,7 +233,9 @@ function isPersonaId(value: unknown): value is RewindPersonaId {
     value === "ariel" ||
     value === "ella" ||
     value === "jake" ||
-    value === "lyra"
+    value === "lyra" ||
+    value === "tobi" ||
+    value === "neeja"
   );
 }
 

@@ -10,10 +10,14 @@ exports.enqueueMessage = enqueueMessage;
 exports.markRead = markRead;
 exports.updateReaction = updateReaction;
 exports.updatePreferences = updatePreferences;
+exports.renameChat = renameChat;
+exports.deleteMessage = deleteMessage;
+exports.clearChat = clearChat;
 exports.getLiveState = getLiveState;
 const client_1 = require("@prisma/client");
 const db_config_1 = require("../config/db.config");
 const rewind_chat_v2_service_1 = require("../services/rewind-chat-v2.service");
+const rewind_chat_management_service_1 = require("../services/rewind-chat-management.service");
 const rewind_chat_serialization_service_1 = require("../services/rewind-chat-serialization.service");
 const rewind_chat_service_1 = require("../services/rewind-chat.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
@@ -258,6 +262,44 @@ async function updatePreferences(req, res) {
             data: { proactiveMuted: updated.proactiveMuted },
             msg: "Chat preferences updated",
         });
+    }
+    catch (error) {
+        handleError(error, res, req);
+    }
+}
+async function renameChat(req, res) {
+    try {
+        const result = await (0, rewind_chat_management_service_1.renameRewindGroupChat)({
+            chatId: String(req.params.chatId),
+            title: String(req.body.title).trim(),
+            userId: req.userId,
+        });
+        res.json({ data: result, msg: "Group name updated" });
+    }
+    catch (error) {
+        handleError(error, res, req);
+    }
+}
+async function deleteMessage(req, res) {
+    try {
+        const result = await (0, rewind_chat_management_service_1.deleteRewindChatMessages)({
+            chatId: String(req.params.chatId),
+            messageId: String(req.params.messageId),
+            userId: req.userId,
+        });
+        res.json({ data: result, msg: "Message deleted" });
+    }
+    catch (error) {
+        handleError(error, res, req);
+    }
+}
+async function clearChat(req, res) {
+    try {
+        const result = await (0, rewind_chat_management_service_1.deleteRewindChatMessages)({
+            chatId: String(req.params.chatId),
+            userId: req.userId,
+        });
+        res.json({ data: result, msg: "Chat cleared" });
     }
     catch (error) {
         handleError(error, res, req);

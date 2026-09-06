@@ -14,7 +14,7 @@ import {
 import { notificationService } from "./notification.service";
 import logger from "../utils/logger.util";
 
-type RewindPersonaId = "ella" | "lyra" | "jake" | "ariel";
+type RewindPersonaId = "ella" | "lyra" | "jake" | "ariel" | "tobi" | "neeja";
 
 export type RewindFinalizationResult = {
   emotionalInsight: string | null;
@@ -37,7 +37,9 @@ function isRewindPersonaId(value: string): value is RewindPersonaId {
     value === "ella" ||
     value === "lyra" ||
     value === "jake" ||
-    value === "ariel"
+    value === "ariel" ||
+    value === "tobi" ||
+    value === "neeja"
   );
 }
 

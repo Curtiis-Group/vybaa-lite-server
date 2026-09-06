@@ -8,6 +8,7 @@ import {
   rewindChatIdSchema,
   rewindChatMessageIdSchema,
   rewindV2ChatPreferencesSchema,
+  rewindV2ChatTitleSchema,
   rewindV2ReactionSchema,
   rewindV2ReadChatSchema,
   sendRewindChatMessageSchema,
@@ -37,6 +38,18 @@ router.post(
   validate(sendRewindChatMessageSchema),
   controller.enqueueMessage,
 );
+router.delete(
+  "/chats/:chatId/messages/:messageId",
+  authMiddleware,
+  validate(rewindChatMessageIdSchema, "params"),
+  controller.deleteMessage,
+);
+router.delete(
+  "/chats/:chatId/messages",
+  authMiddleware,
+  validate(rewindChatIdSchema, "params"),
+  controller.clearChat,
+);
 router.put(
   "/chats/:chatId/messages/:messageId/reaction",
   authMiddleware,
@@ -57,6 +70,13 @@ router.patch(
   validate(rewindChatIdSchema, "params"),
   validate(rewindV2ChatPreferencesSchema),
   controller.updatePreferences,
+);
+router.patch(
+  "/chats/:chatId",
+  authMiddleware,
+  validate(rewindChatIdSchema, "params"),
+  validate(rewindV2ChatTitleSchema),
+  controller.renameChat,
 );
 
 export default router;

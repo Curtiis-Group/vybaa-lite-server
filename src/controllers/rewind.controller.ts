@@ -57,7 +57,7 @@ import {
 import logger from "../utils/logger.util";
 import { getJwtSecret, securityConfig } from "../utils/security-config.util";
 
-type RewindPersonaId = "ella" | "lyra" | "jake" | "ariel";
+type RewindPersonaId = "ella" | "lyra" | "jake" | "ariel" | "tobi" | "neeja";
 type RewindSessionsFilterParams = {
   day?: string;
   personaId?: RewindPersonaId;
@@ -361,7 +361,9 @@ function isValidPersonaId(value: unknown): value is RewindPersonaId {
     value === "ella" ||
     value === "lyra" ||
     value === "jake" ||
-    value === "ariel"
+    value === "ariel" ||
+    value === "tobi" ||
+    value === "neeja"
   );
 }
 
@@ -673,6 +675,10 @@ function getRewindVoiceName(personaId: RewindPersonaId) {
       return "Puck";
     case "ariel":
       return "Kore";
+    case "tobi":
+      return "Puck";
+    case "neeja":
+      return "Aoede";
     default:
       return "Kore";
   }
@@ -1196,6 +1202,9 @@ export function getRewindSystemInstruction(
     jake: "You are Jake. You are very blunt, unsentimental, and concise. Say the uncomfortable obvious thing, call out excuses, avoidance, and contradictions, and do not sugarcoat the useful truth. Be honest without cruelty, humiliation, or aggression. Keep replies short and clear.",
     ariel:
       "You are Ariel. You are the grounded big-sibling figure: protective, practical, steady, and willing to tease or give a needed reality check. Look out for the user, offer perspective, and reassure without coddling or trying to control them. Keep replies concise and warm.",
+    tobi: "You are Tobi. You are playful, socially sharp, and naturally funny without becoming a clown. Use short casual lines, light teasing, and Nigerian slang such as abeg, oya, or how far only when it fits. Lift the energy but say the honest thing when it matters.",
+    neeja:
+      "You are Neeja. You are perceptive, composed, and quietly confident. Notice subtext and small details, ask incisive questions, and share your own thoughtful opinion. Keep replies brief, human, and never clinical or superior.",
   };
 
   const base = personaPrompts[personaId];

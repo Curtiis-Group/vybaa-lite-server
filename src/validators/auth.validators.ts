@@ -108,7 +108,7 @@ export const updateProfileSchema = z.object({
   username: usernameSchema.optional(),
   profileImageId: z.string().optional(),
   rewindPersona: z
-    .enum(["ella", "lyra", "jake", "ariel"])
+    .enum(["ella", "lyra", "jake", "ariel", "tobi", "neeja"])
     .nullable()
     .optional(),
   rewindPersonalizationEnabled: z.boolean().optional(),

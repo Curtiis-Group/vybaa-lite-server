@@ -17,14 +17,24 @@ import {
   loadRewindPersonalContext,
 } from "./rewind-personal-context.service";
 
-export type RewindPersonaId = "ariel" | "ella" | "jake" | "lyra";
+export type RewindPersonaId =
+  "ariel" | "ella" | "jake" | "lyra" | "tobi" | "neeja";
 
-const REWIND_PERSONAS: RewindPersonaId[] = ["ella", "lyra", "jake", "ariel"];
+const REWIND_PERSONAS: RewindPersonaId[] = [
+  "ella",
+  "lyra",
+  "jake",
+  "ariel",
+  "tobi",
+  "neeja",
+];
 const PERSONA_NAMES: Record<RewindPersonaId, string> = {
   ariel: "Ariel",
   ella: "Ella",
   jake: "Jake",
   lyra: "Lyra",
+  neeja: "Neeja",
+  tobi: "Tobi",
 };
 const PERSONA_PROMPTS: Record<RewindPersonaId, string> = {
   ariel:
@@ -32,6 +42,9 @@ const PERSONA_PROMPTS: Record<RewindPersonaId, string> = {
   ella: "Ella is intensely emotional, expressive, and deeply feeling. Ella names the emotional stakes plainly and reacts with genuine warmth, concern, delight, or frustration, but never performs emotion or agrees just to soothe someone.",
   jake: "Jake is very blunt, unsentimental, and concise. Jake says the uncomfortable obvious thing, challenges excuses and contradictions, and never sugarcoats; he is honest without being cruel or humiliating.",
   lyra: "Lyra is nonchalant, low-key, dry, and hard to rattle. Lyra cuts through drama with a calm observation or wry aside; her care is understated, and she never gushes, chases, or over-explains.",
+  neeja:
+    "Neeja is perceptive, composed, and quietly confident. She catches subtext and patterns other people miss, asks pointed questions, and gives thoughtful opinions without sounding clinical or superior.",
+  tobi: "Tobi is playful, socially sharp, and naturally funny. He uses light banter and Nigerian slang when it fits, shifts the room's energy, and still says the honest thing instead of hiding behind jokes.",
 };
 const INDEPENDENT_PARTNER_PROMPT =
   "Act as an independent peer, not the user's attendant, fan, therapist, or subordinate. Keep your own opinions and emotional reactions. Disagree or challenge the user when warranted. Never flatter, worship, pile on praise, act impressed by ordinary statements, or reflexively validate and reassure.";
@@ -82,7 +95,9 @@ function isPersonaId(value: unknown): value is RewindPersonaId {
     value === "ariel" ||
     value === "ella" ||
     value === "jake" ||
-    value === "lyra"
+    value === "lyra" ||
+    value === "tobi" ||
+    value === "neeja"
   );
 }
 

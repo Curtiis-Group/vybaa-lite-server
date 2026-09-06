@@ -16,7 +16,9 @@ function isRewindPersonaId(value) {
     return (value === "ella" ||
         value === "lyra" ||
         value === "jake" ||
-        value === "ariel");
+        value === "ariel" ||
+        value === "tobi" ||
+        value === "neeja");
 }
 function getPersonaName(personaId) {
     return personaId.charAt(0).toUpperCase() + personaId.slice(1);

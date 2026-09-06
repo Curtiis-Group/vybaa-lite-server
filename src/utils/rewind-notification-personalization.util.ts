@@ -1,4 +1,5 @@
-export type NotificationPersonaId = "ella" | "lyra" | "jake" | "ariel";
+export type NotificationPersonaId =
+  "ella" | "lyra" | "jake" | "ariel" | "tobi" | "neeja";
 
 type NotificationPersona = {
   avatarUrl: string;
@@ -45,6 +46,18 @@ const PERSONAS: Record<NotificationPersonaId, NotificationPersona> = {
     name: "Lyra",
     personaId: "lyra",
   },
+  neeja: {
+    avatarUrl:
+      "https://res.cloudinary.com/dqdtazdda/image/upload/c_fill,f_png,g_auto,h_256,q_auto:good,w_256/v1/vybaa/rewind/partners/neeja",
+    name: "Neeja",
+    personaId: "neeja",
+  },
+  tobi: {
+    avatarUrl:
+      "https://res.cloudinary.com/dqdtazdda/image/upload/c_fill,f_png,g_auto,h_256,q_auto:good,w_256/v1/vybaa/rewind/partners/tobi",
+    name: "Tobi",
+    personaId: "tobi",
+  },
 };
 
 function isNotificationPersonaId(
@@ -54,7 +67,9 @@ function isNotificationPersonaId(
     value === "ella" ||
     value === "lyra" ||
     value === "jake" ||
-    value === "ariel"
+    value === "ariel" ||
+    value === "tobi" ||
+    value === "neeja"
   );
 }
 
@@ -105,6 +120,14 @@ function getPartnerMessage(params: {
       if (positive) return `look at u, ${message}. proud of u`;
       if (reminder) return `hey, ${message}. u got this`;
       return `hey, ${message}`;
+    case "tobi":
+      if (positive) return `oya nice one 😂 ${message}`;
+      if (reminder) return `abeg no forget, ${message}`;
+      return `yo, ${message}`;
+    case "neeja":
+      if (positive) return `hmm look at u 🤎 ${message}`;
+      if (reminder) return `hey, quick reminder... ${message}`;
+      return `btw, ${message} 👀`;
   }
 }
 
