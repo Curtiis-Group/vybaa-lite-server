@@ -39,8 +39,6 @@ const notificationController = __importStar(require("../controllers/notification
 const router = (0, express_1.Router)();
 // All routes require authentication
 router.use(auth_middleware_1.authMiddleware);
-// Get Ably auth token
-router.get("/auth/ably", notificationController.getAblyAuth);
 // Get all notifications
 router.get("/", notificationController.getNotifications);
 // Get unread count

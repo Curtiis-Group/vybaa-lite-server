@@ -16,7 +16,9 @@ function isRewindPersonaId(value) {
     return (value === "ella" ||
         value === "lyra" ||
         value === "jake" ||
-        value === "ariel");
+        value === "ariel" ||
+        value === "tobi" ||
+        value === "neeja");
 }
 function getPersonaName(personaId) {
     return personaId.charAt(0).toUpperCase() + personaId.slice(1);
@@ -59,6 +61,7 @@ async function loadReflectionContext(params) {
                 userId: params.userId,
                 personaId: params.personaId,
                 completed: true,
+                isTestSession: false,
                 NOT: { id: params.sessionId },
             },
             orderBy: { completedAt: "desc" },
@@ -188,6 +191,7 @@ async function finalizeRewindSession(params) {
             completed: true,
             emotionalInsight: true,
             id: true,
+            isTestSession: true,
             personaId: true,
             sessionDateKey: true,
             status: true,
@@ -278,67 +282,78 @@ async function finalizeRewindSession(params) {
         });
         params.onStage?.("saving_reflection");
         const completedAt = new Date();
-        await db_config_1.prisma.$transaction([
-            db_config_1.prisma.rewindSession.update({
-                where: { id: session.id },
-                data: {
-                    checkInAt: completedAt,
-                    completed: true,
-                    completedAt,
-                    completionSource: params.source,
-                    comparisonInsight: reflection.comparisonInsight,
-                    emotionalInsight: reflection.emotionalInsight,
-                    emotionalTags: reflection.emotionalTags,
-                    journalDraft: reflection.journalDraft,
-                    nextStepNote: reflection.nextStepNote,
-                    status: client_1.RewindSessionStatus.COMPLETED,
-                    summary: reflection.summary,
-                    transcriptAvailable: context.turns.length > 0,
-                    wellbeingSignals: reflection.wellbeingSignals,
-                },
-            }),
-            db_config_1.prisma.user.update({
-                where: { id: session.userId },
-                data: {
-                    currentMood: reflection.currentMood,
-                    emotionSummary: reflection.emotionalInsight,
-                },
-            }),
-        ]);
-        await (0, activity_signal_service_1.recordActivitySignal)({
-            dedupeKey: `rewind-voice:${session.id}:completed`,
-            description: `Completed a voice Rewind with ${getPersonaName(session.personaId)}: ${reflection.emotionalInsight}`,
-            eventType: "REWIND_COMPLETED",
-            happenedAt: completedAt,
-            localDateKey: session.sessionDateKey ?? toLocalDateKey(completedAt, session.timezone),
-            metadata: { emotionalTags: reflection.emotionalTags },
-            personaId: session.personaId,
-            sourceId: session.id,
-            sourceType: client_1.ActivitySignalSourceType.REWIND_VOICE,
-            timezone: session.timezone ?? "UTC",
-            userId: session.userId,
+        const sessionCompletion = db_config_1.prisma.rewindSession.update({
+            where: { id: session.id },
+            data: {
+                checkInAt: completedAt,
+                completed: true,
+                completedAt,
+                completionSource: params.source,
+                comparisonInsight: reflection.comparisonInsight,
+                emotionalInsight: reflection.emotionalInsight,
+                emotionalTags: reflection.emotionalTags,
+                journalDraft: reflection.journalDraft,
+                nextStepNote: reflection.nextStepNote,
+                status: client_1.RewindSessionStatus.COMPLETED,
+                summary: reflection.summary,
+                transcriptAvailable: context.turns.length > 0,
+                wellbeingSignals: reflection.wellbeingSignals,
+            },
         });
-        try {
-            await notification_service_1.notificationService.createNotification({
+        if (session.isTestSession) {
+            await sessionCompletion;
+        }
+        else {
+            await db_config_1.prisma.$transaction([
+                sessionCompletion,
+                db_config_1.prisma.user.update({
+                    where: { id: session.userId },
+                    data: {
+                        currentMood: reflection.currentMood,
+                        emotionSummary: reflection.emotionalInsight,
+                    },
+                }),
+            ]);
+        }
+        if (!session.isTestSession) {
+            await (0, activity_signal_service_1.recordActivitySignal)({
+                dedupeKey: `rewind-voice:${session.id}:completed`,
+                description: `Completed a voice Rewind with ${getPersonaName(session.personaId)}: ${reflection.emotionalInsight}`,
+                eventType: "REWIND_COMPLETED",
+                happenedAt: completedAt,
+                localDateKey: session.sessionDateKey ??
+                    toLocalDateKey(completedAt, session.timezone),
+                metadata: { emotionalTags: reflection.emotionalTags },
+                personaId: session.personaId,
+                sourceId: session.id,
+                sourceType: client_1.ActivitySignalSourceType.REWIND_VOICE,
+                timezone: session.timezone ?? "UTC",
                 userId: session.userId,
-                type: "system",
-                title: "Your Rewind summary is ready",
-                message: "Your reflection is ready whenever you are.",
-                data: {
-                    rewindSessionId: session.id,
-                    route: `/app/r/${session.id}`,
-                    type: "rewind_summary_ready",
-                },
-                dedupeKey: `rewind_summary_ready:${session.id}`,
             });
         }
-        catch (notificationError) {
-            logger_util_1.default.error("Unable to send Rewind summary notification", {
-                errorName: notificationError instanceof Error
-                    ? notificationError.name
-                    : "UnknownError",
-                sessionId: session.id,
-            });
+        if (!session.isTestSession) {
+            try {
+                await notification_service_1.notificationService.createNotification({
+                    userId: session.userId,
+                    type: "system",
+                    title: "Your Rewind summary is ready",
+                    message: "Your reflection is ready whenever you are.",
+                    data: {
+                        rewindSessionId: session.id,
+                        route: `/app/r/${session.id}`,
+                        type: "rewind_summary_ready",
+                    },
+                    dedupeKey: `rewind_summary_ready:${session.id}`,
+                });
+            }
+            catch (notificationError) {
+                logger_util_1.default.error("Unable to send Rewind summary notification", {
+                    errorName: notificationError instanceof Error
+                        ? notificationError.name
+                        : "UnknownError",
+                    sessionId: session.id,
+                });
+            }
         }
         return {
             emotionalInsight: reflection.emotionalInsight,

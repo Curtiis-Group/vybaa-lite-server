@@ -34,7 +34,7 @@ make migrate
 - **Language**: TypeScript
 - **Database**: PostgreSQL 16
 - **ORM**: Prisma
-- **Real-time**: Ably
+- **Real-time**: First-party WebSockets with Redis fan-out
 - **AI**: Google Gemini
 - **Storage**: Cloudinary
 - **Push Notifications**: Firebase Cloud Messaging
@@ -163,8 +163,11 @@ FIREBASE_PROJECT_ID=your_project_id
 FIREBASE_PRIVATE_KEY=your_private_key
 FIREBASE_CLIENT_EMAIL=your_client_email
 
-# Ably
-ABLY_API_KEY=your_ably_key
+# Realtime fan-out (required when running multiple server instances)
+REDIS_URL=redis://localhost:6379
+REALTIME_MAX_CONNECTIONS_PER_USER=4
+REWIND_ASYNC_CHAT_ENABLED=true
+REWIND_AUTONOMOUS_CHAT_ENABLED=true
 
 # Gemini AI
 GEMINI_API_KEY=your_gemini_key
@@ -173,21 +176,25 @@ GEMINI_API_KEY=your_gemini_key
 ## 🌐 API Endpoints
 
 ### Health & Info
+
 - `GET /api` - API information
 - `GET /api/health` - Health check
 
 ### Authentication
+
 - `POST /api/v1/auth/register` - Register user
 - `POST /api/v1/auth/login` - Login
 - `POST /api/v1/auth/google` - Google OAuth
 - `POST /api/v1/auth/refresh` - Refresh token
 
 ### Users
+
 - `GET /api/v1/users/me` - Get current user
 - `PATCH /api/v1/users/me` - Update profile
 - `POST /api/v1/users/fcm-token` - Register FCM token
 
 ### Goals
+
 - `GET /api/v1/goals` - List goals
 - `POST /api/v1/goals` - Create goal
 - `PATCH /api/v1/goals/:id` - Update goal
@@ -195,26 +202,32 @@ GEMINI_API_KEY=your_gemini_key
 - `POST /api/v1/goals/:id/checkin` - Check in
 
 ### Achievements
+
 - `GET /api/v1/achievements` - List achievements
 
 ### Notifications
+
 - `GET /api/v1/notifications` - List notifications
 - `PATCH /api/v1/notifications/:id/read` - Mark as read
 
 ### Chill Sessions
+
 - `POST /api/v1/chill` - Start session
 - `PATCH /api/v1/chill/:id/complete` - Complete session
 
 ### Journals
+
 - `GET /api/v1/journals` - List entries
 - `POST /api/v1/journals` - Create entry
 - `PATCH /api/v1/journals/:id` - Update entry
 
 ### Insights
+
 - `GET /api/v1/insights/emotion-summary` - AI emotion analysis
 - `GET /api/v1/insights/journal-summary` - Journal insights
 
 ### Upload
+
 - `POST /api/v1/upload/avatar` - Upload avatar
 
 ## 🧪 Testing
@@ -240,6 +253,7 @@ See [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) for detailed deployment guide
 ## 📊 Database Schema
 
 Key models:
+
 - **User** - User accounts and profiles
 - **Goal** - User goals and tracking
 - **CheckIn** - Daily check-ins
@@ -264,12 +278,14 @@ See `prisma/schema.prisma` for full schema.
 ### Common Issues
 
 **Port already in use:**
+
 ```bash
 lsof -ti:4000 | xargs kill -9
 # or change PORT in .env
 ```
 
 **Database connection error:**
+
 ```bash
 # Check DATABASE_URL format
 # For Docker: use 'postgres' as hostname
@@ -277,6 +293,7 @@ lsof -ti:4000 | xargs kill -9
 ```
 
 **Prisma client not generated:**
+
 ```bash
 npx prisma generate
 ```

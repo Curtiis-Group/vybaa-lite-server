@@ -4,7 +4,13 @@ import { runRewindRoutineLifecycle } from "./rewind-routine.service";
 import { processGoalV2Lifecycle } from "./goal-v2.service";
 import { scheduleGoalV2Reminders } from "./goal-v2-reminder.service";
 import { refreshPendingDailyObservations } from "./daily-observation.service";
+import {
+  processDueRewindPartnerMinds,
+  processQueuedRewindChatRuns,
+  processRewindChatOutbox,
+} from "./rewind-chat-v2.service";
 import logger from "../utils/logger.util";
+import { Env } from "../utils/env.util";
 
 class SchedulerService {
   private intervalId: NodeJS.Timeout | null = null;
@@ -41,10 +47,12 @@ class SchedulerService {
     this.processPendingNotifications();
     this.processRevenueCatWebhooks();
     this.processGoalV2Lifecycle();
+    this.processRewindChatJobs();
     this.intervalId = setInterval(() => {
       this.processPendingNotifications();
       this.processRevenueCatWebhooks();
       this.processGoalV2Lifecycle();
+      this.processRewindChatJobs();
     }, 60 * 1000); // Every minute
 
     // Rewind slots are account-local, so their lifecycle must be evaluated
@@ -181,6 +189,21 @@ class SchedulerService {
       }
     } catch (error) {
       logger.error("Error in Rewind routine lifecycle", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+
+  private async processRewindChatJobs(): Promise<void> {
+    if (Env.REWIND_ASYNC_CHAT_ENABLED !== "true") return;
+    try {
+      await Promise.all([
+        processQueuedRewindChatRuns(),
+        processDueRewindPartnerMinds(),
+        processRewindChatOutbox(),
+      ]);
+    } catch (error: unknown) {
+      logger.error("Error processing Rewind v2 chat jobs", {
         errorName: error instanceof Error ? error.name : "UnknownError",
       });
     }

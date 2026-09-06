@@ -13,19 +13,31 @@ import {
   dismissDailyObservation,
   getDailyObservation,
   listDailyObservations,
-  serializeDailyObservation,
 } from "../services/daily-observation.service";
 import {
   ensureDefaultRewindChats,
   getRewindChatMessageIdempotencyKey,
   listRewindChatMessages,
+  type RewindPersonaId,
   RewindChatError,
   sendRewindChatMessage,
   setRewindChatArchived,
+  streamRewindChatMessage,
 } from "../services/rewind-chat.service";
 import logger from "../utils/logger.util";
 
 const CHAT_MESSAGES_PER_MINUTE = 12;
+
+function isRewindPersonaId(value: unknown): value is RewindPersonaId {
+  return (
+    value === "ariel" ||
+    value === "ella" ||
+    value === "jake" ||
+    value === "lyra" ||
+    value === "tobi" ||
+    value === "neeja"
+  );
+}
 
 async function getUserTimezone(userId: string): Promise<string> {
   const user = await prisma.user.findUnique({
@@ -50,6 +62,7 @@ function handleIntelligenceError(
     return;
   }
   logger.error(`Rewind intelligence ${operation} error`, {
+    errorMessage: error instanceof Error ? error.message : String(error),
     errorName: error instanceof Error ? error.name : "UnknownError",
     userId: req.userId,
   });
@@ -119,38 +132,66 @@ export async function getHomeGreeting(
   res: Response,
 ): Promise<void> {
   try {
+    const userId = req.userId!;
     const user = await prisma.user.findUnique({
-      select: { rewindPersonalizationEnabled: true },
-      where: { id: req.userId! },
+      select: {
+        rewindPersona: true,
+        rewindPersonalizationEnabled: true,
+      },
+      where: { id: userId },
     });
     if (!user?.rewindPersonalizationEnabled) {
       res.json({ data: null, msg: "Generic greeting preferred" });
       return;
     }
-    const observation = await prisma.dailyObservation.findFirst({
-      orderBy: { localDateKey: "desc" },
-      where: {
-        confidence: { gte: 0.45 },
-        dismissedAt: null,
-        userId: req.userId!,
-      },
-    });
-    if (!observation) {
-      res.json({ data: null, msg: "No contextual greeting available" });
+    if (!isRewindPersonaId(user.rewindPersona)) {
+      res.json({ data: null, msg: "No Rewind partner selected" });
       return;
     }
-    const serialized = serializeDailyObservation(observation);
+
+    const personaId = user.rewindPersona;
+    await ensureDefaultRewindChats(userId);
+    const chat = await prisma.rewindChat.findFirst({
+      select: {
+        id: true,
+        messages: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            content: true,
+            id: true,
+            localDateKey: true,
+          },
+          take: 1,
+          where: {
+            personaId,
+            role: RewindChatMessageRole.PARTNER,
+          },
+        },
+      },
+      where: {
+        archivedAt: null,
+        threadKey: `partner:${personaId}`,
+        userId,
+      },
+    });
+    if (!chat) {
+      res.json({ data: null, msg: "Partner chat unavailable" });
+      return;
+    }
+    const message = chat.messages[0] ?? null;
     res.json({
       data: {
-        date: serialized.localDateKey,
-        message: serialized.description.slice(0, 220),
-        personaId: serialized.personaId,
-        sourceTypes: serialized.sourceTypes,
-        title: serialized.personaId
-          ? `${serialized.personaId[0]?.toUpperCase()}${serialized.personaId.slice(1)} noticed`
-          : "Something worth noticing",
+        chatId: chat.id,
+        date: message?.localDateKey ?? null,
+        message: message?.content ?? null,
+        messageId: message?.id ?? null,
+        personaId,
+        sourceTypes: [],
+        title: "",
       },
-      msg: "Contextual greeting retrieved",
+      msg: message
+        ? "Latest partner message retrieved"
+        : "Partner chat has no messages yet",
     });
   } catch (error: unknown) {
     handleIntelligenceError(error, "get home greeting", req, res);
@@ -221,7 +262,7 @@ export async function sendChatMessage(
       }
     }
     const timezone = await getUserTimezone(userId);
-   
+
     const result = await sendRewindChatMessage({
       chatId,
       content: String(req.body.content),
@@ -231,8 +272,86 @@ export async function sendChatMessage(
     });
     res.status(201).json({ data: result, msg: "Rewind reply ready" });
   } catch (error: unknown) {
-    console.log(error)
     handleIntelligenceError(error, "send chat message", req, res);
+  }
+}
+
+export async function streamChatMessage(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  const writeEvent = (event: unknown): void => {
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(`${JSON.stringify(event)}\n`);
+    }
+  };
+
+  try {
+    const userId = req.userId!;
+    const chatId = String(req.params.chatId);
+    const idempotencyKey = String(req.body.idempotencyKey);
+    const storedIdempotencyKey = getRewindChatMessageIdempotencyKey(
+      userId,
+      chatId,
+      idempotencyKey,
+    );
+    const existingMessage = await prisma.rewindChatMessage.findFirst({
+      select: { id: true },
+      where: { idempotencyKey: storedIdempotencyKey, userId },
+    });
+    if (!existingMessage) {
+      const recentMessageCount = await prisma.rewindChatMessage.count({
+        where: {
+          createdAt: { gte: new Date(Date.now() - 60_000) },
+          role: RewindChatMessageRole.USER,
+          userId,
+        },
+      });
+      if (recentMessageCount >= CHAT_MESSAGES_PER_MINUTE) {
+        res.status(429).json({
+          code: "REWIND_CHAT_RATE_LIMITED",
+          msg: "Give your Rewind partners a moment before sending more",
+        });
+        return;
+      }
+    }
+
+    res.status(200);
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    const timezone = await getUserTimezone(userId);
+    await streamRewindChatMessage({
+      chatId,
+      content: String(req.body.content),
+      idempotencyKey,
+      onEvent: writeEvent,
+      timezone,
+      userId,
+    });
+    if (!res.writableEnded) res.end();
+  } catch (error: unknown) {
+    logger.error("Rewind intelligence stream chat message error", {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      userId: req.userId,
+    });
+    if (!res.headersSent) {
+      handleIntelligenceError(error, "stream chat message", req, res);
+      return;
+    }
+    writeEvent({
+      code:
+        error instanceof RewindChatError ? error.code : "CHAT_STREAM_FAILED",
+      message:
+        error instanceof RewindChatError
+          ? error.message
+          : "The conversation paused. Try sending that again.",
+      type: "error",
+    });
+    if (!res.writableEnded) res.end();
   }
 }
 

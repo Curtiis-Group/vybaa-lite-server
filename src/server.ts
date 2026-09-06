@@ -18,6 +18,11 @@ import {
 } from "./middleware/security.middleware";
 import routes from "./routes";
 import { schedulerService } from "./services/scheduler.service";
+import {
+  handleRealtimeConnection,
+  startRealtimeWebSocketBroker,
+  stopRealtimeWebSocketBroker,
+} from "./services/realtime-websocket.service";
 import config from "./utils/config.util";
 import { Env, ENVIRONMENT } from "./utils/env.util";
 import logger from "./utils/logger.util";
@@ -122,6 +127,18 @@ app.ws("/mycove/v1/rewind/live", (ws, req) => {
   setClientApp(req, "mycove");
   void rewindController.handleLiveConnection(ws, req);
 });
+// @ts-expect-error express-ws augments Express at runtime.
+app.ws("/api/v2/realtime/live", (ws, req) => {
+  setClientApp(req, "vybaa");
+  handleRealtimeConnection(ws, req);
+});
+// @ts-expect-error express-ws augments Express at runtime.
+app.ws("/mycove/v2/realtime/live", (ws, req) => {
+  setClientApp(req, "mycove");
+  handleRealtimeConnection(ws, req);
+});
+
+void startRealtimeWebSocketBroker();
 
 export const server = app.listen(config.PORT, () => {
   logger.info(`🚀 Server running on port ${config.PORT}`);
@@ -134,11 +151,11 @@ export const server = app.listen(config.PORT, () => {
 process.on("SIGTERM", () => {
   logger.info("SIGTERM signal received: closing HTTP server");
   schedulerService.stop();
-  process.exit(0);
+  void stopRealtimeWebSocketBroker().finally(() => process.exit(0));
 });
 
 process.on("SIGINT", () => {
   logger.info("SIGINT signal received: closing HTTP server");
   schedulerService.stop();
-  process.exit(0);
+  void stopRealtimeWebSocketBroker().finally(() => process.exit(0));
 });

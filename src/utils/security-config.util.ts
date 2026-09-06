@@ -15,7 +15,9 @@ function getRequiredSecret(name: string): string {
 }
 
 function getAllowedOrigins(): string[] {
-  const allowedOriginsFromEnv = (process.env.CORS_ALLOWED_ORIGINS ?? "http://localhost:5173")
+  const allowedOriginsFromEnv = (
+    process.env.CORS_ALLOWED_ORIGINS ?? "http://localhost:5173"
+  )
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
@@ -29,7 +31,7 @@ function getAllowedOrigins(): string[] {
     "https://localhost",
     "http://localhost:3005",
     "http://localhost:3001",
-    "ionic://localhost"
+    "ionic://localhost",
   ];
 }
 
@@ -48,6 +50,10 @@ export const securityConfig = {
   rewindMessageRateWindowMs: getPositiveInteger(
     "REWIND_MESSAGE_RATE_WINDOW_MS",
     10_000,
+  ),
+  realtimeMaxConnectionsPerUser: getPositiveInteger(
+    "REALTIME_MAX_CONNECTIONS_PER_USER",
+    4,
   ),
 };
 

@@ -9,6 +9,10 @@ import {
   getNextGoalReminderOccurrence,
 } from "../utils/goal-reminder.util";
 import { isNotificationDedupeConflict } from "../utils/notification-dedupe.util";
+import {
+  personalizeRewindNotification,
+  type NotificationPresentation,
+} from "../utils/rewind-notification-personalization.util";
 import { cacheService } from "./cache.service";
 import { metricsService } from "./metrics.service";
 import { notificationRealtimePublisher } from "./notification-realtime.service";
@@ -21,6 +25,7 @@ export interface CreateNotificationData {
     | "goal_completed"
     | "goal_reminder"
     | "goal_v2_reminder"
+    | "rewind_chat_message"
     | "streak_milestone"
     | "system";
   title: string;
@@ -51,6 +56,7 @@ type DeliverableNotification = {
     fcmDevices: Array<{ clientApp: "VYBAA" | "MYCOVE"; token: string }>;
     fcmTokens: string[];
     firstName: string | null;
+    rewindPersona: string | null;
     username: string | null;
   };
 };
@@ -344,6 +350,7 @@ class NotificationService {
             fcmDevices: { select: { clientApp: true, token: true } },
             fcmTokens: true,
             firstName: true,
+            rewindPersona: true,
             username: true,
           },
         },
@@ -374,13 +381,14 @@ class NotificationService {
 
   private toPayload(
     notification: DeliverableNotification,
+    presentation: NotificationPresentation,
   ): NotificationPayload {
     return {
       id: notification.id,
       type: notification.type,
-      title: notification.title,
-      message: notification.message,
-      data: parseNotificationData(notification.data),
+      title: presentation.title,
+      message: presentation.message,
+      data: presentation.data,
       createdAt: notification.createdAt.toISOString(),
     };
   }
@@ -408,7 +416,14 @@ class NotificationService {
         payload: NotificationPayload;
       }> = [];
       for (const notification of claim.notifications) {
-        const payload = this.toPayload(notification);
+        const presentation = personalizeRewindNotification({
+          data: parseNotificationData(notification.data),
+          message: notification.message,
+          selectedPersonaId: notification.user.rewindPersona,
+          title: notification.title,
+          type: notification.type,
+        });
+        const payload = this.toPayload(notification, presentation);
         const sharedTargetKeys =
           sharedTargetsByUser.get(notification.userId) ?? new Set<string>();
         const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
@@ -419,9 +434,9 @@ class NotificationService {
             clientApp: target.clientApp,
             token: target.token,
             title: sharedTargetKeys.has(targetKey)
-              ? `${titlePrefix} ${notification.title}`
-              : notification.title,
-            body: notification.message,
+              ? `${titlePrefix} ${presentation.title}`
+              : presentation.title,
+            body: presentation.message,
             payload,
             silent: false,
           });
@@ -475,7 +490,7 @@ class NotificationService {
   ) {
     const skip = (page - 1) * limit;
 
-    const [notifications, totalCount] = await Promise.all([
+    const [notifications, totalCount, user] = await Promise.all([
       prisma.notification.findMany({
         where: { userId },
         orderBy: { createdAt: "desc" },
@@ -483,13 +498,28 @@ class NotificationService {
         skip,
       }),
       prisma.notification.count({ where: { userId } }),
+      prisma.user.findUnique({
+        select: { rewindPersona: true },
+        where: { id: userId },
+      }),
     ]);
 
     return {
-      notifications: notifications.map((n) => ({
-        ...n,
-        data: n.data ? JSON.parse(n.data) : null,
-      })),
+      notifications: notifications.map((notification) => {
+        const presentation = personalizeRewindNotification({
+          data: parseNotificationData(notification.data),
+          message: notification.message,
+          selectedPersonaId: user?.rewindPersona ?? null,
+          title: notification.title,
+          type: notification.type,
+        });
+        return {
+          ...notification,
+          data: presentation.data ?? null,
+          message: presentation.message,
+          title: presentation.title,
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -865,7 +895,11 @@ class NotificationService {
       const isSameLocalDate = (a: Date, b: Date, timezone: string): boolean => {
         const first = DateTime.fromJSDate(a, { zone: timezone });
         const second = DateTime.fromJSDate(b, { zone: timezone });
-        return first.isValid && second.isValid && first.toISODate() === second.toISODate();
+        return (
+          first.isValid &&
+          second.isValid &&
+          first.toISODate() === second.toISODate()
+        );
       };
 
       const skippedNotificationIds: string[] = [];

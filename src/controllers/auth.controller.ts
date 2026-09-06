@@ -1,7 +1,10 @@
-import { Request, Response } from "express";
+import type { User } from "@prisma/client";
+import type { Request, Response } from "express";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { emailService } from "../services/email.service";
+import { getRewindPartnerSwitchAvailability } from "../services/rewind-partner-switch.service";
+import { userMoodService } from "../services/user-mood.service";
 import {
   comparePassword,
   generateAccessToken,
@@ -15,10 +18,36 @@ import {
 import { uploadImageFromUrl } from "../utils/cloudinary.util";
 import logger from "../utils/logger.util";
 import { generateUniqueUsername } from "../utils/username.util";
-import { userMoodService } from "../services/user-mood.service";
+
+export type FormattedUserResponse = {
+  avatarUrl: string | undefined;
+  createdAt: string;
+  currentMood: string | undefined;
+  email: string;
+  firstName: string | undefined;
+  id: string;
+  isConfirmed: boolean;
+  isFirstTime: boolean;
+  lastName: string | undefined;
+  lastUsernameChangeAt: string | undefined;
+  rewindPersona: string | undefined;
+  rewindPersonaCanChange: boolean;
+  rewindPersonaNextChangeAt: string | undefined;
+  rewindPersonalizationEnabled: boolean;
+  rewindProactiveChatEnabled: boolean;
+  rewindProactiveChatExplainedAt: string | undefined;
+  timezone: string;
+  updatedAt: string;
+  username: string | undefined;
+};
 
 // Helper function to format user response
-export function formatUserResponse(user: any) {
+export function formatUserResponse(user: User): FormattedUserResponse {
+  const partnerSwitch = getRewindPartnerSwitchAvailability(
+    user.rewindPersonaChangedAt,
+    user.timezone,
+  );
+
   return {
     id: user.id,
     email: user.email,
@@ -28,7 +57,13 @@ export function formatUserResponse(user: any) {
     avatarUrl: user.avatarUrl || undefined,
     currentMood: user.currentMood || undefined,
     rewindPersona: user.rewindPersona || undefined,
+    rewindPersonaCanChange: partnerSwitch.canChange,
+    rewindPersonaNextChangeAt:
+      partnerSwitch.nextAvailableAt?.toISOString() || undefined,
     rewindPersonalizationEnabled: user.rewindPersonalizationEnabled ?? true,
+    rewindProactiveChatEnabled: user.rewindProactiveChatEnabled ?? true,
+    rewindProactiveChatExplainedAt:
+      user.rewindProactiveChatExplainedAt?.toISOString() || undefined,
     timezone: user.timezone || "UTC",
     isConfirmed: user.isConfirmed,
     isFirstTime: user.isFirstTime,

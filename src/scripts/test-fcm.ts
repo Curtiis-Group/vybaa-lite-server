@@ -1,16 +1,33 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../config/db.config";
-import { fromPrismaClientApp, type ClientApp } from "../types/client-app.type";
 import { pushNotificationService } from "../services/push-notification.service";
+import { fromPrismaClientApp, type ClientApp } from "../types/client-app.type";
+import {
+  personalizeRewindNotification,
+  type NotificationPersonaId,
+} from "../utils/rewind-notification-personalization.util";
 
 type TestMode = "visible" | "silent";
 type ClientFilter = ClientApp | "all";
+type TestNotificationKind = "delivery" | "rewind-chat";
+
+const TEST_PERSONA_NAMES: Record<NotificationPersonaId, string> = {
+  ariel: "Ariel",
+  ella: "Ella",
+  jake: "Jake",
+  lyra: "Lyra",
+  neeja: "Neeja",
+  tobi: "Tobi",
+};
 
 interface ScriptOptions {
   allUsers: boolean;
   body: string;
   clientApp: ClientFilter;
+  email: string | null;
+  kind: TestNotificationKind;
   mode: TestMode;
+  persona: NotificationPersonaId;
   send: boolean;
   userId: string | null;
 }
@@ -26,6 +43,15 @@ interface UserFcmData {
   id: string;
 }
 
+interface TestPushPayload extends Record<string, unknown> {
+  createdAt: string;
+  data: Record<string, unknown>;
+  id: string;
+  message: string;
+  title: string;
+  type: string;
+}
+
 function parseValue(args: string[], name: string): string | null {
   const prefix = `--${name}=`;
   const inline = args.find((arg) => arg.startsWith(prefix));
@@ -38,7 +64,9 @@ function parseValue(args: string[], name: string): string | null {
 
 function parseOptions(args: string[]): ScriptOptions {
   const clientAppValue = parseValue(args, "client-app") ?? "all";
+  const kindValue = parseValue(args, "kind") ?? "delivery";
   const modeValue = parseValue(args, "mode") ?? "visible";
+  const personaValue = parseValue(args, "persona") ?? "lyra";
   const clientApp: ClientFilter =
     clientAppValue === "all" ||
     clientAppValue === "vybaa" ||
@@ -53,14 +81,38 @@ function parseOptions(args: string[]): ScriptOptions {
       : (() => {
           throw new Error("--mode must be visible or silent");
         })();
+  const kind: TestNotificationKind =
+    kindValue === "delivery" || kindValue === "rewind-chat"
+      ? kindValue
+      : (() => {
+          throw new Error("--kind must be delivery or rewind-chat");
+        })();
+  const persona: NotificationPersonaId =
+    personaValue === "ariel" ||
+    personaValue === "ella" ||
+    personaValue === "jake" ||
+    personaValue === "lyra" ||
+    personaValue === "tobi" ||
+    personaValue === "neeja"
+      ? personaValue
+      : (() => {
+          throw new Error(
+            "--persona must be ariel, ella, jake, lyra, tobi, or neeja",
+          );
+        })();
 
   return {
     allUsers: args.includes("--all"),
     body:
       parseValue(args, "body") ??
-      "This is a delivery test from the Vybaa notification service.",
+      (kind === "rewind-chat"
+        ? "hey, you active? 👀"
+        : "This is a delivery test from the Vybaa notification service."),
     clientApp,
+    email: parseValue(args, "email")?.trim() || null,
+    kind,
     mode,
+    persona,
     send: args.includes("--send"),
     userId: parseValue(args, "user"),
   };
@@ -108,17 +160,73 @@ Preview registered targets without sending:
 Send to one user's registered tokens:
   npm run test:fcm -- --user USER_ID --send
 
+Send by the account email:
+  npm run test:fcm -- --email you@example.com --send
+
+Preview a Rewind partner notification with avatar metadata:
+  npm run test:fcm -- --kind rewind-chat --persona lyra
+
+Send a Rewind partner notification to one user:
+  npm run test:fcm -- --kind rewind-chat --persona lyra --user USER_ID --send
+
 Send to every registered token (requires explicit confirmation):
   CONFIRM_FCM_BROADCAST=YES npm run test:fcm -- --all --send
 
 Options:
   --user USER_ID             Limit the test to one user
+  --email EMAIL              Limit the test to the user with this email
   --all                      Allow all users as the target scope
   --client-app vybaa|mycove|all
+  --kind delivery|rewind-chat
+  --persona ariel|ella|jake|lyra|tobi|neeja  Used by rewind-chat tests
   --mode visible|silent      Visible notification is the default
   --body "message"           Override the test message
   --send                     Actually send; preview is the default
 `);
+}
+
+function buildTestPayload(
+  testId: string,
+  options: ScriptOptions,
+): TestPushPayload {
+  const createdAt = new Date().toISOString();
+  const id = `fcm-test-${testId}`;
+  if (options.kind === "delivery") {
+    return {
+      createdAt,
+      data: {
+        fcmTestId: testId,
+        route: "/notifications",
+        type: "fcm_delivery_test",
+      },
+      id,
+      message: options.body,
+      title: "FCM delivery test",
+      type: "fcm_delivery_test",
+    };
+  }
+
+  const presentation = personalizeRewindNotification({
+    data: {
+      chatId: `fcm-test-chat-${testId}`,
+      messageId: id,
+      route: "/notifications",
+      sourcePersonaId: options.persona,
+    },
+    message: options.body,
+    selectedPersonaId: null,
+    title: TEST_PERSONA_NAMES[options.persona],
+    type: "rewind_chat_message",
+  });
+
+  return {
+    createdAt,
+    data: presentation.data ?? {},
+    id,
+    message: presentation.message,
+    title: presentation.title,
+    type: "rewind_chat_message",
+  };
 }
 
 async function main(): Promise<void> {
@@ -129,8 +237,14 @@ async function main(): Promise<void> {
   }
 
   const options = parseOptions(args);
-  if (options.send && !options.userId && !options.allUsers) {
-    throw new Error("Sending requires --user USER_ID or --all");
+  const scopes = [options.userId, options.email, options.allUsers].filter(
+    Boolean,
+  ).length;
+  if (scopes > 1) {
+    throw new Error("Choose only one target scope: --user, --email, or --all");
+  }
+  if (options.send && scopes === 0) {
+    throw new Error("Sending requires --user USER_ID, --email EMAIL, or --all");
   }
   if (
     options.send &&
@@ -143,15 +257,23 @@ async function main(): Promise<void> {
   }
 
   const users = await prisma.user.findMany({
-    where: options.userId ? { id: options.userId } : undefined,
+    where: options.userId
+      ? { id: options.userId }
+      : options.email
+        ? { email: options.email }
+        : undefined,
     select: {
       fcmDevices: { select: { clientApp: true, token: true } },
       fcmTokens: true,
       id: true,
     },
   });
-  if (options.userId && users.length === 0) {
-    throw new Error("User not found");
+  if ((options.userId || options.email) && users.length === 0) {
+    throw new Error(
+      options.email
+        ? `No user found for email ${options.email}`
+        : "User not found",
+    );
   }
 
   const targets = collectTargets(users, options.clientApp);
@@ -163,23 +285,33 @@ async function main(): Promise<void> {
     { mycove: 0, vybaa: 0 },
   );
   console.log(
-    `${options.send ? "Sending to" : "Found"} ${targets.length} unique FCM target(s): Vybaa=${counts.vybaa}, My Cove=${counts.mycove}, mode=${options.mode}`,
+    `${options.send ? "Sending to" : "Found"} ${targets.length} unique FCM target(s): Vybaa=${counts.vybaa}, My Cove=${counts.mycove}, kind=${options.kind}, mode=${options.mode}`,
   );
 
-  if (!options.send || targets.length === 0) return;
-
   const testId = randomUUID();
+  const payload = buildTestPayload(testId, options);
+  console.log(
+    JSON.stringify(
+      {
+        body: payload.message,
+        sender: payload.data.notificationSender ?? null,
+        title: payload.title,
+        type: payload.type,
+      },
+      null,
+      2,
+    ),
+  );
+
+  if (!options.send || !targets.length) return;
+
   const result = await pushNotificationService.sendFCMBatchMessages(
     targets.map((target) => ({
-      body: options.body,
+      body: payload.message,
       clientApp: target.clientApp,
-      payload: {
-        fcmTestId: testId,
-        route: "/app/notifications",
-        type: "fcm_delivery_test",
-      },
+      payload,
       silent: options.mode === "silent",
-      title: "FCM delivery test",
+      title: payload.title,
       token: target.token,
     })),
   );

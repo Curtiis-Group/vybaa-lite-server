@@ -11,27 +11,45 @@ exports.registerFCMToken = registerFCMToken;
 exports.removeFCMToken = removeFCMToken;
 exports.checkUsernameAvailability = checkUsernameAvailability;
 const db_config_1 = require("../config/db.config");
+const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
+const rewind_partner_switch_service_1 = require("../services/rewind-partner-switch.service");
+const rewind_routine_service_1 = require("../services/rewind-routine.service");
 const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const username_util_1 = require("../utils/username.util");
-const rewind_routine_service_1 = require("../services/rewind-routine.service");
-const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
 const auth_controller_1 = require("./auth.controller");
+function getDatabaseErrorCode(error) {
+    if (!error || typeof error !== "object" || !("code" in error))
+        return null;
+    return typeof error.code === "string" ? error.code : null;
+}
 async function updateProfile(req, res) {
     try {
         const userId = req.userId;
-        const { firstName, lastName, username, profileImageId, rewindPersona, rewindPersonalizationEnabled, timezone, } = req.body;
+        const { firstName, lastName, username, profileImageId, rewindPersona, rewindPersonalizationEnabled, rewindProactiveChatEnabled, rewindProactiveChatExplainedAt, timezone, } = req.body;
         const updateData = {};
-        // Handle username change with 7-day cooldown
-        if (username !== undefined) {
-            // Get current user to check last username change
-            const currentUser = await db_config_1.prisma.user.findUnique({
+        if (timezone !== undefined &&
+            (typeof timezone !== "string" || !(0, rewind_routine_service_1.isValidRewindTimezone)(timezone))) {
+            return res.status(400).json({ msg: "A valid IANA timezone is required" });
+        }
+        const currentUser = username !== undefined || rewindPersona !== undefined
+            ? await db_config_1.prisma.user.findUnique({
                 where: { id: userId },
-                select: { username: true, lastUsernameChangeAt: true },
-            });
-            if (!currentUser) {
-                return res.status(404).json({ msg: "User not found" });
-            }
+                select: {
+                    lastUsernameChangeAt: true,
+                    rewindPersona: true,
+                    rewindPersonaChangedAt: true,
+                    timezone: true,
+                    username: true,
+                },
+            })
+            : null;
+        if ((username !== undefined || rewindPersona !== undefined) &&
+            !currentUser) {
+            return res.status(404).json({ msg: "User not found" });
+        }
+        // Handle username change with 7-day cooldown
+        if (username !== undefined && currentUser) {
             // Check if username is actually changing
             if (username !== currentUser.username) {
                 // Sanitize and force lowercase
@@ -67,24 +85,71 @@ async function updateProfile(req, res) {
             // For now, we'll just store it as avatarUrl
             updateData.avatarUrl = profileImageId;
         }
-        if (rewindPersona !== undefined)
+        const personaActuallyChanged = rewindPersona !== undefined &&
+            currentUser !== null &&
+            rewindPersona !== currentUser.rewindPersona;
+        const isEstablishedPartnerChange = personaActuallyChanged &&
+            Boolean(currentUser.rewindPersona || currentUser.rewindPersonaChangedAt);
+        const partnerChangeTime = new Date();
+        if (isEstablishedPartnerChange && currentUser) {
+            const availability = (0, rewind_partner_switch_service_1.getRewindPartnerSwitchAvailability)(currentUser.rewindPersonaChangedAt, typeof timezone === "string" ? timezone : currentUser.timezone, partnerChangeTime);
+            if (!availability.canChange) {
+                return res.status(429).json({
+                    code: "REWIND_PARTNER_DAILY_LIMIT",
+                    msg: "You can switch your Rewind partner once per day",
+                    data: {
+                        nextAvailableAt: availability.nextAvailableAt?.toISOString() ?? null,
+                    },
+                });
+            }
+            updateData.rewindPersonaChangedAt = partnerChangeTime;
+        }
+        if (personaActuallyChanged)
             updateData.rewindPersona = rewindPersona;
         if (rewindPersonalizationEnabled !== undefined) {
             updateData.rewindPersonalizationEnabled = rewindPersonalizationEnabled;
         }
-        if (timezone !== undefined) {
-            if (typeof timezone !== "string" || !(0, rewind_routine_service_1.isValidRewindTimezone)(timezone)) {
-                return res
-                    .status(400)
-                    .json({ msg: "A valid IANA timezone is required" });
-            }
-            updateData.timezone = timezone;
+        if (rewindProactiveChatEnabled !== undefined) {
+            updateData.rewindProactiveChatEnabled = rewindProactiveChatEnabled;
         }
-        const user = await db_config_1.prisma.user.update({
-            where: { id: userId },
-            data: updateData,
-        });
-        if (timezone !== undefined || rewindPersona !== undefined) {
+        if (rewindProactiveChatExplainedAt !== undefined) {
+            updateData.rewindProactiveChatExplainedAt = rewindProactiveChatExplainedAt
+                ? new Date(rewindProactiveChatExplainedAt)
+                : null;
+        }
+        if (timezone !== undefined)
+            updateData.timezone = timezone;
+        let user;
+        if (personaActuallyChanged && currentUser) {
+            const updated = await db_config_1.prisma.user.updateMany({
+                where: {
+                    id: userId,
+                    rewindPersona: currentUser.rewindPersona,
+                    rewindPersonaChangedAt: currentUser.rewindPersonaChangedAt,
+                },
+                data: updateData,
+            });
+            if (!updated.count) {
+                return res.status(409).json({
+                    code: "REWIND_PARTNER_CHANGED",
+                    msg: "Your Rewind partner changed elsewhere. Refresh and try again.",
+                });
+            }
+            const updatedUser = await db_config_1.prisma.user.findUnique({
+                where: { id: userId },
+            });
+            if (!updatedUser) {
+                return res.status(404).json({ msg: "User not found" });
+            }
+            user = updatedUser;
+        }
+        else {
+            user = await db_config_1.prisma.user.update({
+                where: { id: userId },
+                data: updateData,
+            });
+        }
+        if (timezone !== undefined || personaActuallyChanged) {
             await (0, rewind_routine_service_1.refreshFutureRewindOccurrences)({ userId });
         }
         if (timezone !== undefined) {
@@ -97,7 +162,7 @@ async function updateProfile(req, res) {
     }
     catch (error) {
         logger_util_1.default.error("Update profile error:", { error, userId: req.userId });
-        if (error.code === "P2002") {
+        if (getDatabaseErrorCode(error) === "P2002") {
             return res.status(400).json({ msg: "Username already taken" });
         }
         res.status(500).json({ msg: "Internal server error" });

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listGoalOccurrencesQuerySchema = exports.listGoalsV2QuerySchema = exports.conclusionReviewSchema = exports.resumeGoalSchema = exports.rescheduleOccurrenceSchema = exports.recordGoalProgressSchema = exports.occurrenceIdParamSchema = exports.goalV2IdParamSchema = exports.updateGoalV2Schema = exports.createGoalV2Schema = exports.goalMissPolicySchema = exports.goalScheduleSchema = exports.goalTargetSchema = void 0;
+exports.listGoalOccurrencesQuerySchema = exports.listGoalsV2QuerySchema = exports.conclusionReviewSchema = exports.resumeGoalSchema = exports.rescheduleOccurrenceSchema = exports.recordGoalProgressSchema = exports.occurrenceIdParamSchema = exports.goalV2IdParamSchema = exports.updateGoalV2Schema = exports.quickGoalSetupDecisionSchema = exports.quickGoalSetupSchema = exports.quickGoalSetupResponseSchema = exports.createGoalV2Schema = exports.goalMissPolicySchema = exports.goalScheduleSchema = exports.goalTargetSchema = void 0;
 const zod_1 = require("zod");
 const dateSchema = zod_1.z
     .string()
@@ -82,6 +82,50 @@ exports.createGoalV2Schema = zod_1.z.object({
     templateId: zod_1.z.string().min(1).optional(),
     title: zod_1.z.string().trim().min(1).max(500),
 });
+const quickGoalSetupAnswerSchema = zod_1.z
+    .object({
+    answer: zod_1.z.string().trim().min(1).max(1000),
+    question: zod_1.z.string().trim().min(3).max(240),
+})
+    .strict();
+exports.quickGoalSetupResponseSchema = zod_1.z.object({
+    description: zod_1.z.string().trim().max(2000).optional(),
+    schedule: exports.goalScheduleSchema,
+    target: exports.goalTargetSchema,
+    title: zod_1.z.string().trim().min(1).max(500),
+});
+exports.quickGoalSetupSchema = zod_1.z
+    .object({
+    answers: zod_1.z.array(quickGoalSetupAnswerSchema).min(1).max(2).optional(),
+    edit: zod_1.z
+        .object({
+        draft: exports.quickGoalSetupResponseSchema,
+        instruction: zod_1.z.string().trim().min(3).max(1000),
+    })
+        .strict()
+        .optional(),
+    prompt: zod_1.z.string().trim().min(3).max(1000),
+})
+    .strict();
+const quickGoalSetupQuestionSchema = zod_1.z
+    .object({
+    question: zod_1.z.string().trim().min(3).max(240),
+})
+    .strict();
+exports.quickGoalSetupDecisionSchema = zod_1.z.union([
+    zod_1.z
+        .object({
+        kind: zod_1.z.literal("DRAFT"),
+        draft: exports.quickGoalSetupResponseSchema,
+    })
+        .strict(),
+    zod_1.z
+        .object({
+        kind: zod_1.z.literal("QUESTIONS"),
+        questions: zod_1.z.array(quickGoalSetupQuestionSchema).min(1).max(2),
+    })
+        .strict(),
+]);
 exports.updateGoalV2Schema = zod_1.z
     .object({
     description: zod_1.z.string().trim().max(2000).nullable().optional(),
@@ -124,14 +168,7 @@ exports.conclusionReviewSchema = zod_1.z.object({
 exports.listGoalsV2QuerySchema = zod_1.z.object({
     cursor: zod_1.z.string().max(512).optional(),
     filter: zod_1.z
-        .enum([
-        "ACTIVE",
-        "ARCHIVED",
-        "DUE",
-        "ENDED",
-        "OVERDUE",
-        "PAUSED",
-    ])
+        .enum(["ACTIVE", "ARCHIVED", "DUE", "ENDED", "OVERDUE", "PAUSED"])
         .default("ACTIVE"),
     limit: zod_1.z.coerce.number().int().min(1).max(50).default(20),
 });

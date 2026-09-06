@@ -87,6 +87,55 @@ export const createGoalV2Schema = z.object({
   title: z.string().trim().min(1).max(500),
 });
 
+const quickGoalSetupAnswerSchema = z
+  .object({
+    answer: z.string().trim().min(1).max(1_000),
+    question: z.string().trim().min(3).max(240),
+  })
+  .strict();
+
+export const quickGoalSetupResponseSchema = z.object({
+  description: z.string().trim().max(2_000).optional(),
+  schedule: goalScheduleSchema,
+  target: goalTargetSchema,
+  title: z.string().trim().min(1).max(500),
+});
+
+export const quickGoalSetupSchema = z
+  .object({
+    answers: z.array(quickGoalSetupAnswerSchema).min(1).max(2).optional(),
+    edit: z
+      .object({
+        draft: quickGoalSetupResponseSchema,
+        instruction: z.string().trim().min(3).max(1_000),
+      })
+      .strict()
+      .optional(),
+    prompt: z.string().trim().min(3).max(1_000),
+  })
+  .strict();
+
+const quickGoalSetupQuestionSchema = z
+  .object({
+    question: z.string().trim().min(3).max(240),
+  })
+  .strict();
+
+export const quickGoalSetupDecisionSchema = z.union([
+  z
+    .object({
+      kind: z.literal("DRAFT"),
+      draft: quickGoalSetupResponseSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("QUESTIONS"),
+      questions: z.array(quickGoalSetupQuestionSchema).min(1).max(2),
+    })
+    .strict(),
+]);
+
 export const updateGoalV2Schema = z
   .object({
     description: z.string().trim().max(2_000).nullable().optional(),
@@ -136,14 +185,7 @@ export const conclusionReviewSchema = z.object({
 export const listGoalsV2QuerySchema = z.object({
   cursor: z.string().max(512).optional(),
   filter: z
-    .enum([
-      "ACTIVE",
-      "ARCHIVED",
-      "DUE",
-      "ENDED",
-      "OVERDUE",
-      "PAUSED",
-    ])
+    .enum(["ACTIVE", "ARCHIVED", "DUE", "ENDED", "OVERDUE", "PAUSED"])
     .default("ACTIVE"),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
@@ -154,6 +196,11 @@ export const listGoalOccurrencesQuerySchema = z.object({
 });
 
 export type CreateGoalV2Input = z.infer<typeof createGoalV2Schema>;
+export type QuickGoalSetupInput = z.infer<typeof quickGoalSetupSchema>;
+export type QuickGoalSetupDraft = z.infer<typeof quickGoalSetupResponseSchema>;
+export type QuickGoalSetupResponse = z.infer<
+  typeof quickGoalSetupDecisionSchema
+>;
 export type GoalMissPolicyInput = z.infer<typeof goalMissPolicySchema>;
 export type GoalScheduleInput = z.infer<typeof goalScheduleSchema>;
 export type GoalTargetInput = z.infer<typeof goalTargetSchema>;

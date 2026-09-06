@@ -49,6 +49,7 @@ const request_logger_middleware_1 = require("./middleware/request-logger.middlew
 const security_middleware_1 = require("./middleware/security.middleware");
 const routes_1 = __importDefault(require("./routes"));
 const scheduler_service_1 = require("./services/scheduler.service");
+const realtime_websocket_service_1 = require("./services/realtime-websocket.service");
 const config_util_1 = __importDefault(require("./utils/config.util"));
 const env_util_1 = require("./utils/env.util");
 const logger_util_1 = __importDefault(require("./utils/logger.util"));
@@ -107,6 +108,17 @@ exports.app.ws("/mycove/v1/rewind/live", (ws, req) => {
     (0, client_app_middleware_1.setClientApp)(req, "mycove");
     void rewindController.handleLiveConnection(ws, req);
 });
+// @ts-expect-error express-ws augments Express at runtime.
+exports.app.ws("/api/v2/realtime/live", (ws, req) => {
+    (0, client_app_middleware_1.setClientApp)(req, "vybaa");
+    (0, realtime_websocket_service_1.handleRealtimeConnection)(ws, req);
+});
+// @ts-expect-error express-ws augments Express at runtime.
+exports.app.ws("/mycove/v2/realtime/live", (ws, req) => {
+    (0, client_app_middleware_1.setClientApp)(req, "mycove");
+    (0, realtime_websocket_service_1.handleRealtimeConnection)(ws, req);
+});
+void (0, realtime_websocket_service_1.startRealtimeWebSocketBroker)();
 exports.server = exports.app.listen(config_util_1.default.PORT, () => {
     logger_util_1.default.info(`🚀 Server running on port ${config_util_1.default.PORT}`);
     // Start notification scheduler
@@ -116,10 +128,10 @@ exports.server = exports.app.listen(config_util_1.default.PORT, () => {
 process.on("SIGTERM", () => {
     logger_util_1.default.info("SIGTERM signal received: closing HTTP server");
     scheduler_service_1.schedulerService.stop();
-    process.exit(0);
+    void (0, realtime_websocket_service_1.stopRealtimeWebSocketBroker)().finally(() => process.exit(0));
 });
 process.on("SIGINT", () => {
     logger_util_1.default.info("SIGINT signal received: closing HTTP server");
     scheduler_service_1.schedulerService.stop();
-    process.exit(0);
+    void (0, realtime_websocket_service_1.stopRealtimeWebSocketBroker)().finally(() => process.exit(0));
 });

@@ -7,9 +7,6 @@ const router = Router();
 // All routes require authentication
 router.use(authMiddleware);
 
-// Get Ably auth token
-router.get("/auth/ably", notificationController.getAblyAuth);
-
 // Get all notifications
 router.get("/", notificationController.getNotifications);
 

@@ -4,6 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.pushNotificationService = exports.PushNotificationService = void 0;
+exports.getCommunicationNotificationMetadata = getCommunicationNotificationMetadata;
+exports.getNotificationSenderAvatarUrl = getNotificationSenderAvatarUrl;
 exports.serializePushPayload = serializePushPayload;
 const firebase_config_1 = require("../config/firebase.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
@@ -12,6 +14,54 @@ function isRecord(value) {
 }
 function isInternalAppRoute(route) {
     return route.startsWith("/") && !route.startsWith("//");
+}
+function parseRecord(value) {
+    if (isRecord(value))
+        return value;
+    if (typeof value !== "string")
+        return null;
+    try {
+        const parsed = JSON.parse(value);
+        return isRecord(parsed) ? parsed : null;
+    }
+    catch {
+        return null;
+    }
+}
+function getTrustedPartnerAvatarUrl(value) {
+    if (typeof value !== "string")
+        return null;
+    try {
+        const url = new URL(value);
+        const trustedCloudinaryAsset = url.hostname === "res.cloudinary.com" &&
+            url.pathname.startsWith("/dqdtazdda/image/upload/");
+        return url.protocol === "https:" && trustedCloudinaryAsset
+            ? url.toString()
+            : null;
+    }
+    catch {
+        return null;
+    }
+}
+function getCommunicationNotificationMetadata(payload) {
+    if (payload.type !== "rewind_chat_message")
+        return null;
+    const notificationData = parseRecord(payload.data) ?? payload;
+    const sender = parseRecord(notificationData.notificationSender);
+    const avatarUrl = getTrustedPartnerAvatarUrl(sender?.avatarUrl);
+    const conversationId = notificationData.chatId;
+    const senderId = sender?.personaId;
+    const senderName = sender?.name;
+    if (!avatarUrl ||
+        typeof conversationId !== "string" ||
+        typeof senderId !== "string" ||
+        typeof senderName !== "string") {
+        return null;
+    }
+    return { avatarUrl, conversationId, senderId, senderName };
+}
+function getNotificationSenderAvatarUrl(payload) {
+    return getCommunicationNotificationMetadata(payload)?.avatarUrl ?? null;
 }
 function getNotificationRoute(payload) {
     const directRoute = payload.route;
@@ -35,20 +85,34 @@ function serializePushPayload(payload) {
     if (route) {
         data.route = route;
     }
+    const communication = getCommunicationNotificationMetadata(payload);
+    if (communication) {
+        data.avatarUrl = communication.avatarUrl;
+        data.conversationId = communication.conversationId;
+        data.senderId = communication.senderId;
+        data.senderName = communication.senderName;
+    }
     return data;
 }
 class PushNotificationService {
     buildBaseMessage(clientApp, title, body, payload = {}, silent = false) {
         const data = serializePushPayload(payload);
+        const communication = silent
+            ? null
+            : getCommunicationNotificationMetadata(payload);
+        const avatarUrl = communication?.avatarUrl ?? null;
         return {
             data,
-            notification: silent ? undefined : { title, body },
+            notification: silent
+                ? undefined
+                : { title, body, imageUrl: avatarUrl ?? undefined },
             webpush: {
                 headers: { Urgency: "high" },
                 notification: {
                     body,
                     requireInteraction: true,
                     badge: "/badge-icon.png",
+                    icon: avatarUrl ?? undefined,
                 },
             },
             android: {
@@ -58,14 +122,17 @@ class PushNotificationService {
                         : clientApp === "mycove"
                             ? "mycove_notifications"
                             : "vybaa_notifications",
+                    imageUrl: avatarUrl ?? undefined,
                     sound: silent ? undefined : "default",
                 },
             },
             apns: {
+                fcmOptions: avatarUrl ? { imageUrl: avatarUrl } : undefined,
                 payload: {
                     aps: {
                         sound: silent ? undefined : "default",
                         badge: 1,
+                        mutableContent: Boolean(communication),
                     },
                 },
             },

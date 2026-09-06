@@ -5,6 +5,7 @@ Get the Vybaa server running with Docker in 5 minutes!
 ## Prerequisites
 
 Install Docker Desktop:
+
 - **Mac**: [Download Docker Desktop for Mac](https://www.docker.com/products/docker-desktop)
 - **Windows**: [Download Docker Desktop for Windows](https://www.docker.com/products/docker-desktop)
 - **Linux**: Follow [official installation guide](https://docs.docker.com/engine/install/)
@@ -55,21 +56,25 @@ That's it! Your server is running! 🎉
 ## 🛠️ Daily Usage
 
 ### Start the server
+
 ```bash
 make up        # or: docker-compose up -d
 ```
 
 ### Stop the server
+
 ```bash
 make down      # or: docker-compose down
 ```
 
 ### View logs
+
 ```bash
 make logs      # or: docker-compose logs -f
 ```
 
 ### Development mode (hot-reload)
+
 ```bash
 make dev       # or: docker-compose --profile dev up server-dev
 ```
@@ -79,36 +84,42 @@ make dev       # or: docker-compose --profile dev up server-dev
 ## 📝 Common Tasks
 
 ### Run Database Migrations
+
 ```bash
 make migrate
 # or: docker-compose exec server npx prisma migrate deploy
 ```
 
 ### Access Database
+
 ```bash
 make db-shell
 # or: docker-compose exec postgres psql -U vybaa -d vybaa_db
 ```
 
 ### View Prisma Studio
+
 ```bash
 make db-studio
 # or: docker-compose exec server npx prisma studio
 ```
 
 ### Access Server Shell
+
 ```bash
 make shell
 # or: docker-compose exec server sh
 ```
 
 ### Restart Server
+
 ```bash
 make restart
 # or: docker-compose restart server
 ```
 
 ### Rebuild Everything
+
 ```bash
 make rebuild
 # or: docker-compose build --no-cache && docker-compose up -d
@@ -121,11 +132,13 @@ make rebuild
 ### ❌ "Port 4000 already in use"
 
 **Solution 1:** Stop the conflicting service
+
 ```bash
 lsof -ti:4000 | xargs kill -9
 ```
 
 **Solution 2:** Change the port in `.env`
+
 ```bash
 PORT=4001
 ```
@@ -133,11 +146,13 @@ PORT=4001
 ### ❌ "Cannot connect to database"
 
 **Check database is running:**
+
 ```bash
 docker-compose ps
 ```
 
 **Restart database:**
+
 ```bash
 docker-compose restart postgres
 ```
@@ -145,6 +160,7 @@ docker-compose restart postgres
 ### ❌ "Prisma Client not generated"
 
 **Regenerate Prisma Client:**
+
 ```bash
 docker-compose exec server npx prisma generate
 ```
@@ -152,11 +168,13 @@ docker-compose exec server npx prisma generate
 ### ❌ Changes not reflecting
 
 **For code changes:** Use development mode
+
 ```bash
 make dev
 ```
 
 **For dependency changes:** Rebuild
+
 ```bash
 make rebuild
 ```
@@ -164,6 +182,7 @@ make rebuild
 ### ❌ Database connection errors
 
 **Check DATABASE_URL format:**
+
 ```
 DATABASE_URL=postgresql://vybaa:vybaa_password@postgres:5432/vybaa_db?schema=public
 ```
@@ -173,6 +192,7 @@ Note: Use `postgres` (service name) as hostname, not `localhost`
 ### ❌ Fresh start needed
 
 **Reset everything (⚠️ deletes all data):**
+
 ```bash
 make clean
 make install
@@ -205,8 +225,11 @@ FIREBASE_PROJECT_ID=your_project_id
 FIREBASE_PRIVATE_KEY=your_private_key
 FIREBASE_CLIENT_EMAIL=your_client_email
 
-# Ably Real-time
-ABLY_API_KEY=your_ably_key
+# First-party realtime WebSocket fan-out
+REDIS_URL=redis://redis:6379
+REALTIME_MAX_CONNECTIONS_PER_USER=4
+REWIND_ASYNC_CHAT_ENABLED=true
+REWIND_AUTONOMOUS_CHAT_ENABLED=true
 
 # Google Gemini AI
 GEMINI_API_KEY=your_gemini_key
@@ -224,24 +247,30 @@ GEMINI_API_KEY=your_gemini_key
    - Database: vybaa_db
    - Data persisted in Docker volume
 
-2. **API Server** (`vybaa-server`)
+2. **Redis Realtime Broker** (`vybaa-redis`)
+   - Delivers WebSocket events across server instances
+   - Available only inside the Docker network
+
+3. **API Server** (`vybaa-server`)
    - Port: 4000
    - Auto-restarts on crash
    - Logs saved to `./logs`
 
-3. **Network** (`vybaa-network`)
+4. **Network** (`vybaa-network`)
    - Connects database and server
    - Services talk via service names
 
 ### Development vs Production
 
 **Production Mode** (`make up`)
+
 - Optimized build
 - TypeScript compiled
 - Production dependencies only
 - Runs: `node dist/server.js`
 
 **Development Mode** (`make dev`)
+
 - Source code mounted as volume
 - Hot-reload on changes
 - All dependencies

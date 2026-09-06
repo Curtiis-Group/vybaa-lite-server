@@ -35,11 +35,11 @@ cp env.template .env
 ```
 
 Edit `.env` and add your actual credentials for:
+
 - JWT secrets (generate secure random strings)
 - Google OAuth credentials
 - Cloudinary credentials
 - Firebase credentials
-- Ably API key
 - Gemini API key
 
 ### 2. Running in Production Mode
@@ -51,7 +51,9 @@ docker-compose up -d
 ```
 
 This will:
+
 - Start a PostgreSQL database container
+- Start Redis for realtime WebSocket fan-out
 - Build and start the server in production mode
 - Run Prisma migrations automatically
 - Expose the server on port 4000 (or your configured PORT)
@@ -65,7 +67,9 @@ docker-compose --profile dev up server-dev
 ```
 
 This will:
+
 - Start the PostgreSQL database
+- Start Redis for realtime WebSocket fan-out
 - Run the server with `tsx watch` for automatic reloading
 - Mount your source code as a volume for live updates
 
@@ -95,6 +99,7 @@ make clean          # Stop and remove all data (⚠️ WARNING)
 ### Using Docker Compose Directly
 
 #### View logs
+
 ```bash
 # All services
 docker-compose logs -f
@@ -107,22 +112,26 @@ docker-compose logs -f postgres
 ```
 
 #### Stop services
+
 ```bash
 docker-compose down
 ```
 
 #### Stop and remove volumes (deletes database data)
+
 ```bash
 docker-compose down -v
 ```
 
 #### Rebuild containers
+
 ```bash
 docker-compose build --no-cache
 docker-compose up -d
 ```
 
 #### Run Prisma commands
+
 ```bash
 # Generate Prisma client
 docker-compose exec server npx prisma generate
@@ -138,11 +147,13 @@ docker-compose exec server npx prisma studio
 ```
 
 #### Access database directly
+
 ```bash
 docker-compose exec postgres psql -U vybaa -d vybaa_db
 ```
 
 #### Execute commands in server container
+
 ```bash
 docker-compose exec server sh
 ```
@@ -150,18 +161,28 @@ docker-compose exec server sh
 ## Services
 
 ### PostgreSQL Database
+
 - **Container Name:** `vybaa-postgres`
 - **Port:** 5432 (mapped to host)
 - **Volume:** `postgres_data` (persists database data)
 - **Health Check:** Automatic with pg_isready
 
+### Redis Realtime Broker
+
+- **Container Name:** `vybaa-redis`
+- **Purpose:** Fan-out for the server's authenticated WebSocket connections
+- **Volume:** `redis_data` (persists broker state)
+- **Health Check:** Automatic with redis-cli
+
 ### Server (Production)
+
 - **Container Name:** `vybaa-server`
 - **Port:** 4000 (configurable via PORT env var)
 - **Build Stage:** Production optimized
 - **Auto-restart:** Yes
 
 ### Server Development
+
 - **Container Name:** `vybaa-server-dev`
 - **Port:** 4000 (configurable via PORT env var)
 - **Hot Reload:** Yes (tsx watch)
@@ -184,6 +205,7 @@ All services are connected via the `vybaa-network` bridge network, allowing them
 ## Volumes
 
 - `postgres_data` - Persists PostgreSQL database data
+- `redis_data` - Persists Redis broker data
 - `./logs` - Server logs (mounted to host for easy access)
 - `./src` - Source code (dev mode only, enables hot-reload)
 
@@ -204,22 +226,27 @@ Both PostgreSQL and the server have health checks configured:
 ## Troubleshooting
 
 ### Server can't connect to database
+
 - Ensure PostgreSQL is healthy: `docker-compose ps`
 - Check DATABASE_URL uses `postgres` as hostname (service name)
 
 ### Port already in use
+
 - Change PORT in `.env` file
 - Check if another service is using port 4000
 
 ### Permission errors with logs
+
 - Ensure logs directory has correct permissions
 - May need to run: `chmod -R 777 logs`
 
 ### Migrations failing
+
 - Run migrations manually: `docker-compose exec server npx prisma migrate deploy`
 - Check PostgreSQL logs: `docker-compose logs postgres`
 
 ### Need to reset database
+
 ```bash
 docker-compose down -v
 docker-compose up -d

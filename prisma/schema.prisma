@@ -20,15 +20,18 @@ model User {
   password String? // Nullable for OAuth users
 
   // User bio/profile fields
-  firstName                    String?   @map("first_name")
-  lastName                     String?   @map("last_name")
-  username                     String?   @unique // Required - auto-generated on signup
-  avatarUrl                    String?   @map("avatar_url")
-  currentMood                  String?   @map("current_mood")
-  rewindPersona                String?   @map("rewind_persona")
-  rewindPersonalizationEnabled Boolean   @default(true) @map("rewind_personalization_enabled")
-  timezone                     String    @default("UTC") @map("timezone")
-  lastUsernameChangeAt         DateTime? @map("last_username_change_at") // Track username changes for cooldown
+  firstName                      String?   @map("first_name")
+  lastName                       String?   @map("last_name")
+  username                       String?   @unique // Required - auto-generated on signup
+  avatarUrl                      String?   @map("avatar_url")
+  currentMood                    String?   @map("current_mood")
+  rewindPersona                  String?   @map("rewind_persona")
+  rewindPersonaChangedAt         DateTime? @map("rewind_persona_changed_at")
+  rewindPersonalizationEnabled   Boolean   @default(true) @map("rewind_personalization_enabled")
+  rewindProactiveChatEnabled     Boolean   @default(true) @map("rewind_proactive_chat_enabled")
+  rewindProactiveChatExplainedAt DateTime? @map("rewind_proactive_chat_explained_at")
+  timezone                       String    @default("UTC") @map("timezone")
+  lastUsernameChangeAt           DateTime? @map("last_username_change_at") // Track username changes for cooldown
 
   // Auth fields
   isConfirmed Boolean @default(false) @map("is_confirmed")
@@ -62,26 +65,33 @@ model User {
   fcmDevices    FcmDevice[]
 
   // Community relations
-  ownedCommunities      Community[]            @relation("CommunityOwner")
-  communityMemberships  CommunityMember[]
-  createdTemplates      GoalTemplate[]         @relation("TemplateCreator")
-  communityActivities   CommunityActivity[]
-  activityReactions     ActivityReaction[]
-  activityComments      ActivityComment[]
-  blockedUsers          UserBlock[]            @relation("UserBlocks")
-  blockedByUsers        UserBlock[]            @relation("UserBlockedBy")
-  reportsFiled          ContentReport[]        @relation("ReportsFiled")
-  reportsAgainst        ContentReport[]        @relation("ReportsAgainst")
-  createdInvites        CommunityInvite[]      @relation("InviteCreator")
-  receivedInvites       CommunityInvite[]      @relation("InviteRecipient")
-  rewindSessions        RewindSession[]
-  rewindRecommendations RewindRecommendation[]
-  rewindRoutine         RewindRoutine?
-  rewindChats           RewindChat[]
-  rewindChatMessages    RewindChatMessage[]
-  activitySignals       ActivitySignal[]
-  dailyObservations     DailyObservation[]
-  subscriptionSnapshots SubscriptionSnapshot[]
+  ownedCommunities           Community[]                 @relation("CommunityOwner")
+  communityMemberships       CommunityMember[]
+  createdTemplates           GoalTemplate[]              @relation("TemplateCreator")
+  communityActivities        CommunityActivity[]
+  activityReactions          ActivityReaction[]
+  activityComments           ActivityComment[]
+  blockedUsers               UserBlock[]                 @relation("UserBlocks")
+  blockedByUsers             UserBlock[]                 @relation("UserBlockedBy")
+  reportsFiled               ContentReport[]             @relation("ReportsFiled")
+  reportsAgainst             ContentReport[]             @relation("ReportsAgainst")
+  createdInvites             CommunityInvite[]           @relation("InviteCreator")
+  receivedInvites            CommunityInvite[]           @relation("InviteRecipient")
+  rewindSessions             RewindSession[]
+  rewindRecommendations      RewindRecommendation[]
+  rewindRoutine              RewindRoutine?
+  rewindChats                RewindChat[]
+  rewindChatMessages         RewindChatMessage[]
+  rewindChatReactions        RewindChatReaction[]
+  rewindPartnerMinds         RewindPartnerMind[]
+  rewindPartnerRelationships RewindPartnerRelationship[]
+  rewindChatRuns             RewindChatRun[]
+  rewindChatTurns            RewindChatTurn[]
+  rewindChatOutbox           RewindChatOutbox[]
+  aiUsageLedger              AiUsageLedger[]
+  activitySignals            ActivitySignal[]
+  dailyObservations          DailyObservation[]
+  subscriptionSnapshots      SubscriptionSnapshot[]
 
   // Summary caching
   lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
@@ -175,6 +185,8 @@ model RewindSession {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   personaId            String                  @map("persona_id")
+  voiceProvider        RewindVoiceProvider     @default(GEMINI) @map("voice_provider")
+  isTestSession        Boolean                 @default(false) @map("is_test_session")
   sessionDateKey       String?                 @map("session_date_key")
   timezone             String?                 @map("timezone")
   scheduledFor         DateTime?               @map("scheduled_for")
@@ -209,6 +221,7 @@ model RewindSession {
   @@index([userId, personaId, updatedAt])
   @@index([userId, completed, sessionDateKey])
   @@index([status, windowEndsAt])
+  @@index([userId, isTestSession, updatedAt])
   @@index([journalId])
   @@map("rewind_sessions")
 }
@@ -298,6 +311,11 @@ enum RewindSessionStatus {
   MISSED
 }
 
+enum RewindVoiceProvider {
+  GEMINI
+  ELEVENLABS
+}
+
 enum RewindCompletionSource {
   USER
   AUTO_TIMEOUT
@@ -336,19 +354,73 @@ enum RewindChatMessageRole {
   SYSTEM
 }
 
+enum RewindChatReactionKind {
+  LOVE
+  LAUGH
+  CRY
+  LIKE
+}
+
+enum RewindChatReactionActor {
+  USER
+  PARTNER
+}
+
+enum RewindChatRunTrigger {
+  USER_MESSAGE
+  ACTIVITY_SIGNAL
+  PARTNER_FOLLOW_UP
+  PROACTIVE_TIMER
+}
+
+enum RewindChatRunStatus {
+  QUEUED
+  PLANNING
+  GENERATING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum RewindChatTurnStatus {
+  PLANNED
+  GENERATING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum RewindPartnerMindState {
+  DORMANT
+  WATCHING
+  READY
+  COOLDOWN
+}
+
 model RewindChat {
   id String @id @default(cuid())
 
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  threadKey     String              @map("thread_key")
-  type          RewindChatType
-  personaId     String?             @map("persona_id")
-  title         String
-  archivedAt    DateTime?           @map("archived_at")
-  lastMessageAt DateTime?           @map("last_message_at")
-  messages      RewindChatMessage[]
+  threadKey                      String              @map("thread_key")
+  type                           RewindChatType
+  personaId                      String?             @map("persona_id")
+  title                          String
+  archivedAt                     DateTime?           @map("archived_at")
+  lastMessageAt                  DateTime?           @map("last_message_at")
+  lastReadAt                     DateTime?           @map("last_read_at")
+  unreadCount                    Int                 @default(0) @map("unread_count")
+  proactiveMuted                 Boolean             @default(false) @map("proactive_muted")
+  contextRevision                Int                 @default(0) @map("context_revision")
+  contextSummary                 String?             @map("context_summary") @db.Text
+  contextSummaryThroughMessageId String?             @map("context_summary_through_message_id")
+  contextSummaryUpdatedAt        DateTime?           @map("context_summary_updated_at")
+  messages                       RewindChatMessage[]
+  partnerMinds                   RewindPartnerMind[]
+  runs                           RewindChatRun[]
+  turns                          RewindChatTurn[]
+  outbox                         RewindChatOutbox[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
@@ -366,18 +438,215 @@ model RewindChatMessage {
   userId String     @map("user_id")
   user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  role           RewindChatMessageRole
-  personaId      String?               @map("persona_id")
-  content        String                @db.Text
-  localDateKey   String                @map("local_date_key")
-  mentions       String[]              @default([])
-  idempotencyKey String?               @unique @map("idempotency_key")
+  role             RewindChatMessageRole
+  personaId        String?               @map("persona_id")
+  content          String                @db.Text
+  localDateKey     String                @map("local_date_key")
+  mentions         String[]              @default([])
+  idempotencyKey   String?               @unique @map("idempotency_key")
+  deliveredAt      DateTime?             @map("delivered_at")
+  seenAt           DateTime?             @map("seen_at")
+  runId            String?               @map("run_id")
+  run              RewindChatRun?        @relation(fields: [runId], references: [id], onDelete: SetNull)
+  sourceRuns       RewindChatRun[]       @relation("RewindChatRunSourceMessage")
+  turnId           String?               @map("turn_id")
+  turn             RewindChatTurn?       @relation(fields: [turnId], references: [id], onDelete: SetNull)
+  replyToMessageId String?               @map("reply_to_message_id")
+  replyToMessage   RewindChatMessage?    @relation("RewindChatMessageReply", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies          RewindChatMessage[]   @relation("RewindChatMessageReply")
+  reactions        RewindChatReaction[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([chatId, createdAt, id])
   @@index([userId, localDateKey, createdAt])
   @@map("rewind_chat_messages")
+}
+
+model RewindChatReaction {
+  id String @id @default(cuid())
+
+  messageId String            @map("message_id")
+  message   RewindChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String            @map("user_id")
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  actorKey  String                  @map("actor_key")
+  actor     RewindChatReactionActor
+  personaId String?                 @map("persona_id")
+  kind      RewindChatReactionKind
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([messageId, actorKey])
+  @@index([userId, createdAt])
+  @@map("rewind_chat_reactions")
+}
+
+model RewindPartnerMind {
+  id String @id @default(cuid())
+
+  userId String     @map("user_id")
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatId String     @map("chat_id")
+  chat   RewindChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  personaId       String                 @map("persona_id")
+  state           RewindPartnerMindState @default(WATCHING)
+  intentSummary   String?                @map("intent_summary") @db.VarChar(280)
+  evidence        Json?
+  confidence      Float?
+  contextRevision Int                    @default(0) @map("context_revision")
+  nextConsiderAt  DateTime?              @map("next_consider_at")
+  cooldownUntil   DateTime?              @map("cooldown_until")
+  expiresAt       DateTime?              @map("expires_at")
+  lastEvaluatedAt DateTime?              @map("last_evaluated_at")
+  lastSpokeAt     DateTime?              @map("last_spoke_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([chatId, personaId])
+  @@index([userId, nextConsiderAt, state])
+  @@map("rewind_partner_minds")
+}
+
+model RewindPartnerRelationship {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  personaId         String    @map("persona_id")
+  love              Int       @default(15)
+  anger             Int       @default(0)
+  hate              Int       @default(0)
+  jealousy          Int       @default(0)
+  malice            Int       @default(0)
+  memorySummary     String?   @map("memory_summary") @db.VarChar(320)
+  lastInteractionAt DateTime? @map("last_interaction_at")
+  lastDecayAt       DateTime  @default(now()) @map("last_decay_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, personaId])
+  @@index([userId, updatedAt])
+  @@map("rewind_partner_relationships")
+}
+
+model RewindChatRun {
+  id String @id @default(cuid())
+
+  userId          String               @map("user_id")
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatId          String               @map("chat_id")
+  chat            RewindChat           @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  trigger         RewindChatRunTrigger
+  status          RewindChatRunStatus  @default(QUEUED)
+  idempotencyKey  String               @unique @map("idempotency_key")
+  sourceMessageId String?              @map("source_message_id")
+  contextRevision Int                  @map("context_revision")
+  maxTurns        Int                  @default(6) @map("max_turns")
+  turnsUsed       Int                  @default(0) @map("turns_used")
+  leaseToken      String?              @map("lease_token")
+  leasedAt        DateTime?            @map("leased_at")
+  startedAt       DateTime?            @map("started_at")
+  completedAt     DateTime?            @map("completed_at")
+  cancelledAt     DateTime?            @map("cancelled_at")
+  errorCode       String?              @map("error_code")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @default(now()) @updatedAt @map("updated_at")
+
+  sourceMessage RewindChatMessage?  @relation("RewindChatRunSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  messages      RewindChatMessage[]
+  turns         RewindChatTurn[]
+  aiUsage       AiUsageLedger[]
+
+  @@index([userId, status, createdAt])
+  @@index([chatId, status, createdAt])
+  @@map("rewind_chat_runs")
+}
+
+model RewindChatTurn {
+  id String @id @default(cuid())
+
+  userId           String               @map("user_id")
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatId           String               @map("chat_id")
+  chat             RewindChat           @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  runId            String               @map("run_id")
+  run              RewindChatRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  personaId        String               @map("persona_id")
+  sequence         Int
+  status           RewindChatTurnStatus @default(PLANNED)
+  replyToMessageId String?              @map("reply_to_message_id")
+  firstDeltaAt     DateTime?            @map("first_delta_at")
+  startedAt        DateTime?            @map("started_at")
+  completedAt      DateTime?            @map("completed_at")
+  cancelledAt      DateTime?            @map("cancelled_at")
+  errorCode        String?              @map("error_code")
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  messages RewindChatMessage[]
+  aiUsage  AiUsageLedger[]
+
+  @@unique([runId, sequence])
+  @@index([chatId, status, createdAt])
+  @@map("rewind_chat_turns")
+}
+
+model RewindChatOutbox {
+  id String @id @default(cuid())
+
+  userId      String     @map("user_id")
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatId      String     @map("chat_id")
+  chat        RewindChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  eventType   String     @map("event_type")
+  payload     Json
+  dedupeKey   String     @unique @map("dedupe_key")
+  publishedAt DateTime?  @map("published_at")
+  attempts    Int        @default(0)
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  @@index([publishedAt, createdAt])
+  @@index([userId, createdAt])
+  @@map("rewind_chat_outbox")
+}
+
+enum AiUsageOperation {
+  REWIND_CONTEXT_COMPACTION
+  REWIND_DIRECTOR
+  REWIND_PARTNER_TURN
+}
+
+model AiUsageLedger {
+  id String @id @default(cuid())
+
+  userId String          @map("user_id")
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runId  String?         @map("run_id")
+  run    RewindChatRun?  @relation(fields: [runId], references: [id], onDelete: SetNull)
+  turnId String?         @map("turn_id")
+  turn   RewindChatTurn? @relation(fields: [turnId], references: [id], onDelete: SetNull)
+
+  provider                String
+  model                   String
+  operation               AiUsageOperation
+  inputTokens             Int              @default(0) @map("input_tokens")
+  outputTokens            Int              @default(0) @map("output_tokens")
+  totalTokens             Int              @default(0) @map("total_tokens")
+  inputRateUsdPerMillion  Float            @map("input_rate_usd_per_million")
+  outputRateUsdPerMillion Float            @map("output_rate_usd_per_million")
+  estimatedCostUsd        Float            @map("estimated_cost_usd")
+  idempotencyKey          String           @unique @map("idempotency_key")
+  metadata                Json?
+  createdAt               DateTime         @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([runId, createdAt])
+  @@index([operation, createdAt])
+  @@map("ai_usage_ledger")
 }
 
 enum ActivitySignalSourceType {
@@ -428,6 +697,7 @@ model DailyObservation {
   sourceTypes       String[]  @default([]) @map("source_types")
   confidence        Float
   personaId         String?   @map("persona_id")
+  homeGreeting      String?   @map("home_greeting")
   reflection        String?   @db.Text
   journalDraft      String?   @map("journal_draft") @db.Text
   generationVersion Int       @default(1) @map("generation_version")

@@ -1,19 +1,49 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import type { ActivitySignal, DailyObservation, Prisma } from "@prisma/client";
+import {
+  type ActivitySignal,
+  type DailyObservation,
+  type Prisma,
+  RewindChatMessageRole,
+  RewindChatType,
+} from "@prisma/client";
 import { DateTime } from "luxon";
 
 import { prisma } from "../config/db.config";
 import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
 import { syncDerivedActivitySignals } from "./activity-signal.service";
+import { notificationService } from "./notification.service";
+import { publishRewindChatEvent } from "./rewind-chat-realtime.service";
 
-const OBSERVATION_GENERATION_VERSION = 1;
+const OBSERVATION_GENERATION_VERSION = 2;
 const MAX_OBSERVATION_SIGNALS = 40;
 const MAX_EVIDENCE_ITEMS = 8;
+
+type RewindPersonaId = "ariel" | "ella" | "jake" | "lyra" | "tobi" | "neeja";
+
+const REWIND_PERSONA_NAMES: Record<RewindPersonaId, string> = {
+  ariel: "Ariel",
+  ella: "Ella",
+  jake: "Jake",
+  lyra: "Lyra",
+  neeja: "Neeja",
+  tobi: "Tobi",
+};
+const REWIND_GREETING_VOICES: Record<RewindPersonaId, string> = {
+  ariel:
+    "Ariel sounds like a grounded older sibling: protective, practical, warm, and concise without coddling.",
+  ella: "Ella is emotionally expressive and openly caring. She reacts with real feeling without becoming flattering or dramatic for show.",
+  jake: "Jake is very blunt, unsentimental, and brief. He says the honest thing without being cruel.",
+  lyra: "Lyra is nonchalant, dry, and low-key. Her care is understated and she does not over-explain.",
+  neeja:
+    "Neeja is perceptive, composed, and quietly confident. She notices subtext, asks pointed questions, and keeps her wording short and human.",
+  tobi: "Tobi is playful, socially sharp, and warm. He uses light banter and casual Nigerian phrasing when natural, while still being honest.",
+};
 
 interface GeneratedDailyObservation {
   confidence: number;
   description: string;
+  homeGreeting: string;
   journalDraft: string;
   observations: string[];
   reflection: string;
@@ -45,6 +75,7 @@ export interface SerializedDailyObservation {
   description: string;
   dismissedAt: string | null;
   evidence: DailyObservationEvidence[];
+  homeGreeting: string | null;
   id: string;
   journalDraft: string | null;
   localDateKey: string;
@@ -57,6 +88,17 @@ export interface SerializedDailyObservation {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isRewindPersonaId(value: unknown): value is RewindPersonaId {
+  return (
+    value === "ariel" ||
+    value === "ella" ||
+    value === "jake" ||
+    value === "lyra" ||
+    value === "tobi" ||
+    value === "neeja"
+  );
 }
 
 function normalizeText(value: unknown, maximumLength: number): string | null {
@@ -83,12 +125,14 @@ export function parseGeneratedDailyObservation(
     throw new Error("Daily observation response was not an object");
   }
   const description = normalizeText(value.description, 700);
+  const homeGreeting = normalizeText(value.homeGreeting, 100);
   const observations = normalizeTextList(value.observations);
   const reflection = normalizeText(value.reflection, 1_500);
   const journalDraft = normalizeText(value.journalDraft, 2_400);
   const rawConfidence = value.confidence;
   if (
     !description ||
+    !homeGreeting ||
     !observations.length ||
     !reflection ||
     !journalDraft ||
@@ -100,6 +144,7 @@ export function parseGeneratedDailyObservation(
   return {
     confidence: Math.max(0, Math.min(1, rawConfidence)),
     description,
+    homeGreeting,
     journalDraft,
     observations,
     reflection,
@@ -128,13 +173,8 @@ export function hasSubstantiveSignalDescriptions(
 async function generateDailyObservation(
   localDateKey: string,
   signals: ActivitySignal[],
-  {
-    userFirstName,
-    userLastName
-  }: {
-     userFirstName: string,
-    userLastName: string
-  }
+  userDisplayName: string,
+  personaId: RewindPersonaId | null,
 ): Promise<GeneratedDailyObservation> {
   if (!Env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is not configured");
@@ -150,17 +190,14 @@ async function generateDailyObservation(
               `Infer carefully: use tentative language such as “seemed”, “may”, or “suggests”. ` +
               `Do not diagnose, label personality, invent events, or make medical claims. ` +
               `The description should sound like a perceptive friend and be at most two sentences. ` +
+              `The homeGreeting must address ${userDisplayName} by first name, sound like a real friend, and fit in two short visual lines (maximum 100 characters). ` +
+              `${personaId ? `${REWIND_GREETING_VOICES[personaId]} Write the homeGreeting in that voice because it will be sent as their chat message. ` : ""}` +
+              `Use plain language in the spirit of “${userDisplayName}, hope today feels a little better” or “${userDisplayName}, I liked how you spoke yesterday”, but ground it in the evidence and do not copy those examples mechanically. ` +
               `Observations must each point to a real pattern in the evidence. ` +
               `When using a partner-attributed signal, credit that partner naturally. ` +
               `The reflection should summarize what the day may have meant. ` +
               `The journalDraft must be first-person, editable, and must not claim certainty beyond the evidence.\n\n` +
-              `Activity evidence:\n${formatSignals(signals)}` + `
-              
-              keep  messages short and concise to two lines. and it should be stuff like
-
-
-"${userFirstName} ${userLastName}, hope today youre doing better" ""${userFirstName} ${userLastName} i liked the way you spoke yesterday"`,
-
+              `Activity evidence:\n${formatSignals(signals)}`,
           },
         ],
         role: "user",
@@ -172,6 +209,7 @@ async function generateDailyObservation(
         properties: {
           confidence: { type: Type.NUMBER },
           description: { type: Type.STRING },
+          homeGreeting: { type: Type.STRING },
           journalDraft: { type: Type.STRING },
           observations: { items: { type: Type.STRING }, type: Type.ARRAY },
           reflection: { type: Type.STRING },
@@ -179,6 +217,7 @@ async function generateDailyObservation(
         required: [
           "confidence",
           "description",
+          "homeGreeting",
           "journalDraft",
           "observations",
           "reflection",
@@ -187,7 +226,7 @@ async function generateDailyObservation(
       },
       temperature: 0.25,
     },
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.5-flash",
+    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
   });
   if (!response.text) {
     throw new Error("Daily observation response was empty");
@@ -254,6 +293,7 @@ export function serializeDailyObservation(
     description: observation.description,
     dismissedAt: observation.dismissedAt?.toISOString() ?? null,
     evidence: normalizeStoredEvidence(observation.evidence),
+    homeGreeting: observation.homeGreeting,
     id: observation.id,
     journalDraft: observation.journalDraft,
     localDateKey: observation.localDateKey,
@@ -265,6 +305,110 @@ export function serializeDailyObservation(
   };
 }
 
+async function persistDailyObservationGreeting(params: {
+  content: string;
+  localDateKey: string;
+  observationId: string;
+  personaId: RewindPersonaId;
+  userId: string;
+}): Promise<void> {
+  const committedAt = new Date();
+  const idempotencyKey = `rewind-home-greeting:${params.observationId}:${params.personaId}`;
+  const committed = await prisma.$transaction(async (tx) => {
+    const chat = await tx.rewindChat.upsert({
+      create: {
+        personaId: params.personaId,
+        threadKey: `partner:${params.personaId}`,
+        title: REWIND_PERSONA_NAMES[params.personaId],
+        type: RewindChatType.PARTNER,
+        userId: params.userId,
+      },
+      update: { archivedAt: null },
+      where: {
+        userId_threadKey: {
+          threadKey: `partner:${params.personaId}`,
+          userId: params.userId,
+        },
+      },
+    });
+    const created = await tx.rewindChatMessage.createMany({
+      data: [
+        {
+          chatId: chat.id,
+          content: params.content,
+          createdAt: committedAt,
+          idempotencyKey,
+          localDateKey: params.localDateKey,
+          mentions: [],
+          personaId: params.personaId,
+          role: RewindChatMessageRole.PARTNER,
+          userId: params.userId,
+        },
+      ],
+      skipDuplicates: true,
+    });
+    if (!created.count) return null;
+    const message = await tx.rewindChatMessage.findUnique({
+      select: { id: true },
+      where: { idempotencyKey },
+    });
+    if (!message) {
+      throw new Error("Saved Rewind greeting could not be recovered");
+    }
+    await Promise.all([
+      tx.rewindChat.update({
+        data: {
+          lastMessageAt: committedAt,
+          unreadCount: { increment: 1 },
+        },
+        where: { id: chat.id },
+      }),
+      tx.rewindPartnerMind.updateMany({
+        data: { lastSpokeAt: committedAt },
+        where: {
+          chatId: chat.id,
+          personaId: params.personaId,
+          userId: params.userId,
+        },
+      }),
+    ]);
+    return { chatId: chat.id, messageId: message.id };
+  });
+  if (!committed) return;
+  await publishRewindChatEvent(params.userId, {
+    chatId: committed.chatId,
+    runId: `home-greeting:${params.observationId}`,
+    type: "chat_invalidated",
+  });
+  await notificationService.createNotification({
+    data: {
+      chatId: committed.chatId,
+      messageId: committed.messageId,
+      route: `/app/rewind-chat/${committed.chatId}`,
+      sourcePersonaId: params.personaId,
+    },
+    dedupeKey: `rewind-home-greeting:${params.observationId}:${params.personaId}:notification`,
+    message: params.content,
+    title: REWIND_PERSONA_NAMES[params.personaId],
+    type: "rewind_chat_message",
+    userId: params.userId,
+  });
+}
+
+async function persistStoredObservationGreeting(
+  observation: DailyObservation,
+  personaId: RewindPersonaId | null,
+): Promise<void> {
+  if (!personaId || !observation.homeGreeting) return;
+  await persistDailyObservationGreeting({
+    content: observation.homeGreeting,
+    localDateKey: observation.localDateKey,
+    observationId: observation.id,
+    personaId,
+    userId: observation.userId,
+  });
+}
+
 export async function ensureDailyObservation(params: {
   force?: boolean;
   localDateKey: string;
@@ -272,10 +416,18 @@ export async function ensureDailyObservation(params: {
   userId: string;
 }): Promise<SerializedDailyObservation | null> {
   const user = await prisma.user.findUnique({
-    select: { rewindPersonalizationEnabled: true, firstName: true, lastName: true },
+    select: {
+      firstName: true,
+      rewindPersona: true,
+      rewindPersonalizationEnabled: true,
+      username: true,
+    },
     where: { id: params.userId },
   });
   if (!user?.rewindPersonalizationEnabled) return null;
+  const selectedPersonaId = isRewindPersonaId(user.rewindPersona)
+    ? user.rewindPersona
+    : null;
 
   await syncDerivedActivitySignals(
     params.userId,
@@ -315,16 +467,15 @@ export async function ensureDailyObservation(params: {
     latestSignal.createdAt <= existing.updatedAt &&
     existing.generationVersion === OBSERVATION_GENERATION_VERSION
   ) {
+    await persistStoredObservationGreeting(existing, selectedPersonaId);
     return serializeDailyObservation(existing);
   }
 
   const generated = await generateDailyObservation(
     params.localDateKey,
     signals,
-    {
-      userFirstName: user.firstName!,
-      userLastName: user.lastName!
-    }
+    user.firstName ?? user.username ?? "Hey",
+    selectedPersonaId,
   );
   if (generated.confidence < 0.35) return null;
   const sourceTypes = [...new Set(signals.map((signal) => signal.sourceType))];
@@ -337,6 +488,7 @@ export async function ensureDailyObservation(params: {
       description: generated.description,
       evidence: getEvidenceInput(signals),
       generationVersion: OBSERVATION_GENERATION_VERSION,
+      homeGreeting: generated.homeGreeting,
       journalDraft: generated.journalDraft,
       localDateKey: params.localDateKey,
       observations: generated.observations,
@@ -350,6 +502,7 @@ export async function ensureDailyObservation(params: {
       description: generated.description,
       evidence: getEvidenceInput(signals),
       generationVersion: OBSERVATION_GENERATION_VERSION,
+      homeGreeting: generated.homeGreeting,
       journalDraft: generated.journalDraft,
       observations: generated.observations,
       personaId: attributedPersona,
@@ -363,6 +516,7 @@ export async function ensureDailyObservation(params: {
       },
     },
   });
+  await persistStoredObservationGreeting(saved, selectedPersonaId);
   return serializeDailyObservation(saved);
 }
 

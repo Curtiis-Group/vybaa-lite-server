@@ -1,26 +1,7 @@
 import { Response } from "express";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { notificationService } from "../services/notification.service";
-import { generateAblyToken } from "../config/ably.config";
 import logger from "../utils/logger.util";
-
-/**
- * Get Ably auth token for real-time notifications
- */
-export async function getAblyAuth(req: AuthRequest, res: Response) {
-  try {
-    const userId = req.userId!;
-    const tokenRequest = await generateAblyToken(userId);
-
-    res.json({
-      msg: "Ably token generated successfully",
-      data: tokenRequest,
-    });
-  } catch (error) {
-    logger.error("Get Ably auth error:", { error, userId: req.userId });
-    res.status(500).json({ msg: "Internal server error" });
-  }
-}
 
 /**
  * Get all notifications for the authenticated user
@@ -28,9 +9,13 @@ export async function getAblyAuth(req: AuthRequest, res: Response) {
 export async function getNotifications(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const pageParam = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page;
-    const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
-    
+    const pageParam = Array.isArray(req.query.page)
+      ? req.query.page[0]
+      : req.query.page;
+    const limitParam = Array.isArray(req.query.limit)
+      ? req.query.limit[0]
+      : req.query.limit;
+
     const page = parseInt(String(pageParam || "1")) || 1;
     const limit = parseInt(String(limitParam || "50")) || 50;
 
@@ -41,7 +26,11 @@ export async function getNotifications(req: AuthRequest, res: Response) {
       });
     }
 
-    const result = await notificationService.getUserNotifications(userId, limit, page);
+    const result = await notificationService.getUserNotifications(
+      userId,
+      limit,
+      page,
+    );
 
     res.json({
       msg: "Notifications retrieved successfully",

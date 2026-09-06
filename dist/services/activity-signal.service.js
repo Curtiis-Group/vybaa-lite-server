@@ -9,6 +9,7 @@ exports.recordGoalLifecycleSignal = recordGoalLifecycleSignal;
 const client_1 = require("@prisma/client");
 const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
+const env_util_1 = require("../utils/env.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 function getLocalDayRange(localDateKey, timezone) {
     const localDate = luxon_1.DateTime.fromISO(localDateKey, { zone: timezone });
@@ -60,6 +61,18 @@ async function recordActivitySignal(input, client = db_config_1.prisma) {
             ],
             skipDuplicates: true,
         });
+        if (env_util_1.Env.REWIND_ASYNC_CHAT_ENABLED === "true") {
+            await client.rewindPartnerMind.updateMany({
+                data: {
+                    nextConsiderAt: new Date(),
+                    state: client_1.RewindPartnerMindState.WATCHING,
+                },
+                where: {
+                    userId: input.userId,
+                    state: { not: client_1.RewindPartnerMindState.DORMANT },
+                },
+            });
+        }
     }
     catch (error) {
         logger_util_1.default.warn("Unable to record Rewind activity signal", {

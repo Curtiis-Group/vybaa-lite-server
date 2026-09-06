@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../config/db.config";
+import logger from "../utils/logger.util";
 import { notificationService } from "./notification.service";
 import { finalizeRewindSession } from "./rewind-session-finalization.service";
 import { recordActivitySignal } from "./activity-signal.service";
@@ -28,10 +29,7 @@ export type RewindRoutineInput = {
 export class RewindRoutineAvailabilityError extends Error {
   constructor(
     public readonly reason:
-      | "expired"
-      | "no_active_occurrence"
-      | "not_configured"
-      | "not_resumable",
+      "expired" | "no_active_occurrence" | "not_configured" | "not_resumable",
   ) {
     super(reason);
     this.name = "RewindRoutineAvailabilityError";
@@ -204,6 +202,76 @@ function getPersonaId(user: RewindRoutineUser): string {
   return user.rewindPersona ?? "ella";
 }
 
+export function isExpiredUnstartedRewindOccurrence(
+  status: RewindSessionStatus,
+  windowEndsAt: Date | null,
+  now: Date = new Date(),
+): boolean {
+  return (
+    status === RewindSessionStatus.SCHEDULED &&
+    Boolean(windowEndsAt && windowEndsAt <= now)
+  );
+}
+
+export async function markExpiredRewindOccurrencesMissed(params?: {
+  now?: Date;
+  userId?: string;
+}): Promise<number> {
+  const now = params?.now ?? new Date();
+  const occurrences = await prisma.rewindSession.findMany({
+    where: {
+      ...(params?.userId ? { userId: params.userId } : {}),
+      isTestSession: false,
+      status: RewindSessionStatus.SCHEDULED,
+      windowEndsAt: { lte: now },
+    },
+    select: {
+      id: true,
+      personaId: true,
+      scheduledFor: true,
+      sessionDateKey: true,
+      timezone: true,
+      userId: true,
+    },
+    ...(!params?.userId ? { take: 500 } : {}),
+  });
+
+  let missedCount = 0;
+  for (const occurrence of occurrences) {
+    const result = await prisma.rewindSession.updateMany({
+      where: {
+        id: occurrence.id,
+        status: RewindSessionStatus.SCHEDULED,
+        windowEndsAt: { lte: now },
+      },
+      data: { status: RewindSessionStatus.MISSED },
+    });
+    if (!result.count) continue;
+
+    missedCount += result.count;
+    await recordActivitySignal({
+      dedupeKey: `rewind-routine:${occurrence.id}:missed`,
+      description: `Skipped the scheduled Rewind with ${occurrence.personaId}.`,
+      eventType: "REWIND_ROUTINE_SKIPPED",
+      happenedAt: occurrence.scheduledFor ?? now,
+      localDateKey: occurrence.sessionDateKey ?? undefined,
+      personaId: occurrence.personaId,
+      sourceId: occurrence.id,
+      sourceType: ActivitySignalSourceType.REWIND_ROUTINE,
+      timezone: occurrence.timezone ?? "UTC",
+      userId: occurrence.userId,
+    }).catch((error: unknown) => {
+      logger.warn("Unable to record missed Rewind activity", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        sessionId: occurrence.id,
+        userId: occurrence.userId,
+      });
+    });
+  }
+
+  return missedCount;
+}
+
 export async function materializeRewindOccurrences(params: {
   now?: Date;
   user: RewindRoutineUser;
@@ -264,11 +332,13 @@ export async function getRewindRoutineOverview(params: {
 
   await materializeRewindOccurrences({ now: params.now, user });
   const now = params.now ?? new Date();
+  await markExpiredRewindOccurrencesMissed({ now, userId: params.userId });
   const [routine, currentSession, nextSession, latestSession] =
     await Promise.all([
       prisma.rewindRoutine.findUnique({ where: { userId: params.userId } }),
       prisma.rewindSession.findFirst({
         where: {
+          isTestSession: false,
           userId: params.userId,
           scheduledFor: { lte: now },
           windowEndsAt: { gt: now },
@@ -283,6 +353,7 @@ export async function getRewindRoutineOverview(params: {
       }),
       prisma.rewindSession.findFirst({
         where: {
+          isTestSession: false,
           userId: params.userId,
           scheduledFor: { gt: now },
           status: RewindSessionStatus.SCHEDULED,
@@ -291,6 +362,7 @@ export async function getRewindRoutineOverview(params: {
       }),
       prisma.rewindSession.findFirst({
         where: {
+          isTestSession: false,
           userId: params.userId,
           scheduledFor: { lte: now },
           status: {
@@ -326,7 +398,11 @@ export async function startOrResumeRewindOccurrence(params: {
 
   const occurrence = params.requestedSessionId
     ? await prisma.rewindSession.findFirst({
-        where: { id: params.requestedSessionId, userId: params.userId },
+        where: {
+          id: params.requestedSessionId,
+          isTestSession: false,
+          userId: params.userId,
+        },
       })
     : overview.currentSession;
 
@@ -339,21 +415,10 @@ export async function startOrResumeRewindOccurrence(params: {
     occurrence.scheduledFor > now ||
     occurrence.windowEndsAt <= now
   ) {
-    if (
-      occurrence.status === RewindSessionStatus.SCHEDULED ||
-      occurrence.status === RewindSessionStatus.IN_PROGRESS
-    ) {
-      await prisma.rewindSession.updateMany({
-        where: {
-          id: occurrence.id,
-          status: {
-            in: [
-              RewindSessionStatus.SCHEDULED,
-              RewindSessionStatus.IN_PROGRESS,
-            ],
-          },
-        },
-        data: { status: RewindSessionStatus.MISSED },
+    if (occurrence.status === RewindSessionStatus.SCHEDULED) {
+      await markExpiredRewindOccurrencesMissed({
+        now,
+        userId: params.userId,
       });
     }
     throw new RewindRoutineAvailabilityError("expired");
@@ -395,6 +460,7 @@ async function scheduleRewindStartNotifications(now: Date): Promise<number> {
   const upperBound = new Date(fiveMinutesFromNow.getTime() + 60 * 1000);
   const occurrences = await prisma.rewindSession.findMany({
     where: {
+      isTestSession: false,
       scheduledFor: { gte: fiveMinutesFromNow, lt: upperBound },
       status: RewindSessionStatus.SCHEDULED,
     },
@@ -425,6 +491,7 @@ async function scheduleLateRewindReminders(now: Date): Promise<number> {
   const lateBy = new Date(now.getTime() - 30 * 60 * 1000);
   const occurrences = await prisma.rewindSession.findMany({
     where: {
+      isTestSession: false,
       scheduledFor: { lte: lateBy },
       status: RewindSessionStatus.SCHEDULED,
       windowEndsAt: { gt: now },
@@ -477,59 +544,37 @@ export async function runRewindRoutineLifecycle(params?: { now?: Date }) {
     if (users.length < 100) break;
   } while (cursor);
 
-  const [startNotificationCount, reminderNotificationCount, expired] =
-    await Promise.all([
-      scheduleRewindStartNotifications(now),
-      scheduleLateRewindReminders(now),
-      prisma.rewindSession.findMany({
-        where: {
-          status: {
-            in: [
-              RewindSessionStatus.SCHEDULED,
-              RewindSessionStatus.IN_PROGRESS,
-            ],
-          },
-          windowEndsAt: { lte: now },
-        },
-        select: {
-          id: true,
-          personaId: true,
-          scheduledFor: true,
-          sessionDateKey: true,
-          status: true,
-          timezone: true,
-          userId: true,
-        },
-        take: 500,
-      }),
-    ]);
+  const [
+    startNotificationCount,
+    reminderNotificationCount,
+    scheduledMissedCount,
+    expired,
+  ] = await Promise.all([
+    scheduleRewindStartNotifications(now),
+    scheduleLateRewindReminders(now),
+    markExpiredRewindOccurrencesMissed({ now }),
+    prisma.rewindSession.findMany({
+      where: {
+        isTestSession: false,
+        status: RewindSessionStatus.IN_PROGRESS,
+        windowEndsAt: { lte: now },
+      },
+      select: {
+        id: true,
+        personaId: true,
+        scheduledFor: true,
+        sessionDateKey: true,
+        status: true,
+        timezone: true,
+        userId: true,
+      },
+      take: 500,
+    }),
+  ]);
 
-  let missedCount = 0;
   let finalizedCount = 0;
+  let missedCount = scheduledMissedCount;
   for (const occurrence of expired) {
-    if (occurrence.status === RewindSessionStatus.SCHEDULED) {
-      const result = await prisma.rewindSession.updateMany({
-        where: { id: occurrence.id, status: RewindSessionStatus.SCHEDULED },
-        data: { status: RewindSessionStatus.MISSED },
-      });
-      missedCount += result.count;
-      if (result.count) {
-        await recordActivitySignal({
-          dedupeKey: `rewind-routine:${occurrence.id}:missed`,
-          description: `Skipped the scheduled Rewind with ${occurrence.personaId}.`,
-          eventType: "REWIND_ROUTINE_SKIPPED",
-          happenedAt: occurrence.scheduledFor ?? now,
-          localDateKey: occurrence.sessionDateKey ?? undefined,
-          personaId: occurrence.personaId,
-          sourceId: occurrence.id,
-          sourceType: ActivitySignalSourceType.REWIND_ROUTINE,
-          timezone: occurrence.timezone ?? "UTC",
-          userId: occurrence.userId,
-        });
-      }
-      continue;
-    }
-
     const result = await finalizeRewindSession({
       sessionId: occurrence.id,
       source: RewindCompletionSource.AUTO_TIMEOUT,
