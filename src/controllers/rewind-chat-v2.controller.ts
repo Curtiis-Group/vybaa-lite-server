@@ -142,7 +142,10 @@ export async function listChats(
           select: { personaId: true },
         },
       },
-      orderBy: [{ lastMessageAt: "desc" }, { createdAt: "asc" }],
+      orderBy: [
+        { lastMessageAt: { nulls: "last", sort: "desc" } },
+        { createdAt: "asc" },
+      ],
       where: { archivedAt: null, userId: req.userId! },
     });
     await Promise.all(

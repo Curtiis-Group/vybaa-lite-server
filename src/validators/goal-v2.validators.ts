@@ -96,6 +96,13 @@ const quickGoalSetupAnswerSchema = z
 
 export const quickGoalSetupResponseSchema = z.object({
   description: z.string().trim().max(2_000).optional(),
+  reminderTimes: z
+    .array(reminderTimeSchema)
+    .max(3)
+    .refine((times) => new Set(times).size === times.length, {
+      message: "Reminder times must be unique",
+    })
+    .default([]),
   schedule: goalScheduleSchema,
   target: goalTargetSchema,
   title: z.string().trim().min(1).max(500),

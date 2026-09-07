@@ -132,7 +132,10 @@ async function listChats(req, res) {
                     select: { personaId: true },
                 },
             },
-            orderBy: [{ lastMessageAt: "desc" }, { createdAt: "asc" }],
+            orderBy: [
+                { lastMessageAt: { nulls: "last", sort: "desc" } },
+                { createdAt: "asc" },
+            ],
             where: { archivedAt: null, userId: req.userId },
         });
         await Promise.all(chats.map((chat) => (0, rewind_chat_v2_service_1.ensureRewindPartnerMinds)(chat.id, req.userId, chat.type, chat.personaId)));

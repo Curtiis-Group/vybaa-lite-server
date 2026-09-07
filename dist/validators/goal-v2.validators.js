@@ -90,6 +90,13 @@ const quickGoalSetupAnswerSchema = zod_1.z
     .strict();
 exports.quickGoalSetupResponseSchema = zod_1.z.object({
     description: zod_1.z.string().trim().max(2000).optional(),
+    reminderTimes: zod_1.z
+        .array(reminderTimeSchema)
+        .max(3)
+        .refine((times) => new Set(times).size === times.length, {
+        message: "Reminder times must be unique",
+    })
+        .default([]),
     schedule: exports.goalScheduleSchema,
     target: exports.goalTargetSchema,
     title: zod_1.z.string().trim().min(1).max(500),

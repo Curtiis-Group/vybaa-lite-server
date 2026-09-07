@@ -18,6 +18,33 @@ test("quick goal setup defaults omitted schedule dates to the user's current day
     ),
     {
       draft: {
+        reminderTimes: [],
+        schedule: { startDate: "2026-09-05", type: "DAILY" },
+        target: { count: 21, type: "CHECK_IN_COUNT" },
+        title: "Sleep better",
+      },
+      kind: "DRAFT",
+    },
+  );
+});
+
+test("quick goal setup preserves reminder times when an edit response omits them", () => {
+  assert.deepEqual(
+    normalizeQuickGoalSetupResult(
+      {
+        draft: {
+          schedule: { type: "DAILY" },
+          target: { count: 21, type: "CHECK_IN_COUNT" },
+          title: "Sleep better",
+        },
+        kind: "DRAFT",
+      },
+      "2026-09-05",
+      ["22:30"],
+    ),
+    {
+      draft: {
+        reminderTimes: ["22:30"],
         schedule: { startDate: "2026-09-05", type: "DAILY" },
         target: { count: 21, type: "CHECK_IN_COUNT" },
         title: "Sleep better",

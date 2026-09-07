@@ -84,6 +84,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function normalizeQuickGoalSetupResult(
   value: unknown,
   today: string,
+  fallbackReminderTimes: string[] = [],
 ): unknown {
   if (!isRecord(value) || value.kind !== "DRAFT" || !isRecord(value.draft)) {
     return value;
@@ -109,7 +110,13 @@ export function normalizeQuickGoalSetupResult(
 
   return {
     ...value,
-    draft: { ...draft, schedule: normalizedSchedule },
+    draft: {
+      ...draft,
+      reminderTimes: Array.isArray(draft.reminderTimes)
+        ? draft.reminderTimes
+        : fallbackReminderTimes,
+      schedule: normalizedSchedule,
+    },
   };
 }
 
@@ -148,6 +155,10 @@ export async function generateQuickGoalSetup(
               "For a DRAFT, choose a clear short title, an optional one-sentence reason, a measurable target, " +
               "and a realistic schedule. Prefer CHECK_IN_COUNT with DAILY for habits unless the " +
               "user clearly asks for a quantity, weekday, weekly, or one-time goal. " +
+              "Always return reminderTimes as an array of up to three unique HH:MM times in the user's local timezone. " +
+              "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
+              "If they do not ask for reminders, use an empty array. For edits, preserve the current reminderTimes " +
+              "unless the user asks to add, move, or remove reminders. " +
               `Today is ${today} in timezone ${timezone}. Use YYYY-MM-DD dates on or after today. ` +
               "For CHECK_IN_COUNT, count must be an integer from 1 to 365. " +
               "For QUANTITY, include a concise unit. For WEEKLY, weekday is 1 for Monday through 7 for Sunday. " +
@@ -203,9 +214,17 @@ export async function generateQuickGoalSetup(
                 required: ["type"],
                 type: Type.OBJECT,
               },
+              reminderTimes: {
+                items: {
+                  pattern: "^([01]\\d|2[0-3]):[0-5]\\d$",
+                  type: Type.STRING,
+                },
+                maxItems: 3,
+                type: Type.ARRAY,
+              },
               title: { type: Type.STRING },
             },
-            required: ["schedule", "target", "title"],
+            required: ["reminderTimes", "schedule", "target", "title"],
             type: Type.OBJECT,
           },
           kind: {
@@ -242,7 +261,11 @@ export async function generateQuickGoalSetup(
     throw new QuickGoalSetupError("AI goal setup returned invalid JSON");
   }
 
-  const normalized = normalizeQuickGoalSetupResult(parsed, today);
+  const normalized = normalizeQuickGoalSetupResult(
+    parsed,
+    today,
+    input.edit?.draft.reminderTimes ?? [],
+  );
   const validated = quickGoalSetupDecisionSchema.safeParse(normalized);
   if (!validated.success) {
     throw new QuickGoalSetupError("AI goal setup returned an invalid result");
