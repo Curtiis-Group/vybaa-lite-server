@@ -170,7 +170,10 @@ async function ensureDefaultRewindChats(userId) {
     ]);
     const chats = await db_config_1.prisma.rewindChat.findMany({
         include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } },
-        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "asc" }],
+        orderBy: [
+            { lastMessageAt: { nulls: "last", sort: "desc" } },
+            { createdAt: "asc" },
+        ],
         where: { archivedAt: null, userId },
     });
     return chats.map((chat) => serializeChat(chat, chat.messages[0] ?? null));
