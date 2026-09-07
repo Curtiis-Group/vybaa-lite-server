@@ -7,6 +7,7 @@ import {
   type QuickGoalSetupInput,
   type QuickGoalSetupResponse,
 } from "../validators/goal-v2.validators";
+import { formatRewindTemporalContext } from "./rewind-temporal-context.service";
 
 type QuickGoalSetupPartnerId =
   "ariel" | "ella" | "jake" | "lyra" | "tobi" | "neeja";
@@ -131,6 +132,7 @@ export async function generateQuickGoalSetup(
 
   const today = DateTime.now().setZone(timezone).toISODate();
   if (!today) throw new QuickGoalSetupError("Could not resolve today's date");
+  const temporalContext = formatRewindTemporalContext(timezone);
 
   const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
   const partner = getQuickGoalSetupPartner(personaId);
@@ -159,7 +161,8 @@ export async function generateQuickGoalSetup(
               "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
               "If they do not ask for reminders, use an empty array. For edits, preserve the current reminderTimes " +
               "unless the user asks to add, move, or remove reminders. " +
-              `Today is ${today} in timezone ${timezone}. Use YYYY-MM-DD dates on or after today. ` +
+              `${temporalContext} Today is ${today}. Use YYYY-MM-DD dates on or after today. ` +
+              "Interpret relative dates and phrases such as tonight, tomorrow morning, after work, or before bed in that local context. Never schedule a same-day reminder in the past. " +
               "For CHECK_IN_COUNT, count must be an integer from 1 to 365. " +
               "For QUANTITY, include a concise unit. For WEEKLY, weekday is 1 for Monday through 7 for Sunday. " +
               "Do not invent deadlines the user did not imply; use a sensible short horizon when needed.\n\n" +
@@ -172,8 +175,8 @@ export async function generateQuickGoalSetup(
                 : "") +
               (input.edit
                 ? `\n\nCurrent draft:\n${JSON.stringify(input.edit.draft)}\n\nRequested changes:\n${input.edit.instruction.trim()}`
-                : "") + 
-                "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user",
+                : "") +
+              "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user",
           },
         ],
         role: "user",
@@ -224,9 +227,15 @@ export async function generateQuickGoalSetup(
                 type: Type.ARRAY,
               },
               title: { type: Type.STRING },
-              remarks: { type: Type.STRING }
+              remarks: { type: Type.STRING },
             },
-            required: ["reminderTimes", "schedule", "target", "title", "remarks"],
+            required: [
+              "reminderTimes",
+              "schedule",
+              "target",
+              "title",
+              "remarks",
+            ],
             type: Type.OBJECT,
           },
           kind: {
