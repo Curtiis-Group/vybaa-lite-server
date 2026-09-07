@@ -141,7 +141,7 @@ async function updateGoalAlarmRegistration(params) {
             goalAlarmsEnabled: params.enabled,
             goalAlarmsSyncedAt: syncedAt,
         },
-        where: { id: device.id },
+        where: { id: device?.id },
     });
     return {
         alarmIds,
