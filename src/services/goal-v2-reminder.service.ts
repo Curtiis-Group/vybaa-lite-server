@@ -2,6 +2,7 @@ import { GoalOccurrenceStatus, GoalV2Status } from "@prisma/client";
 import { DateTime } from "luxon";
 
 import { prisma } from "../config/db.config";
+import { getGoalAlarmId } from "./goal-alarm.service";
 import { notificationService } from "./notification.service";
 
 export async function scheduleGoalV2Reminders(
@@ -12,7 +13,9 @@ export async function scheduleGoalV2Reminders(
   const occurrences = await prisma.goalOccurrence.findMany({
     include: {
       goal: {
-        include: { user: { select: { firstName: true, timezone: true, username: true } } },
+        include: {
+          user: { select: { firstName: true, timezone: true, username: true } },
+        },
       },
     },
     where: {
@@ -22,7 +25,9 @@ export async function scheduleGoalV2Reminders(
         status: GoalV2Status.ACTIVE,
         ...(userId ? { userId } : {}),
       },
-      status: { in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING] },
+      status: {
+        in: [GoalOccurrenceStatus.GRACE, GoalOccurrenceStatus.PENDING],
+      },
     },
   });
   let scheduled = 0;
@@ -30,15 +35,19 @@ export async function scheduleGoalV2Reminders(
     const dueDateKey = occurrence.dueDate.toISOString().slice(0, 10);
     const timezone = occurrence.goal.user.timezone || "UTC";
     for (const reminderTime of occurrence.goal.reminderTimes) {
+      const alarmId = getGoalAlarmId(occurrence.id, reminderTime);
       const scheduledFor = DateTime.fromISO(
         `${dueDateKey}T${reminderTime}:00`,
         { zone: timezone },
       );
       if (!scheduledFor.isValid || scheduledFor.toJSDate() <= now) continue;
       const preferredName =
-        occurrence.goal.user.firstName ?? occurrence.goal.user.username ?? "there";
+        occurrence.goal.user.firstName ??
+        occurrence.goal.user.username ??
+        "there";
       const notification = await notificationService.createNotification({
         data: {
+          alarmId,
           goalId: occurrence.goal.id,
           occurrenceId: occurrence.id,
           route: `/app/goal?goalId=${encodeURIComponent(occurrence.goal.id)}`,

@@ -4,6 +4,11 @@ import type { Response } from "express";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
 import {
+  getGoalAlarmManifest,
+  GoalAlarmServiceError,
+  updateGoalAlarmRegistration,
+} from "../services/goal-alarm.service";
+import {
   abandonGoalV2,
   archiveGoalV2,
   createGoalV2,
@@ -31,6 +36,7 @@ import {
   assertCanCreateGoal,
   handleSubscriptionAccessError,
 } from "../services/subscription-access.service";
+import { toPrismaClientApp } from "../types/client-app.type";
 import logger from "../utils/logger.util";
 
 async function resolveTimezone(
@@ -76,11 +82,47 @@ function handleControllerError(
       .json({ code: "QUICK_GOAL_SETUP_FAILED", msg: error.message });
     return;
   }
+  if (error instanceof GoalAlarmServiceError) {
+    res.status(error.status).json({ code: error.code, msg: error.message });
+    return;
+  }
   logger.error(`Goal v2 ${operation} error`, {
     errorName: error instanceof Error ? error.name : "UnknownError",
     userId: req.userId,
   });
   res.status(500).json({ msg: "Internal server error" });
+}
+
+export async function alarmManifest(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const userId = req.userId!;
+    await resolveTimezone(req, userId);
+    const manifest = await getGoalAlarmManifest(userId);
+    res.json({ data: manifest, msg: "Goal alarm manifest retrieved" });
+  } catch (error) {
+    handleControllerError(error, req, res, "alarm manifest");
+  }
+}
+
+export async function alarmRegistration(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const registration = await updateGoalAlarmRegistration({
+      alarmIds: req.body.alarmIds,
+      clientApp: toPrismaClientApp(req.clientApp),
+      enabled: req.body.enabled,
+      fcmToken: req.body.fcmToken,
+      userId: req.userId!,
+    });
+    res.json({ data: registration, msg: "Goal alarm registration updated" });
+  } catch (error) {
+    handleControllerError(error, req, res, "alarm registration");
+  }
 }
 
 export async function quickSetup(

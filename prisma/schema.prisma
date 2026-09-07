@@ -119,13 +119,16 @@ enum RevenueCatWebhookStatus {
 }
 
 model FcmDevice {
-  id        String    @id @default(cuid())
-  userId    String    @map("user_id")
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String
-  clientApp ClientApp @map("client_app")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
+  id                 String    @id @default(cuid())
+  userId             String    @map("user_id")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token              String
+  clientApp          ClientApp @map("client_app")
+  goalAlarmsEnabled  Boolean   @default(false) @map("goal_alarms_enabled")
+  goalAlarmIds       String[]  @default([]) @map("goal_alarm_ids")
+  goalAlarmsSyncedAt DateTime? @map("goal_alarms_synced_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@unique([clientApp, token])
   @@index([userId, clientApp])

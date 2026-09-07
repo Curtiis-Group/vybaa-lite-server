@@ -42,6 +42,8 @@ const router = (0, express_1.Router)();
 router.use(auth_middleware_1.authMiddleware);
 router.get("/", (0, validation_middleware_1.validate)(goal_v2_validators_1.listGoalsV2QuerySchema, "query"), goalController.list);
 router.post("/quick-setup", (0, validation_middleware_1.validate)(goal_v2_validators_1.quickGoalSetupSchema), goalController.quickSetup);
+router.get("/alarm-manifest", goalController.alarmManifest);
+router.put("/alarm-registration", (0, validation_middleware_1.validate)(goal_v2_validators_1.goalAlarmRegistrationSchema), goalController.alarmRegistration);
 router.post("/", (0, validation_middleware_1.validate)(goal_v2_validators_1.createGoalV2Schema), goalController.create);
 router.get("/legacy", goalController.listLegacy);
 router.post("/legacy/:goalId/reopen", (0, validation_middleware_1.validate)(goal_v2_validators_1.goalV2IdParamSchema, "params"), goalController.reopenLegacy);
