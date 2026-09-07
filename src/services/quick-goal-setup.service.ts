@@ -172,7 +172,8 @@ export async function generateQuickGoalSetup(
                 : "") +
               (input.edit
                 ? `\n\nCurrent draft:\n${JSON.stringify(input.edit.draft)}\n\nRequested changes:\n${input.edit.instruction.trim()}`
-                : ""),
+                : "") + 
+                "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user",
           },
         ],
         role: "user",
@@ -223,8 +224,9 @@ export async function generateQuickGoalSetup(
                 type: Type.ARRAY,
               },
               title: { type: Type.STRING },
+              remarks: { type: Type.STRING }
             },
-            required: ["reminderTimes", "schedule", "target", "title"],
+            required: ["reminderTimes", "schedule", "target", "title", "remarks"],
             type: Type.OBJECT,
           },
           kind: {
