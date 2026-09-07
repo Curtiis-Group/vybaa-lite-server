@@ -7,6 +7,7 @@ const genai_1 = require("@google/genai");
 const luxon_1 = require("luxon");
 const env_util_1 = require("../utils/env.util");
 const goal_v2_validators_1 = require("../validators/goal-v2.validators");
+const rewind_temporal_context_service_1 = require("./rewind-temporal-context.service");
 const QUICK_GOAL_SETUP_PARTNERS = {
     ariel: {
         name: "Ariel",
@@ -93,6 +94,7 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
     const today = luxon_1.DateTime.now().setZone(timezone).toISODate();
     if (!today)
         throw new QuickGoalSetupError("Could not resolve today's date");
+    const temporalContext = (0, rewind_temporal_context_service_1.formatRewindTemporalContext)(timezone);
     const client = new genai_1.GoogleGenAI({ apiKey: env_util_1.Env.GEMINI_API_KEY });
     const partner = getQuickGoalSetupPartner(personaId);
     const hasAnswers = Boolean(input.answers?.length);
@@ -119,7 +121,8 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
                             "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
                             "If they do not ask for reminders, use an empty array. For edits, preserve the current reminderTimes " +
                             "unless the user asks to add, move, or remove reminders. " +
-                            `Today is ${today} in timezone ${timezone}. Use YYYY-MM-DD dates on or after today. ` +
+                            `${temporalContext} Today is ${today}. Use YYYY-MM-DD dates on or after today. ` +
+                            "Interpret relative dates and phrases such as tonight, tomorrow morning, after work, or before bed in that local context. Never schedule a same-day reminder in the past. " +
                             "For CHECK_IN_COUNT, count must be an integer from 1 to 365. " +
                             "For QUANTITY, include a concise unit. For WEEKLY, weekday is 1 for Monday through 7 for Sunday. " +
                             "Do not invent deadlines the user did not imply; use a sensible short horizon when needed.\n\n" +
@@ -132,7 +135,8 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
                                 : "") +
                             (input.edit
                                 ? `\n\nCurrent draft:\n${JSON.stringify(input.edit.draft)}\n\nRequested changes:\n${input.edit.instruction.trim()}`
-                                : ""),
+                                : "") +
+                            "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user",
                     },
                 ],
                 role: "user",
@@ -183,8 +187,15 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
                                 type: genai_1.Type.ARRAY,
                             },
                             title: { type: genai_1.Type.STRING },
+                            remarks: { type: genai_1.Type.STRING },
                         },
-                        required: ["reminderTimes", "schedule", "target", "title"],
+                        required: [
+                            "reminderTimes",
+                            "schedule",
+                            "target",
+                            "title",
+                            "remarks",
+                        ],
                         type: genai_1.Type.OBJECT,
                     },
                     kind: {

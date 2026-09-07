@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { GoalOccurrenceStatus, GoalV2Status } from "@prisma/client";
 import type { ClientApp } from "@prisma/client";
+import { GoalOccurrenceStatus, GoalV2Status } from "@prisma/client";
 import { DateTime } from "luxon";
 
 import { prisma } from "../config/db.config";
@@ -181,6 +181,8 @@ export async function updateGoalAlarmRegistration(params: {
       userId: params.userId,
     },
   });
+
+  
   if (!device) {
     throw new GoalAlarmServiceError(
       "FCM_DEVICE_NOT_FOUND",
@@ -203,7 +205,7 @@ export async function updateGoalAlarmRegistration(params: {
       goalAlarmsEnabled: params.enabled,
       goalAlarmsSyncedAt: syncedAt,
     },
-    where: { id: device.id },
+    where: { id: device?.id },
   });
   return {
     alarmIds,

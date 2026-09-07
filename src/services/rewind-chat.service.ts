@@ -16,6 +16,10 @@ import {
   formatRewindPersonalContext,
   loadRewindPersonalContext,
 } from "./rewind-personal-context.service";
+import {
+  formatRewindMessageMoment,
+  formatRewindTemporalContext,
+} from "./rewind-temporal-context.service";
 
 export type RewindPersonaId =
   "ariel" | "ella" | "jake" | "lyra" | "tobi" | "neeja";
@@ -308,7 +312,11 @@ export async function listRewindChatMessages(params: {
   };
 }
 
-function formatRecentMessages(messages: RewindChatMessage[]): string {
+function formatRecentMessages(
+  messages: RewindChatMessage[],
+  timezone: string,
+  now: Date = new Date(),
+): string {
   return messages
     .map((message) => {
       let speaker = "Partner";
@@ -317,7 +325,12 @@ function formatRecentMessages(messages: RewindChatMessage[]): string {
       } else if (isPersonaId(message.personaId)) {
         speaker = PERSONA_NAMES[message.personaId];
       }
-      return `${speaker}: ${message.content}`;
+      const moment = formatRewindMessageMoment(
+        message.createdAt,
+        timezone,
+        now,
+      );
+      return `[sent ${moment}] ${speaker}: ${message.content}`;
     })
     .join("\n");
 }
@@ -372,6 +385,11 @@ async function generateChatReply(params: {
   const observationContext = user?.rewindPersonalizationEnabled
     ? storedObservationContext
     : "";
+  const contextNow = new Date();
+  const temporalContext = formatRewindTemporalContext(
+    params.timezone,
+    contextNow,
+  );
   const partnerDirection = fixedPersona
     ? `Reply only as ${PERSONA_NAMES[fixedPersona]}.`
     : "Choose exactly one partner whose perspective best fits the user’s latest message.";
@@ -388,15 +406,15 @@ async function generateChatReply(params: {
               `You are responding in Vybaa Rewind text chat. ${partnerDirection} ` +
               `${INDEPENDENT_PARTNER_PROMPT} ` +
               `Be natural, concise, emotionally perceptive, and grounded. Respond like a trusted friend, not a clinician. ` +
-              `Do not diagnose, invent facts, expose hidden context, or claim an action was completed. Ask at most one useful question.\n\n` +
+              `Do not diagnose, invent facts, expose hidden context, or claim an action was completed. Use the local moment and message timestamps quietly: notice real gaps and relative dates, but do not force a clock reference or time-of-day greeting. Ask at most one useful question.\n\n` +
               `Partners:\n${personaDescriptions}\n\n` +
               `User name: ${user?.firstName ?? user?.username ?? "there"}\n` +
-              `Timezone: ${params.timezone}\n\n` +
+              `${temporalContext}\n\n` +
               (observationContext
                 ? `Recent grounded observations:\n${observationContext}\n\n`
                 : "") +
               (personalContext ? `${personalContext}\n\n` : "") +
-              `Recent chat:\n${formatRecentMessages([...messages].reverse())}\n\n` +
+              `Recent chat:\n${formatRecentMessages([...messages].reverse(), params.timezone, contextNow)}\n\n` +
               `Latest message:\n${params.content}`,
           },
         ],
@@ -430,8 +448,10 @@ async function loadStreamingChatContext(params: {
   observationContext: string;
   personalContext: string;
   recentChat: string;
+  temporalContext: string;
   userName: string;
 }> {
+  const contextNow = new Date();
   const [messages, user, storedObservationContext] = await Promise.all([
     prisma.rewindChatMessage.findMany({
       orderBy: { createdAt: "desc" },
@@ -472,7 +492,12 @@ async function loadStreamingChatContext(params: {
       ? storedObservationContext
       : "",
     personalContext,
-    recentChat: formatRecentMessages([...messages].reverse()),
+    recentChat: formatRecentMessages(
+      [...messages].reverse(),
+      params.timezone,
+      contextNow,
+    ),
+    temporalContext: formatRewindTemporalContext(params.timezone, contextNow),
     userName: user?.firstName ?? user?.username ?? "there",
   };
 }
@@ -505,9 +530,10 @@ async function generateStreamingPartnerTurn(params: {
               `Reply directly and naturally, like a trusted friend texting in real time. Keep it to one short sentence or two brief clauses, usually under 180 characters. Add one or two fitting emojis only when they genuinely add tone; never use emoji as filler. ` +
               `You may agree or disagree with another partner, and may address them with @Name when it adds something useful. ` +
               `Do not repeat another partner, diagnose, invent facts, expose hidden context, or narrate your role. ` +
+              `Use the local moment and message timestamps quietly. Notice whether a message is fresh or old, but do not announce the time or force a time-of-day greeting. ` +
               `Ask at most one short question, and only when a question genuinely moves the conversation forward.\n\n` +
               `User name: ${params.context.userName}\n` +
-              `Timezone: ${params.timezone}\n\n` +
+              `${params.context.temporalContext}\n\n` +
               (params.context.observationContext
                 ? `Recent grounded observations:\n${params.context.observationContext}\n\n`
                 : "") +

@@ -100,6 +100,7 @@ exports.quickGoalSetupResponseSchema = zod_1.z.object({
     schedule: exports.goalScheduleSchema,
     target: exports.goalTargetSchema,
     title: zod_1.z.string().trim().min(1).max(500),
+    remarks: zod_1.z.string().trim().min(1).max(500)
 });
 exports.quickGoalSetupSchema = zod_1.z
     .object({

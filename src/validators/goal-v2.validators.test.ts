@@ -41,6 +41,7 @@ test("quick goal setup returns either focused questions or an editable draft", (
   assert.equal(
     quickGoalSetupDecisionSchema.safeParse({
       draft: {
+        remarks: "Kept it simple so it can fit after dinner.",
         schedule: { startDate: "2026-09-06", type: "DAILY" },
         target: { count: 14, type: "CHECK_IN_COUNT" },
         title: "Read after dinner",
@@ -67,6 +68,7 @@ test("quick goal setup accepts an adjustment request with the current draft", ()
     quickGoalSetupSchema.safeParse({
       edit: {
         draft: {
+          remarks: "Made this small enough to stick with.",
           schedule: { startDate: "2026-09-06", type: "DAILY" },
           target: { count: 21, type: "CHECK_IN_COUNT" },
           title: "Sleep better",

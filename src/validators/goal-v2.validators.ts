@@ -106,6 +106,7 @@ export const quickGoalSetupResponseSchema = z.object({
   schedule: goalScheduleSchema,
   target: goalTargetSchema,
   title: z.string().trim().min(1).max(500),
+  remarks: z.string().trim().min(1).max(500)
 });
 
 export const quickGoalSetupSchema = z
