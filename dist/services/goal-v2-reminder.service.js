@@ -5,13 +5,16 @@ exports.refreshGoalV2RemindersForUser = refreshGoalV2RemindersForUser;
 const client_1 = require("@prisma/client");
 const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
+const goal_alarm_service_1 = require("./goal-alarm.service");
 const notification_service_1 = require("./notification.service");
 async function scheduleGoalV2Reminders(now = new Date(), userId) {
     const upperBound = luxon_1.DateTime.fromJSDate(now).plus({ days: 2 }).toJSDate();
     const occurrences = await db_config_1.prisma.goalOccurrence.findMany({
         include: {
             goal: {
-                include: { user: { select: { firstName: true, timezone: true, username: true } } },
+                include: {
+                    user: { select: { firstName: true, timezone: true, username: true } },
+                },
             },
         },
         where: {
@@ -21,7 +24,9 @@ async function scheduleGoalV2Reminders(now = new Date(), userId) {
                 status: client_1.GoalV2Status.ACTIVE,
                 ...(userId ? { userId } : {}),
             },
-            status: { in: [client_1.GoalOccurrenceStatus.GRACE, client_1.GoalOccurrenceStatus.PENDING] },
+            status: {
+                in: [client_1.GoalOccurrenceStatus.GRACE, client_1.GoalOccurrenceStatus.PENDING],
+            },
         },
     });
     let scheduled = 0;
@@ -29,12 +34,16 @@ async function scheduleGoalV2Reminders(now = new Date(), userId) {
         const dueDateKey = occurrence.dueDate.toISOString().slice(0, 10);
         const timezone = occurrence.goal.user.timezone || "UTC";
         for (const reminderTime of occurrence.goal.reminderTimes) {
+            const alarmId = (0, goal_alarm_service_1.getGoalAlarmId)(occurrence.id, reminderTime);
             const scheduledFor = luxon_1.DateTime.fromISO(`${dueDateKey}T${reminderTime}:00`, { zone: timezone });
             if (!scheduledFor.isValid || scheduledFor.toJSDate() <= now)
                 continue;
-            const preferredName = occurrence.goal.user.firstName ?? occurrence.goal.user.username ?? "there";
+            const preferredName = occurrence.goal.user.firstName ??
+                occurrence.goal.user.username ??
+                "there";
             const notification = await notification_service_1.notificationService.createNotification({
                 data: {
+                    alarmId,
                     goalId: occurrence.goal.id,
                     occurrenceId: occurrence.id,
                     route: `/app/goal?goalId=${encodeURIComponent(occurrence.goal.id)}`,

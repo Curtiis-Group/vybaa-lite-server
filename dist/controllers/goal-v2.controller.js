@@ -3,6 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.alarmManifest = alarmManifest;
+exports.alarmRegistration = alarmRegistration;
 exports.quickSetup = quickSetup;
 exports.create = create;
 exports.list = list;
@@ -26,10 +28,12 @@ exports.archiveLegacy = archiveLegacy;
 exports.deleteLegacy = deleteLegacy;
 const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
+const goal_alarm_service_1 = require("../services/goal-alarm.service");
 const goal_v2_service_1 = require("../services/goal-v2.service");
 const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
 const quick_goal_setup_service_1 = require("../services/quick-goal-setup.service");
 const subscription_access_service_1 = require("../services/subscription-access.service");
+const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 async function resolveTimezone(req, userId) {
     const headerTimezone = req.headers["x-user-tz"];
@@ -65,11 +69,41 @@ function handleControllerError(error, req, res, operation) {
             .json({ code: "QUICK_GOAL_SETUP_FAILED", msg: error.message });
         return;
     }
+    if (error instanceof goal_alarm_service_1.GoalAlarmServiceError) {
+        res.status(error.status).json({ code: error.code, msg: error.message });
+        return;
+    }
     logger_util_1.default.error(`Goal v2 ${operation} error`, {
         errorName: error instanceof Error ? error.name : "UnknownError",
         userId: req.userId,
     });
     res.status(500).json({ msg: "Internal server error" });
+}
+async function alarmManifest(req, res) {
+    try {
+        const userId = req.userId;
+        await resolveTimezone(req, userId);
+        const manifest = await (0, goal_alarm_service_1.getGoalAlarmManifest)(userId);
+        res.json({ data: manifest, msg: "Goal alarm manifest retrieved" });
+    }
+    catch (error) {
+        handleControllerError(error, req, res, "alarm manifest");
+    }
+}
+async function alarmRegistration(req, res) {
+    try {
+        const registration = await (0, goal_alarm_service_1.updateGoalAlarmRegistration)({
+            alarmIds: req.body.alarmIds,
+            clientApp: (0, client_app_type_1.toPrismaClientApp)(req.clientApp),
+            enabled: req.body.enabled,
+            fcmToken: req.body.fcmToken,
+            userId: req.userId,
+        });
+        res.json({ data: registration, msg: "Goal alarm registration updated" });
+    }
+    catch (error) {
+        handleControllerError(error, req, res, "alarm registration");
+    }
 }
 async function quickSetup(req, res) {
     try {

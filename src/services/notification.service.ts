@@ -53,7 +53,12 @@ type DeliverableNotification = {
   data: string | null;
   createdAt: Date;
   user: {
-    fcmDevices: Array<{ clientApp: "VYBAA" | "MYCOVE"; token: string }>;
+    fcmDevices: Array<{
+      clientApp: "VYBAA" | "MYCOVE";
+      goalAlarmIds: string[];
+      goalAlarmsEnabled: boolean;
+      token: string;
+    }>;
     fcmTokens: string[];
     firstName: string | null;
     rewindPersona: string | null;
@@ -63,6 +68,8 @@ type DeliverableNotification = {
 
 type FcmTarget = {
   clientApp: ClientApp;
+  goalAlarmIds: string[];
+  goalAlarmsEnabled: boolean;
   token: string;
 };
 
@@ -75,6 +82,20 @@ type NotificationClaim = {
   dispatchToken: string;
   notifications: DeliverableNotification[];
 };
+
+export function shouldSuppressGoalReminderPush(
+  target: Pick<FcmTarget, "goalAlarmIds" | "goalAlarmsEnabled">,
+  notificationType: string,
+  data?: Record<string, unknown>,
+): boolean {
+  if (notificationType !== "goal_v2_reminder") return false;
+  const alarmId = data?.alarmId;
+  return (
+    typeof alarmId === "string" &&
+    target.goalAlarmsEnabled &&
+    target.goalAlarmIds.includes(alarmId)
+  );
+}
 
 const NOTIFICATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
 const FLEXX_DAILY_SEND_CHANCE = 0.55;
@@ -178,13 +199,20 @@ class NotificationService {
     const targets = new Map<string, FcmTarget>();
     for (const token of user.fcmTokens) {
       if (!token) continue;
-      const target = { clientApp: "vybaa" as const, token };
+      const target = {
+        clientApp: "vybaa" as const,
+        goalAlarmIds: [],
+        goalAlarmsEnabled: false,
+        token,
+      };
       targets.set(this.getFcmTargetKey(target), target);
     }
     for (const device of user.fcmDevices) {
       if (!device.token) continue;
       const target = {
         clientApp: fromPrismaClientApp(device.clientApp),
+        goalAlarmIds: device.goalAlarmIds,
+        goalAlarmsEnabled: device.goalAlarmsEnabled,
         token: device.token,
       };
       targets.set(this.getFcmTargetKey(target), target);
@@ -227,7 +255,14 @@ class NotificationService {
         ],
       },
       select: {
-        fcmDevices: { select: { clientApp: true, token: true } },
+        fcmDevices: {
+          select: {
+            clientApp: true,
+            goalAlarmIds: true,
+            goalAlarmsEnabled: true,
+            token: true,
+          },
+        },
         fcmTokens: true,
         id: true,
       },
@@ -347,7 +382,14 @@ class NotificationService {
       include: {
         user: {
           select: {
-            fcmDevices: { select: { clientApp: true, token: true } },
+            fcmDevices: {
+              select: {
+                clientApp: true,
+                goalAlarmIds: true,
+                goalAlarmsEnabled: true,
+                token: true,
+              },
+            },
             fcmTokens: true,
             firstName: true,
             rewindPersona: true,
@@ -427,8 +469,16 @@ class NotificationService {
         const sharedTargetKeys =
           sharedTargetsByUser.get(notification.userId) ?? new Set<string>();
         const titlePrefix = this.getSharedFcmTokenPrefix(notification.user);
-
         for (const target of this.getFcmTargets(notification.user)) {
+          if (
+            shouldSuppressGoalReminderPush(
+              target,
+              notification.type,
+              presentation.data,
+            )
+          ) {
+            continue;
+          }
           const targetKey = this.getFcmTargetKey(target);
           pushMessages.push({
             clientApp: target.clientApp,

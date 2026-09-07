@@ -160,6 +160,14 @@ export const updateGoalV2Schema = z
     message: "At least one field is required",
   });
 
+export const goalAlarmRegistrationSchema = z
+  .object({
+    alarmIds: z.array(z.string().trim().min(1).max(240)).max(64),
+    enabled: z.boolean(),
+    fcmToken: z.string().trim().min(1).max(4_096),
+  })
+  .strict();
+
 export const goalV2IdParamSchema = z.object({
   goalId: z.string().min(1).max(128),
 });

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listGoalOccurrencesQuerySchema = exports.listGoalsV2QuerySchema = exports.conclusionReviewSchema = exports.resumeGoalSchema = exports.rescheduleOccurrenceSchema = exports.recordGoalProgressSchema = exports.occurrenceIdParamSchema = exports.goalV2IdParamSchema = exports.updateGoalV2Schema = exports.quickGoalSetupDecisionSchema = exports.quickGoalSetupSchema = exports.quickGoalSetupResponseSchema = exports.createGoalV2Schema = exports.goalMissPolicySchema = exports.goalScheduleSchema = exports.goalTargetSchema = void 0;
+exports.listGoalOccurrencesQuerySchema = exports.listGoalsV2QuerySchema = exports.conclusionReviewSchema = exports.resumeGoalSchema = exports.rescheduleOccurrenceSchema = exports.recordGoalProgressSchema = exports.occurrenceIdParamSchema = exports.goalV2IdParamSchema = exports.goalAlarmRegistrationSchema = exports.updateGoalV2Schema = exports.quickGoalSetupDecisionSchema = exports.quickGoalSetupSchema = exports.quickGoalSetupResponseSchema = exports.createGoalV2Schema = exports.goalMissPolicySchema = exports.goalScheduleSchema = exports.goalTargetSchema = void 0;
 const zod_1 = require("zod");
 const dateSchema = zod_1.z
     .string()
@@ -149,6 +149,13 @@ exports.updateGoalV2Schema = zod_1.z
     .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required",
 });
+exports.goalAlarmRegistrationSchema = zod_1.z
+    .object({
+    alarmIds: zod_1.z.array(zod_1.z.string().trim().min(1).max(240)).max(64),
+    enabled: zod_1.z.boolean(),
+    fcmToken: zod_1.z.string().trim().min(1).max(4096),
+})
+    .strict();
 exports.goalV2IdParamSchema = zod_1.z.object({
     goalId: zod_1.z.string().min(1).max(128),
 });

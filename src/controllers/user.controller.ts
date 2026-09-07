@@ -350,7 +350,12 @@ export async function registerFCMToken(req: AuthRequest, res: Response) {
     await prisma.fcmDevice.upsert({
       where: { clientApp_token: { clientApp, token: fcmToken } },
       create: { clientApp, token: fcmToken, userId },
-      update: { userId },
+      update: {
+        goalAlarmIds: [],
+        goalAlarmsEnabled: false,
+        goalAlarmsSyncedAt: null,
+        userId,
+      },
     });
     logger.info("FCM token registered", {
       clientApp: req.clientApp,

@@ -6,6 +6,7 @@ import { validate } from "../middleware/validation.middleware";
 import {
   conclusionReviewSchema,
   createGoalV2Schema,
+  goalAlarmRegistrationSchema,
   goalV2IdParamSchema,
   listGoalOccurrencesQuerySchema,
   listGoalsV2QuerySchema,
@@ -25,6 +26,12 @@ router.post(
   "/quick-setup",
   validate(quickGoalSetupSchema),
   goalController.quickSetup,
+);
+router.get("/alarm-manifest", goalController.alarmManifest);
+router.put(
+  "/alarm-registration",
+  validate(goalAlarmRegistrationSchema),
+  goalController.alarmRegistration,
 );
 router.post("/", validate(createGoalV2Schema), goalController.create);
 router.get("/legacy", goalController.listLegacy);
