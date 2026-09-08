@@ -8,6 +8,7 @@ import {
   getRewindBetweenWavesDelayMs,
   getRewindChatDeliveryContext,
   getRewindDeliveredToSeenDelayMs,
+  getRewindMinimumTypingMs,
   getRewindSeenToTypingDelayMs,
   getRewindWaveTypingDelays,
   parseRewindContextCompactionResponse,
@@ -413,23 +414,33 @@ test("v2 seen-to-typing jitter always stays within the intended range", () => {
     const deliveredToSeenDelay = getRewindDeliveredToSeenDelayMs();
     const delay = getRewindSeenToTypingDelayMs();
     const betweenWavesDelay = getRewindBetweenWavesDelayMs();
-    assert.ok(deliveredToSeenDelay >= 1_400);
-    assert.ok(deliveredToSeenDelay <= 4_200);
-    assert.ok(delay >= 850);
-    assert.ok(delay <= 2_400);
-    assert.ok(betweenWavesDelay >= 1_200);
-    assert.ok(betweenWavesDelay <= 3_200);
+    assert.ok(deliveredToSeenDelay >= 1_800);
+    assert.ok(deliveredToSeenDelay <= 5_000);
+    assert.ok(delay >= 1_200);
+    assert.ok(delay <= 3_000);
+    assert.ok(betweenWavesDelay >= 2_500);
+    assert.ok(betweenWavesDelay <= 5_000);
 
     const waveDelays = getRewindWaveTypingDelays(4);
     assert.equal(waveDelays.length, 4);
-    assert.ok((waveDelays[0] ?? 0) >= 850);
-    assert.ok((waveDelays[0] ?? 0) <= 2_400);
+    assert.ok((waveDelays[0] ?? 0) >= 1_200);
+    assert.ok((waveDelays[0] ?? 0) <= 3_000);
     for (let index = 1; index < waveDelays.length; index += 1) {
       const stagger = (waveDelays[index] ?? 0) - (waveDelays[index - 1] ?? 0);
-      assert.ok(stagger >= 700);
-      assert.ok(stagger <= 1_800);
+      assert.ok(stagger >= 1_500);
+      assert.ok(stagger <= 3_000);
     }
   }
+});
+
+test("typing duration grows with a message but remains bounded for long replies", () => {
+  assert.ok(getRewindMinimumTypingMs("hey") >= 1_800);
+  assert.ok(
+    getRewindMinimumTypingMs("hey, how did it go today?") >
+      getRewindMinimumTypingMs("hey"),
+  );
+  assert.equal(getRewindMinimumTypingMs("x".repeat(4_000)), 6_500);
+  assert.equal(getRewindMinimumTypingMs("😀"), getRewindMinimumTypingMs("x"));
 });
 
 test("v2 director fallback excludes the latest speaker and preserves reply context", () => {
