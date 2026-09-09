@@ -10,6 +10,7 @@ exports.enqueueMessage = enqueueMessage;
 exports.markRead = markRead;
 exports.updateReaction = updateReaction;
 exports.updatePreferences = updatePreferences;
+exports.getPreferences = getPreferences;
 exports.renameChat = renameChat;
 exports.deleteMessage = deleteMessage;
 exports.clearChat = clearChat;
@@ -21,6 +22,8 @@ const rewind_chat_management_service_1 = require("../services/rewind-chat-manage
 const rewind_chat_serialization_service_1 = require("../services/rewind-chat-serialization.service");
 const rewind_chat_service_1 = require("../services/rewind-chat.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const rewind_validators_1 = require("../validators/rewind.validators");
+const rewind_chat_mood_1 = require("../services/rewind-chat-mood");
 function getErrorDetails(error) {
     if (error instanceof Error) {
         return {
@@ -257,13 +260,36 @@ async function updateReaction(req, res) {
 async function updatePreferences(req, res) {
     try {
         const chat = await getOwnedChat(String(req.params.chatId), req.userId);
+        const preferences = rewind_validators_1.rewindV2ChatPreferencesSchema.parse(req.body);
         const updated = await db_config_1.prisma.rewindChat.update({
-            data: { proactiveMuted: Boolean(req.body.proactiveMuted) },
+            data: preferences,
             where: { id: chat.id },
         });
         res.json({
-            data: { proactiveMuted: updated.proactiveMuted },
+            data: {
+                proactiveMuted: updated.proactiveMuted,
+                conversationMood: (0, rewind_chat_mood_1.resolveRewindConversationMood)(updated.conversationMood),
+            },
             msg: "Chat preferences updated",
+        });
+    }
+    catch (error) {
+        handleError(error, res, req);
+    }
+}
+async function getPreferences(req, res) {
+    try {
+        const chat = await getOwnedChat(String(req.params.chatId), req.userId);
+        res.json({
+            data: {
+                id: chat.id,
+                title: chat.title,
+                type: chat.type,
+                personaId: chat.personaId,
+                proactiveMuted: chat.proactiveMuted,
+                conversationMood: (0, rewind_chat_mood_1.resolveRewindConversationMood)(chat.conversationMood),
+            },
+            msg: "Chat settings retrieved",
         });
     }
     catch (error) {

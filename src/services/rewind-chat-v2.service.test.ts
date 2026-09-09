@@ -1,5 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  getPartnerReactionDelayMs,
+  shouldAddPartnerReaction,
+} from "./rewind-chat-reaction-policy";
+import {
+  createRewindReadSchedule,
+  getRewindReadTimes,
+  getRewindPersonaReadTime,
+} from "./rewind-chat-read.service";
+import {
+  rewindConversationMoodSchema,
+  formatRewindConversationMood,
+  resolveRewindConversationMood,
+} from "./rewind-chat-mood";
+import { rewindV2ChatPreferencesSchema } from "../validators/rewind.validators";
 
 import {
   applyRewindRelationshipDelta,
@@ -22,6 +37,126 @@ const DIRECTOR_FALLBACK = {
   reactions: [],
   turns: [],
 };
+
+test("AI-selected reactions retain a natural delay without a random veto", () => {
+  for (let index = 0; index < 1000; index += 1) {
+    const delay = getPartnerReactionDelayMs();
+    assert.ok(delay >= 4_000 && delay <= 12_000);
+  }
+});
+
+test("AI may react to casual messages but cannot repeat itself or spam", () => {
+  const now = new Date("2026-09-08T12:00:00Z");
+  const eligible = {
+    content: "finally got the job 😭",
+    createdAt: new Date(now.getTime() - 15_000),
+    hasPartnerReaction: false,
+    lastPartnerReactionAt: null,
+    lastRoomReactionAt: null,
+    now,
+    personaId: "ella",
+    targetPersonaId: null,
+    targetRole: "USER",
+  };
+  assert.equal(shouldAddPartnerReaction(eligible), true);
+  for (const content of ["ok", "Hey!", "thanks 🙏", "👍", "good night"]) {
+    assert.equal(shouldAddPartnerReaction({ ...eligible, content }), true);
+  }
+  assert.equal(
+    shouldAddPartnerReaction({ ...eligible, hasPartnerReaction: true }),
+    false,
+  );
+  assert.equal(
+    shouldAddPartnerReaction({ ...eligible, targetPersonaId: "ella" }),
+    false,
+  );
+  assert.equal(
+    shouldAddPartnerReaction({ ...eligible, targetRole: "SYSTEM" }),
+    false,
+  );
+  assert.equal(
+    shouldAddPartnerReaction({
+      ...eligible,
+      createdAt: new Date(now.getTime() - 31 * 60_000),
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAddPartnerReaction({
+      ...eligible,
+      lastPartnerReactionAt: new Date(now.getTime() - 11_999),
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAddPartnerReaction({
+      ...eligible,
+      lastRoomReactionAt: new Date(now.getTime() - 2_999),
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAddPartnerReaction({
+      ...eligible,
+      lastPartnerReactionAt: new Date(now.getTime() - 12_000),
+      lastRoomReactionAt: new Date(now.getTime() - 3_000),
+    }),
+    true,
+  );
+});
+
+test("group reading staggers every partner, with full read after the last reader", () => {
+  const now = new Date("2026-09-09T12:00:00Z");
+  const personas = ["ella", "lyra", "jake", "ariel", "tobi", "neeja"];
+  for (let sample = 0; sample < 100; sample += 1) {
+    const schedule = createRewindReadSchedule(personas, now);
+    const times = getRewindReadTimes(schedule).sort((a, b) => a - b);
+    assert.equal(times.length, 6);
+    assert.equal(new Set(times).size, 6);
+    assert.ok(Math.min(...times) >= now.getTime() + 2500);
+    assert.ok(Math.max(...times) <= now.getTime() + 41000);
+    for (const persona of personas)
+      assert.ok(getRewindPersonaReadTime(schedule, persona));
+    assert.ok(Math.max(...times) > Math.min(...times));
+  }
+  assert.equal(
+    getRewindReadTimes(createRewindReadSchedule(["ella"], now)).length,
+    1,
+  );
+  assert.deepEqual(getRewindReadTimes(null), []);
+  assert.deepEqual(getRewindReadTimes({ ella: "invalid" }), []);
+});
+
+test("mood settings are bounded, preserve partial mute updates, and reach model context", () => {
+  const mood = { energy: 10, playfulness: 70, directness: 90 };
+  assert.deepEqual(resolveRewindConversationMood(mood), mood);
+  assert.match(formatRewindConversationMood(mood), /energy 10/);
+  assert.equal(resolveRewindConversationMood(null).energy, 50);
+  assert.equal(
+    rewindConversationMoodSchema.safeParse({ ...mood, energy: 101 }).success,
+    false,
+  );
+  assert.equal(
+    rewindConversationMoodSchema.safeParse({ ...mood, energy: "10" }).success,
+    false,
+  );
+  assert.equal(
+    rewindV2ChatPreferencesSchema.safeParse({ proactiveMuted: false }).success,
+    true,
+  );
+  assert.equal(
+    rewindV2ChatPreferencesSchema.safeParse({ conversationMood: mood }).success,
+    true,
+  );
+  assert.equal(rewindV2ChatPreferencesSchema.safeParse({}).success, false);
+  assert.equal(
+    rewindV2ChatPreferencesSchema.safeParse({
+      userId: "other",
+      conversationMood: mood,
+    }).success,
+    false,
+  );
+});
 
 function createPartnerResponse(message: string): string {
   return JSON.stringify({

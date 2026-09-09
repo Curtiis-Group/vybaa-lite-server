@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.serializeRewindChatReaction = serializeRewindChatReaction;
 exports.serializeRewindChatMessage = serializeRewindChatMessage;
 exports.serializeRewindChatSummary = serializeRewindChatSummary;
+const rewind_chat_mood_1 = require("./rewind-chat-mood");
 function serializeRewindChatReaction(reaction) {
     return {
         actor: reaction.actor,
@@ -32,6 +33,7 @@ function serializeRewindChatSummary(chat) {
         activeParticipants: chat.turns.map((turn) => turn.personaId),
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         contextRevision: chat.contextRevision,
+        conversationMood: (0, rewind_chat_mood_1.resolveRewindConversationMood)(chat.conversationMood),
         createdAt: chat.createdAt.toISOString(),
         id: chat.id,
         lastMessage: chat.messages[0]

@@ -4,6 +4,7 @@ import type {
   RewindChatReaction,
   RewindChatTurn,
 } from "@prisma/client";
+import { resolveRewindConversationMood } from "./rewind-chat-mood";
 
 type RewindChatMessageSource = Pick<
   RewindChatMessage,
@@ -45,6 +46,7 @@ type RewindChatSummarySource = Pick<
   | "unreadCount"
   | "updatedAt"
 > & {
+  conversationMood?: RewindChat["conversationMood"];
   messages: RewindChatMessageWithReactions[];
   turns: Array<Pick<RewindChatTurn, "personaId">>;
 };
@@ -94,6 +96,7 @@ export function serializeRewindChatSummary(chat: RewindChatSummarySource) {
     activeParticipants: chat.turns.map((turn) => turn.personaId),
     archivedAt: chat.archivedAt?.toISOString() ?? null,
     contextRevision: chat.contextRevision,
+    conversationMood: resolveRewindConversationMood(chat.conversationMood),
     createdAt: chat.createdAt.toISOString(),
     id: chat.id,
     lastMessage: chat.messages[0]

@@ -19,6 +19,8 @@ import {
 } from "../services/rewind-chat-serialization.service";
 import { ensureDefaultRewindChats } from "../services/rewind-chat.service";
 import logger from "../utils/logger.util";
+import { rewindV2ChatPreferencesSchema } from "../validators/rewind.validators";
+import { resolveRewindConversationMood } from "../services/rewind-chat-mood";
 
 function getErrorDetails(error: unknown): {
   errorMessage: string;
@@ -294,13 +296,41 @@ export async function updatePreferences(
 ): Promise<void> {
   try {
     const chat = await getOwnedChat(String(req.params.chatId), req.userId!);
+    const preferences = rewindV2ChatPreferencesSchema.parse(req.body);
     const updated = await prisma.rewindChat.update({
-      data: { proactiveMuted: Boolean(req.body.proactiveMuted) },
+      data: preferences,
       where: { id: chat.id },
     });
     res.json({
-      data: { proactiveMuted: updated.proactiveMuted },
+      data: {
+        proactiveMuted: updated.proactiveMuted,
+        conversationMood: resolveRewindConversationMood(
+          updated.conversationMood,
+        ),
+      },
       msg: "Chat preferences updated",
+    });
+  } catch (error: unknown) {
+    handleError(error, res, req);
+  }
+}
+
+export async function getPreferences(
+  req: AuthRequest,
+  res: Response,
+): Promise<void> {
+  try {
+    const chat = await getOwnedChat(String(req.params.chatId), req.userId!);
+    res.json({
+      data: {
+        id: chat.id,
+        title: chat.title,
+        type: chat.type,
+        personaId: chat.personaId,
+        proactiveMuted: chat.proactiveMuted,
+        conversationMood: resolveRewindConversationMood(chat.conversationMood),
+      },
+      msg: "Chat settings retrieved",
     });
   } catch (error: unknown) {
     handleError(error, res, req);

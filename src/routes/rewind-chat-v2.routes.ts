@@ -16,6 +16,13 @@ import {
 
 const router = Router();
 
+router.get(
+  "/chats/:chatId/preferences",
+  authMiddleware,
+  validate(rewindChatIdSchema, "params"),
+  controller.getPreferences,
+);
+
 router.get("/usage", authMiddleware, controller.getUsage);
 router.get("/chats", authMiddleware, controller.listChats);
 router.get(

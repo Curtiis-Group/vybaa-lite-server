@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { rewindConversationMoodSchema } from "../services/rewind-chat-mood";
 
 export const createLiveTokenSchema = z.object({
   personaId: z.enum(["ella", "lyra", "jake", "ariel", "tobi", "neeja"]),
@@ -32,9 +33,18 @@ export const updateRewindChatSchema = z.object({
   archived: z.boolean(),
 });
 
-export const rewindV2ChatPreferencesSchema = z.object({
-  proactiveMuted: z.boolean(),
-});
+export const rewindV2ChatPreferencesSchema = z
+  .object({
+    proactiveMuted: z.boolean().optional(),
+    conversationMood: rewindConversationMoodSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.proactiveMuted !== undefined ||
+      value.conversationMood !== undefined,
+    "Choose a preference to update",
+  );
 
 export const rewindV2ChatTitleSchema = z.object({
   title: z.string().trim().min(1).max(60),

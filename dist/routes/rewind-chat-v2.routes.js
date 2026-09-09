@@ -39,6 +39,7 @@ const auth_middleware_1 = require("../middleware/auth.middleware");
 const validation_middleware_1 = require("../middleware/validation.middleware");
 const rewind_validators_1 = require("../validators/rewind.validators");
 const router = (0, express_1.Router)();
+router.get("/chats/:chatId/preferences", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), controller.getPreferences);
 router.get("/usage", auth_middleware_1.authMiddleware, controller.getUsage);
 router.get("/chats", auth_middleware_1.authMiddleware, controller.listChats);
 router.get("/chats/:chatId/messages", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.listRewindRecordsSchema, "query"), controller.listMessages);

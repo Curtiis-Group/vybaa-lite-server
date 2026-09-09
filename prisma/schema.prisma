@@ -415,6 +415,7 @@ model RewindChat {
   lastReadAt                     DateTime?           @map("last_read_at")
   unreadCount                    Int                 @default(0) @map("unread_count")
   proactiveMuted                 Boolean             @default(false) @map("proactive_muted")
+  conversationMood               Json?               @map("conversation_mood")
   contextRevision                Int                 @default(0) @map("context_revision")
   contextSummary                 String?             @map("context_summary") @db.Text
   contextSummaryThroughMessageId String?             @map("context_summary_through_message_id")
@@ -449,6 +450,8 @@ model RewindChatMessage {
   idempotencyKey   String?               @unique @map("idempotency_key")
   deliveredAt      DateTime?             @map("delivered_at")
   seenAt           DateTime?             @map("seen_at")
+  readSchedule     Json?                 @map("read_schedule")
+  readDueAt        DateTime?             @map("read_due_at")
   runId            String?               @map("run_id")
   run              RewindChatRun?        @relation(fields: [runId], references: [id], onDelete: SetNull)
   sourceRuns       RewindChatRun[]       @relation("RewindChatRunSourceMessage")
@@ -462,6 +465,7 @@ model RewindChatMessage {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([chatId, createdAt, id])
+  @@index([seenAt, readDueAt])
   @@index([userId, localDateKey, createdAt])
   @@map("rewind_chat_messages")
 }
