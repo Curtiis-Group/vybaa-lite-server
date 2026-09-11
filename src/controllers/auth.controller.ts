@@ -1,5 +1,6 @@
 import type { User } from "@prisma/client";
 import type { Request, Response } from "express";
+import { CURRENT_TERMS_VERSION } from "../constants/legal.constants";
 import { prisma } from "../config/db.config";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { emailService } from "../services/email.service";
@@ -13,6 +14,7 @@ import {
   hashPassword,
   isOTPExpired,
   verifyGoogleToken,
+  verifyAppleToken,
   verifyRefreshToken,
 } from "../utils/auth.util";
 import { uploadImageFromUrl } from "../utils/cloudinary.util";
@@ -79,7 +81,7 @@ export async function login(req: Request, res: Response) {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    if (!user || !user.password) {
+    if (!user || !user.password || user.suspendedAt) {
       return res.status(401).json({ msg: "Invalid credentials" });
     }
 
@@ -105,6 +107,8 @@ export async function login(req: Request, res: Response) {
       where: { id: refreshedUser.id },
       data: {
         refreshToken,
+        termsAcceptedAt: new Date(),
+        termsVersion: CURRENT_TERMS_VERSION,
       },
     });
 
@@ -148,6 +152,8 @@ export async function register(req: Request, res: Response) {
         lastUsernameChangeAt: new Date(), // Set initial change date
         isConfirmed: false,
         isFirstTime: true,
+        termsAcceptedAt: new Date(),
+        termsVersion: CURRENT_TERMS_VERSION,
       },
     });
 
@@ -191,6 +197,13 @@ export async function googleAuth(req: Request, res: Response) {
       where: { email: googleUser.email },
     });
 
+    if (user?.suspendedAt) {
+      return res.status(403).json({
+        code: "ACCOUNT_SUSPENDED",
+        msg: "This account has been suspended for violating our community standards.",
+      });
+    }
+
     if (!user) {
       // Create new user
       const nameParts = googleUser.name?.split(" ") || [];
@@ -198,7 +211,7 @@ export async function googleAuth(req: Request, res: Response) {
       const lastName = nameParts.slice(1).join(" ") || "";
 
       // Generate unique username
-      const baseName = firstName || googleUser.email.split("@")[0];
+      const baseName = firstName || googleUser.email.split("@")[0] || "user";
       const username = await generateUniqueUsername(baseName);
 
       // Upload Google avatar to Cloudinary (async, non-blocking)
@@ -244,7 +257,8 @@ export async function googleAuth(req: Request, res: Response) {
         const lastName = nameParts.slice(1).join(" ") || "";
 
         // Upload avatar to Cloudinary if available
-        let cloudinaryAvatarUrl = user.avatarUrl;
+        let cloudinaryAvatarUrl: string | undefined =
+          user.avatarUrl || undefined;
         if (googleUser.picture && !user.avatarUrl) {
           try {
             const uploadedUrl = await uploadImageFromUrl(
@@ -322,7 +336,11 @@ export async function googleAuth(req: Request, res: Response) {
 
     await prisma.user.update({
       where: { id: refreshedUser.id },
-      data: { refreshToken },
+      data: {
+        refreshToken,
+        termsAcceptedAt: new Date(),
+        termsVersion: CURRENT_TERMS_VERSION,
+      },
     });
 
     res.json({
@@ -336,6 +354,111 @@ export async function googleAuth(req: Request, res: Response) {
   } catch (error) {
     logger.error("Google auth error:", { error });
     res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+export async function appleAuth(req: Request, res: Response) {
+  try {
+    const { familyName, firstName, token } = req.body;
+    const appleUser = await verifyAppleToken(token, req.clientApp);
+
+    if (!appleUser) {
+      return res.status(401).json({ msg: "Invalid Apple identity token" });
+    }
+
+    let user = await prisma.user.findUnique({
+      where: { appleId: appleUser.sub },
+    });
+
+    // Apple may only return the email on the first authorization. Once the
+    // stable subject is linked, subsequent logins do not need the email.
+    if (!user && appleUser.email) {
+      user = await prisma.user.findUnique({
+        where: { email: appleUser.email },
+      });
+    }
+
+    if (user?.suspendedAt) {
+      return res.status(403).json({
+        code: "ACCOUNT_SUSPENDED",
+        msg: "This account has been suspended for violating our community standards.",
+      });
+    }
+
+    if (!user && !appleUser.email) {
+      return res.status(400).json({
+        msg: "Apple did not provide an email address. Please try Apple sign-in again and allow email sharing.",
+      });
+    }
+
+    if (!user) {
+      const safeFirstName = firstName?.trim() || "";
+      const safeLastName = familyName?.trim() || "";
+      const email = appleUser.email!;
+      const baseName = safeFirstName || email.split("@")[0];
+      const username = await generateUniqueUsername(baseName);
+
+      user = await prisma.user.create({
+        data: {
+          appleId: appleUser.sub,
+          email,
+          firstName: safeFirstName || undefined,
+          isConfirmed: true,
+          isFirstTime: true,
+          lastName: safeLastName || undefined,
+          lastUsernameChangeAt: new Date(),
+          username,
+        },
+      });
+    } else if (user.appleId && user.appleId !== appleUser.sub) {
+      // Never silently merge two different Apple identities solely because
+      // their relay/email value happens to match.
+      return res.status(409).json({
+        msg: "This email is already linked to another Apple account.",
+      });
+    } else {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          appleId: appleUser.sub,
+          firstName: user.firstName || firstName?.trim() || undefined,
+          lastName: user.lastName || familyName?.trim() || undefined,
+        },
+      });
+    }
+
+    await userMoodService.refreshCurrentMoodIfNeeded(user.id);
+
+    const refreshedUser = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
+    if (!refreshedUser) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const accessToken = generateAccessToken(refreshedUser.id);
+    const refreshToken = generateRefreshToken(refreshedUser.id);
+
+    await prisma.user.update({
+      where: { id: refreshedUser.id },
+      data: {
+        refreshToken,
+        termsAcceptedAt: new Date(),
+        termsVersion: CURRENT_TERMS_VERSION,
+      },
+    });
+
+    return res.json({
+      msg: "Apple login successful",
+      data: {
+        token: accessToken,
+        refreshToken,
+        user: formatUserResponse(refreshedUser),
+      },
+    });
+  } catch (error) {
+    logger.error("Apple auth error:", { error });
+    return res.status(500).json({ msg: "Internal server error" });
   }
 }
 
@@ -377,7 +500,7 @@ export async function refreshToken(req: Request, res: Response) {
       where: { id: decoded.userId },
     });
 
-    if (!user || user.refreshToken !== refreshToken) {
+    if (!user || user.refreshToken !== refreshToken || user.suspendedAt) {
       return res.status(401).json({ msg: "Invalid refresh token" });
     }
 

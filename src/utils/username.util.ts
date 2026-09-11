@@ -1,20 +1,24 @@
 import { prisma } from "../config/db.config";
+import { containsObjectionableContent } from "./content-moderation.util";
 
 /**
  * Generate a unique username from base name
  * If username exists, appends incrementing number (e.g., john → john1 → john2)
  */
-export async function generateUniqueUsername(baseName: string): Promise<string> {
+export async function generateUniqueUsername(
+  baseName: string,
+): Promise<string> {
   // Clean the base name: lowercase, remove spaces, special chars
   let cleanBase = baseName
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
+    .replace(/[^a-z0-9]/g, "")
     .substring(0, 20); // Max 20 chars for base
 
   if (!cleanBase) {
     // Fallback if name has no valid characters
-    cleanBase = 'user';
+    cleanBase = "user";
   }
+  if (containsObjectionableContent(cleanBase)) cleanBase = "user";
 
   // Try without number first
   const existingUser = await prisma.user.findUnique({
@@ -50,8 +54,8 @@ export async function generateUniqueUsername(baseName: string): Promise<string> 
 /**
  * Check if user can change username (7-day cooldown)
  */
-export function canChangeUsername(lastChangeDate: Date | null): { 
-  canChange: boolean; 
+export function canChangeUsername(lastChangeDate: Date | null): {
+  canChange: boolean;
   daysRemaining: number;
   nextAvailableDate: Date;
 } {
@@ -68,12 +72,13 @@ export function canChangeUsername(lastChangeDate: Date | null): {
 
   const now = new Date();
   const daysSinceChange = Math.floor(
-    (now.getTime() - new Date(lastChangeDate).getTime()) / (1000 * 60 * 60 * 24)
+    (now.getTime() - new Date(lastChangeDate).getTime()) /
+      (1000 * 60 * 60 * 24),
   );
 
   const canChange = daysSinceChange >= COOLDOWN_DAYS;
   const daysRemaining = Math.max(0, COOLDOWN_DAYS - daysSinceChange);
-  
+
   const nextAvailableDate = new Date(lastChangeDate);
   nextAvailableDate.setDate(nextAvailableDate.getDate() + COOLDOWN_DAYS);
 
@@ -87,26 +92,40 @@ export function canChangeUsername(lastChangeDate: Date | null): {
 /**
  * Validate username format
  */
-export function validateUsername(username: string): { valid: boolean; error?: string } {
+export function validateUsername(username: string): {
+  valid: boolean;
+  error?: string;
+} {
   if (!username || username.length < 3) {
-    return { valid: false, error: 'Username must be at least 3 characters' };
+    return { valid: false, error: "Username must be at least 3 characters" };
   }
 
   if (username.length > 20) {
-    return { valid: false, error: 'Username must be 20 characters or less' };
+    return { valid: false, error: "Username must be 20 characters or less" };
   }
 
   // Check if contains uppercase letters
   if (/[A-Z]/.test(username)) {
-    return { valid: false, error: 'Username must be lowercase only' };
+    return { valid: false, error: "Username must be lowercase only" };
   }
 
   if (!/^[a-z0-9_]+$/.test(username)) {
-    return { valid: false, error: 'Username can only contain lowercase letters, numbers, and underscores' };
+    return {
+      valid: false,
+      error:
+        "Username can only contain lowercase letters, numbers, and underscores",
+    };
   }
 
-  if (username.startsWith('_') || username.endsWith('_')) {
-    return { valid: false, error: 'Username cannot start or end with underscore' };
+  if (username.startsWith("_") || username.endsWith("_")) {
+    return {
+      valid: false,
+      error: "Username cannot start or end with underscore",
+    };
+  }
+
+  if (containsObjectionableContent(username)) {
+    return { valid: false, error: "This username is not allowed" };
   }
 
   return { valid: true };
@@ -117,7 +136,7 @@ export function validateUsername(username: string): { valid: boolean; error?: st
  */
 export function sanitizeUsername(input: string): string {
   return input
-    .toLowerCase()           // Force lowercase
-    .replace(/[^a-z0-9_]/g, '') // Remove invalid chars
-    .substring(0, 20);       // Max length
+    .toLowerCase() // Force lowercase
+    .replace(/[^a-z0-9_]/g, "") // Remove invalid chars
+    .substring(0, 20); // Max length
 }

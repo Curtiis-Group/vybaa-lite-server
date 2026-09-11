@@ -10,13 +10,16 @@ exports.verifyRefreshToken = verifyRefreshToken;
 exports.hashPassword = hashPassword;
 exports.comparePassword = comparePassword;
 exports.verifyGoogleToken = verifyGoogleToken;
+exports.verifyAppleToken = verifyAppleToken;
 exports.generateOTP = generateOTP;
 exports.isOTPExpired = isOTPExpired;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const google_auth_library_1 = require("google-auth-library");
+const jose_1 = require("jose");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const logger_util_1 = __importDefault(require("./logger.util"));
 const security_config_util_1 = require("./security-config.util");
+const appleJwks = (0, jose_1.createRemoteJWKSet)(new URL("https://appleid.apple.com/auth/keys"));
 function getRefreshSecret() {
     const value = process.env.JWT_REFRESH_SECRET?.trim();
     if (!value || value === "your-refresh-secret-key-change-in-production") {
@@ -29,6 +32,12 @@ function getGoogleClientId(clientApp) {
         return (process.env.MYCOVE_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "");
     }
     return process.env.GOOGLE_CLIENT_ID || "";
+}
+function getAppleClientId(clientApp) {
+    if (clientApp === "mycove") {
+        return process.env.MYCOVE_APPLE_CLIENT_ID || process.env.APPLE_CLIENT_ID || "";
+    }
+    return process.env.APPLE_CLIENT_ID || "com.vybaa.app";
 }
 function isRecord(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -113,6 +122,37 @@ async function verifyGoogleToken(token, clientApp = "vybaa") {
     }
     catch (error) {
         logger_util_1.default.error("Google token verification error", {
+            clientApp,
+            errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+        return null;
+    }
+}
+/**
+ * Verify Apple's signed identity token against Apple's rotating public keys.
+ * The token is the source of truth for the Apple subject and email; profile
+ * names are intentionally handled separately because Apple only returns them
+ * on the first authorization.
+ */
+async function verifyAppleToken(token, clientApp = "vybaa") {
+    try {
+        const clientId = getAppleClientId(clientApp);
+        if (!clientId) {
+            throw new Error(`${clientApp === "mycove" ? "MYCOVE_" : ""}APPLE_CLIENT_ID is not configured`);
+        }
+        const { payload } = await (0, jose_1.jwtVerify)(token, appleJwks, {
+            audience: clientId,
+            issuer: "https://appleid.apple.com",
+        });
+        if (typeof payload.sub !== "string" || payload.sub.length === 0) {
+            return null;
+        }
+        const email = typeof payload.email === "string" ? payload.email : undefined;
+        const emailVerified = payload.email_verified === true || payload.email_verified === "true";
+        return { email, emailVerified, sub: payload.sub };
+    }
+    catch (error) {
+        logger_util_1.default.error("Apple token verification error", {
             clientApp,
             errorName: error instanceof Error ? error.name : "UnknownError",
         });

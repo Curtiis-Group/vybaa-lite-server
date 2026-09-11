@@ -3,6 +3,7 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validation.middleware";
 import {
   accountConfirmationSchema,
+  appleAuthSchema,
   changePasswordSchema,
   emailParamSchema,
   googleAuthSchema,
@@ -29,6 +30,9 @@ router.post("/register", validate(registerSchema), authController.register);
 
 // POST /api/v1/auth/google
 router.post("/google", validate(googleAuthSchema), authController.googleAuth);
+
+// POST /api/v1/auth/apple
+router.post("/apple", validate(appleAuthSchema), authController.appleAuth);
 
 // POST /api/v1/auth/session
 router.post("/session", authMiddleware, authController.getSession);

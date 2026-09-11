@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { OAuth2Client } from "google-auth-library";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import jwt from "jsonwebtoken";
 
 import type { ClientApp } from "../types/client-app.type";
@@ -12,6 +13,16 @@ type GoogleUser = {
   picture?: string;
   sub: string;
 };
+
+export type AppleUser = {
+  email?: string;
+  emailVerified?: boolean;
+  sub: string;
+};
+
+const appleJwks = createRemoteJWKSet(
+  new URL("https://appleid.apple.com/auth/keys"),
+);
 
 function getRefreshSecret(): string {
   const value = process.env.JWT_REFRESH_SECRET?.trim();
@@ -30,6 +41,14 @@ function getGoogleClientId(clientApp: ClientApp): string {
     );
   }
   return process.env.GOOGLE_CLIENT_ID || "";
+}
+
+function getAppleClientId(clientApp: ClientApp): string {
+  if (clientApp === "mycove") {
+    return process.env.MYCOVE_APPLE_CLIENT_ID || process.env.APPLE_CLIENT_ID || "";
+  }
+
+  return process.env.APPLE_CLIENT_ID || "com.vybaa.app";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -132,6 +151,47 @@ export async function verifyGoogleToken(
     return getGoogleUserFromProfile(await response.json());
   } catch (error) {
     logger.error("Google token verification error", {
+      clientApp,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return null;
+  }
+}
+
+/**
+ * Verify Apple's signed identity token against Apple's rotating public keys.
+ * The token is the source of truth for the Apple subject and email; profile
+ * names are intentionally handled separately because Apple only returns them
+ * on the first authorization.
+ */
+export async function verifyAppleToken(
+  token: string,
+  clientApp: ClientApp = "vybaa",
+): Promise<AppleUser | null> {
+  try {
+    const clientId = getAppleClientId(clientApp);
+    if (!clientId) {
+      throw new Error(
+        `${clientApp === "mycove" ? "MYCOVE_" : ""}APPLE_CLIENT_ID is not configured`,
+      );
+    }
+
+    const { payload } = await jwtVerify(token, appleJwks, {
+      audience: clientId,
+      issuer: "https://appleid.apple.com",
+    });
+
+    if (typeof payload.sub !== "string" || payload.sub.length === 0) {
+      return null;
+    }
+
+    const email = typeof payload.email === "string" ? payload.email : undefined;
+    const emailVerified =
+      payload.email_verified === true || payload.email_verified === "true";
+
+    return { email, emailVerified, sub: payload.sub };
+  } catch (error) {
+    logger.error("Apple token verification error", {
       clientApp,
       errorName: error instanceof Error ? error.name : "UnknownError",
     });

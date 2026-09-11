@@ -2,8 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authMiddleware = authMiddleware;
 exports.optionalAuthMiddleware = optionalAuthMiddleware;
+const db_config_1 = require("../config/db.config");
 const auth_util_1 = require("../utils/auth.util");
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -14,8 +15,18 @@ function authMiddleware(req, res, next) {
         if (!decoded) {
             return res.status(401).json({ msg: "Invalid or expired token" });
         }
+        const user = await db_config_1.prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { suspendedAt: true },
+        });
+        if (!user || user.suspendedAt) {
+            return res.status(403).json({
+                code: "ACCOUNT_SUSPENDED",
+                msg: "This account is unavailable.",
+            });
+        }
         req.userId = decoded.userId;
-        next();
+        return next();
     }
     catch (error) {
         return res.status(401).json({ msg: "Authentication failed" });

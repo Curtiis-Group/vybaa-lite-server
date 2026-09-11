@@ -1,87 +1,113 @@
-import { Response } from "express";
+import type { ModerationReportStatus } from "@prisma/client";
+import type { Response } from "express";
 import { prisma } from "../config/db.config";
-import { AuthRequest } from "../middleware/auth.middleware";
+import type { AuthRequest } from "../middleware/auth.middleware";
+import { emailService } from "../services/email.service";
 import logger from "../utils/logger.util";
-import { containsObjectionableContent } from "../utils/content-moderation.util";
 
-const REPORT_REASONS = new Set([
-  "harassment",
-  "hate",
-  "sexual",
-  "violence",
-  "spam",
-  "other",
-]);
+const REPORT_RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1_000;
+
+type ReportEvidence = {
+  activityId?: string;
+  commentId?: string;
+  evidenceSnapshot: string;
+  targetUserId: string;
+  targetType: "activity" | "comment" | "user";
+};
+
+type ReportRequest = {
+  details?: string;
+  reason: string;
+  targetId: string;
+  targetType: ReportEvidence["targetType"];
+};
+
+async function resolveReportEvidence(
+  targetType: ReportEvidence["targetType"],
+  targetId: string,
+): Promise<ReportEvidence | null> {
+  if (targetType === "activity") {
+    const activity = await prisma.communityActivity.findUnique({
+      where: { id: targetId },
+      select: {
+        communityId: true,
+        id: true,
+        metadata: true,
+        type: true,
+        userId: true,
+      },
+    });
+    if (!activity) return null;
+    return {
+      activityId: activity.id,
+      evidenceSnapshot: JSON.stringify(activity),
+      targetType,
+      targetUserId: activity.userId,
+    };
+  }
+  if (targetType === "comment") {
+    const comment = await prisma.activityComment.findUnique({
+      where: { id: targetId },
+      select: { activityId: true, id: true, text: true, userId: true },
+    });
+    if (!comment) return null;
+    return {
+      commentId: comment.id,
+      evidenceSnapshot: JSON.stringify(comment),
+      targetType,
+      targetUserId: comment.userId,
+    };
+  }
+  const user = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { firstName: true, id: true, username: true },
+  });
+  if (!user) return null;
+  return {
+    evidenceSnapshot: JSON.stringify(user),
+    targetType,
+    targetUserId: user.id,
+  };
+}
+
+function notifyModerationTeam(params: {
+  createdAt: Date;
+  reason: string;
+  reportId: string;
+  targetType: string;
+}): void {
+  const responseDueAt = new Date(
+    params.createdAt.getTime() + REPORT_RESPONSE_WINDOW_MS,
+  ).toISOString();
+  void emailService
+    .sendModerationAlertEmail({ ...params, responseDueAt })
+    .catch((error: unknown) => {
+      logger.error("Moderation alert delivery failed", {
+        error,
+        reportId: params.reportId,
+      });
+    });
+}
 
 export async function reportContent(req: AuthRequest, res: Response) {
   const reporterId = req.userId!;
-  const { targetType, targetId, reason, details } = req.body as Record<
-    string,
-    string | undefined
-  >;
-
-  if (!targetType || !targetId || !REPORT_REASONS.has(reason || "")) {
-    return res.status(400).json({
-      code: "INVALID_REPORT",
-      msg: "Choose a valid report reason and content.",
-    });
-  }
+  const { targetType, targetId, reason, details } = req.body as ReportRequest;
 
   try {
-    let targetUserId: string;
-    let activityId: string | undefined;
-    let commentId: string | undefined;
+    const evidence = await resolveReportEvidence(targetType, targetId);
+    if (!evidence) return res.status(404).json({ msg: "Content not found" });
 
-    if (targetType === "activity") {
-      const activity = await prisma.communityActivity.findUnique({
-        where: { id: targetId },
-        select: { userId: true, id: true },
-      });
-      if (!activity) return res.status(404).json({ msg: "Content not found" });
-      targetUserId = activity.userId;
-      activityId = activity.id;
-    } else if (targetType === "comment") {
-      const comment = await prisma.activityComment.findUnique({
-        where: { id: targetId },
-        select: { userId: true, id: true },
-      });
-      if (!comment) return res.status(404).json({ msg: "Content not found" });
-      targetUserId = comment.userId;
-      commentId = comment.id;
-    } else if (targetType === "user") {
-      const user = await prisma.user.findUnique({
-        where: { id: targetId },
-        select: { id: true },
-      });
-      if (!user) return res.status(404).json({ msg: "User not found" });
-      targetUserId = user.id;
-    } else {
-      return res
-        .status(400)
-        .json({ code: "INVALID_REPORT", msg: "Unsupported content type." });
-    }
-
-    if (targetUserId === reporterId)
+    if (evidence.targetUserId === reporterId)
       return res.status(400).json({
         code: "INVALID_REPORT",
         msg: "You cannot report your own content.",
       });
-    if (
-      details &&
-      (details.length > 1_000 || containsObjectionableContent(details))
-    ) {
-      return res.status(400).json({
-        code: "CONTENT_REJECTED",
-        msg: "Please remove abusive language from the report details.",
-      });
-    }
-
     const existing = await prisma.contentReport.findFirst({
       where: {
         reporterId,
-        targetUserId,
-        activityId,
-        commentId,
+        targetUserId: evidence.targetUserId,
+        activityId: evidence.activityId,
+        commentId: evidence.commentId,
         status: { in: ["OPEN", "REVIEWING"] },
       },
       select: { id: true },
@@ -92,15 +118,22 @@ export async function reportContent(req: AuthRequest, res: Response) {
         data: { reported: true },
       });
 
-    await prisma.contentReport.create({
+    const report = await prisma.contentReport.create({
       data: {
         reporterId,
-        targetUserId,
-        activityId,
-        commentId,
-        reason: reason!,
-        details: details?.trim() || null,
+        targetUserId: evidence.targetUserId,
+        activityId: evidence.activityId,
+        commentId: evidence.commentId,
+        evidenceSnapshot: evidence.evidenceSnapshot,
+        reason,
+        details: details?.trim() ?? null,
       },
+    });
+    notifyModerationTeam({
+      createdAt: report.createdAt,
+      reason,
+      reportId: report.id,
+      targetType,
     });
     return res.status(201).json({
       msg: "Thanks. We will review this report.",
@@ -115,6 +148,8 @@ export async function reportContent(req: AuthRequest, res: Response) {
 export async function blockUser(req: AuthRequest, res: Response) {
   const blockerId = req.userId!;
   const blockedId = String(req.params.userId || "").trim();
+  const { details, reason, targetId, targetType } =
+    req.body as Partial<ReportRequest>;
   if (!blockedId || blockedId === blockerId)
     return res.status(400).json({ msg: "Invalid user to block" });
 
@@ -124,7 +159,17 @@ export async function blockUser(req: AuthRequest, res: Response) {
       select: { id: true },
     });
     if (!blocked) return res.status(404).json({ msg: "User not found" });
-    await prisma.$transaction(async (tx) => {
+    const evidence =
+      targetType && targetId
+        ? await resolveReportEvidence(targetType, targetId)
+        : await resolveReportEvidence("user", blockedId);
+    if (!evidence || evidence.targetUserId !== blockedId) {
+      return res.status(400).json({
+        code: "INVALID_BLOCK_EVIDENCE",
+        msg: "The selected content does not belong to this user.",
+      });
+    }
+    const createdReport = await prisma.$transaction(async (tx) => {
       await tx.userBlock.upsert({
         where: { blockerId_blockedId: { blockerId, blockedId } },
         create: { blockerId, blockedId },
@@ -135,23 +180,34 @@ export async function blockUser(req: AuthRequest, res: Response) {
         where: {
           reporterId: blockerId,
           targetUserId: blockedId,
-          activityId: null,
-          commentId: null,
+          activityId: evidence.activityId,
+          commentId: evidence.commentId,
           status: { in: ["OPEN", "REVIEWING"] },
         },
         select: { id: true },
       });
-      if (!existingReport) {
-        await tx.contentReport.create({
-          data: {
-            reporterId: blockerId,
-            targetUserId: blockedId,
-            reason: "other",
-            details: "User was blocked from the feed.",
-          },
-        });
-      }
+      if (existingReport) return null;
+      return tx.contentReport.create({
+        data: {
+          reporterId: blockerId,
+          targetUserId: blockedId,
+          activityId: evidence.activityId,
+          commentId: evidence.commentId,
+          evidenceSnapshot: evidence.evidenceSnapshot,
+          reason: reason ?? "other",
+          details: details?.trim() ?? "User was blocked from the feed.",
+        },
+        select: { createdAt: true, id: true },
+      });
     });
+    if (createdReport) {
+      notifyModerationTeam({
+        createdAt: createdReport.createdAt,
+        reason: reason ?? "other",
+        reportId: createdReport.id,
+        targetType: evidence.targetType,
+      });
+    }
     return res.status(201).json({
       msg: "User blocked",
       data: { blocked: true, userId: blockedId },
@@ -198,7 +254,19 @@ export async function listReports(req: AuthRequest, res: Response) {
         comment: { select: { id: true, activityId: true, text: true } },
       },
     });
-    return res.json({ msg: "Moderation reports retrieved", data: reports });
+    const now = Date.now();
+    return res.json({
+      msg: "Moderation reports retrieved",
+      data: reports.map((report) => ({
+        ...report,
+        isOverdue:
+          ["OPEN", "REVIEWING"].includes(report.status) &&
+          report.createdAt.getTime() + REPORT_RESPONSE_WINDOW_MS < now,
+        responseDueAt: new Date(
+          report.createdAt.getTime() + REPORT_RESPONSE_WINDOW_MS,
+        ).toISOString(),
+      })),
+    });
   } catch (error) {
     logger.error("List moderation reports failed");
     return res.status(500).json({ msg: "Unable to load moderation reports" });
@@ -207,18 +275,58 @@ export async function listReports(req: AuthRequest, res: Response) {
 
 export async function updateReport(req: AuthRequest, res: Response) {
   const reportId = String(req.params.reportId || "").trim();
-  const { status } = req.body as { status?: string };
+  const { action, note, status } = req.body as {
+    action?: string;
+    note?: string;
+    status?: string;
+  };
   if (
     !reportId ||
     !["REVIEWING", "RESOLVED", "DISMISSED"].includes(status || "")
   ) {
     return res.status(400).json({ msg: "Invalid report update" });
   }
+  if (status === "RESOLVED" && action !== "REMOVE_CONTENT_AND_SUSPEND") {
+    return res.status(400).json({
+      msg: "Resolving a violation requires content removal and account suspension.",
+    });
+  }
+  if (note && note.length > 2_000) {
+    return res.status(400).json({ msg: "Moderator note is too long" });
+  }
 
   try {
-    const report = await prisma.contentReport.update({
+    const existing = await prisma.contentReport.findUnique({
       where: { id: reportId },
-      data: { status: status as "REVIEWING" | "RESOLVED" | "DISMISSED" },
+    });
+    if (!existing)
+      return res.status(404).json({ msg: "Moderation report not found" });
+
+    const report = await prisma.$transaction(async (tx) => {
+      if (action === "REMOVE_CONTENT_AND_SUSPEND") {
+        if (existing.commentId) {
+          await tx.activityComment.deleteMany({
+            where: { id: existing.commentId },
+          });
+        } else if (existing.activityId) {
+          await tx.communityActivity.deleteMany({
+            where: { id: existing.activityId },
+          });
+        }
+        await tx.user.update({
+          where: { id: existing.targetUserId },
+          data: { refreshToken: null, suspendedAt: new Date() },
+        });
+      }
+      return tx.contentReport.update({
+        where: { id: reportId },
+        data: {
+          moderatorAction: action ?? null,
+          moderatorNote: note?.trim() ?? null,
+          reviewedAt: new Date(),
+          status: status as ModerationReportStatus,
+        },
+      });
     });
     return res.json({ msg: "Moderation report updated", data: report });
   } catch (error) {

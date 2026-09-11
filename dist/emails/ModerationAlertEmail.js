@@ -33,13 +33,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const auth_middleware_1 = require("../middleware/auth.middleware");
-const validation_middleware_1 = require("../middleware/validation.middleware");
-const moderation_validators_1 = require("../validators/moderation.validators");
-const moderationController = __importStar(require("../controllers/moderation.controller"));
-const router = (0, express_1.Router)();
-router.post("/reports", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(moderation_validators_1.moderationEvidenceSchema), moderationController.reportContent);
-router.post("/blocks/:userId", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(moderation_validators_1.blockUserParamsSchema, "params"), (0, validation_middleware_1.validate)(moderation_validators_1.blockUserSchema), moderationController.blockUser);
-router.delete("/blocks/:userId", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(moderation_validators_1.blockUserParamsSchema, "params"), moderationController.unblockUser);
-exports.default = router;
+exports.ModerationAlertEmail = ModerationAlertEmail;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const components_1 = require("@react-email/components");
+const React = __importStar(require("react"));
+const AuthLayout_1 = require("./AuthLayout");
+function ModerationAlertEmail({ reason, reportId, responseDueAt, targetType, }) {
+    return ((0, jsx_runtime_1.jsxs)(AuthLayout_1.AuthEmailLayout, { heading: "Content report needs review", previewText: "A Vybaa safety report needs action within 24 hours.", children: [(0, jsx_runtime_1.jsxs)(components_1.Text, { style: paragraph, children: ["Report: ", reportId] }), (0, jsx_runtime_1.jsxs)(components_1.Text, { style: paragraph, children: ["Target: ", targetType] }), (0, jsx_runtime_1.jsxs)(components_1.Text, { style: paragraph, children: ["Reason: ", reason] }), (0, jsx_runtime_1.jsxs)(components_1.Text, { style: paragraph, children: ["Review deadline: ", responseDueAt] }), (0, jsx_runtime_1.jsx)(components_1.Text, { style: warning, children: "Review the evidence, remove violating content, and suspend the offending account when required by the community standards." })] }));
+}
+const paragraph = {
+    fontSize: 14,
+    lineHeight: 1.6,
+    margin: "4px 0 8px",
+};
+const warning = {
+    backgroundColor: "#422006",
+    borderRadius: 12,
+    color: "#fef3c7",
+    fontSize: 14,
+    lineHeight: 1.6,
+    marginTop: 16,
+    padding: 16,
+};

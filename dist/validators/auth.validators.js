@@ -1,7 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.emailParamSchema = exports.updateProfileSchema = exports.suggestionsSchema = exports.onboardingSchema = exports.onboardingAnswerSchema = exports.changePasswordSchema = exports.accountConfirmationSchema = exports.requestConfirmationSchema = exports.resetPasswordSchema = exports.verifyOTPSchema = exports.requestPasswordResetSchema = exports.logoutSchema = exports.refreshTokenSchema = exports.googleAuthSchema = exports.registerSchema = exports.loginSchema = exports.usernameSchema = exports.otpSchema = exports.nameSchema = exports.passwordSchema = exports.emailSchema = void 0;
+exports.emailParamSchema = exports.updateProfileSchema = exports.suggestionsSchema = exports.onboardingSchema = exports.onboardingAnswerSchema = exports.changePasswordSchema = exports.accountConfirmationSchema = exports.requestConfirmationSchema = exports.resetPasswordSchema = exports.verifyOTPSchema = exports.requestPasswordResetSchema = exports.logoutSchema = exports.refreshTokenSchema = exports.appleAuthSchema = exports.googleAuthSchema = exports.registerSchema = exports.loginSchema = exports.usernameSchema = exports.otpSchema = exports.nameSchema = exports.passwordSchema = exports.emailSchema = void 0;
 const zod_1 = require("zod");
+const legal_constants_1 = require("../constants/legal.constants");
+const content_moderation_util_1 = require("../utils/content-moderation.util");
+const termsConsentSchema = {
+    acceptedTerms: zod_1.z.literal(true, {
+        errorMap: () => ({ message: "You must accept the Terms of Use" }),
+    }),
+    termsVersion: zod_1.z.literal(legal_constants_1.CURRENT_TERMS_VERSION, {
+        errorMap: () => ({ message: "Please accept the current Terms of Use" }),
+    }),
+};
 // Common validation schemas
 exports.emailSchema = zod_1.z.string().email("Invalid email format");
 exports.passwordSchema = zod_1.z
@@ -11,7 +21,8 @@ exports.passwordSchema = zod_1.z
 exports.nameSchema = zod_1.z
     .string()
     .min(1, "Name is required")
-    .max(100, "Name must be less than 100 characters");
+    .max(100, "Name must be less than 100 characters")
+    .refine(content_moderation_util_1.isAllowedUserContent, "This name contains content that is not allowed");
 exports.otpSchema = zod_1.z
     .union([
     zod_1.z
@@ -25,20 +36,30 @@ exports.usernameSchema = zod_1.z
     .string()
     .min(3, "Username must be at least 3 characters")
     .max(50, "Username must be less than 50 characters")
-    .regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores");
+    .regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores")
+    .refine(content_moderation_util_1.isAllowedUserContent, "This username contains content that is not allowed");
 // Auth request validators
 exports.loginSchema = zod_1.z.object({
+    ...termsConsentSchema,
     email: exports.emailSchema,
     password: zod_1.z.string().min(1, "Password is required"),
 });
 exports.registerSchema = zod_1.z.object({
+    ...termsConsentSchema,
     email: exports.emailSchema,
     password: exports.passwordSchema,
     firstName: exports.nameSchema.optional(),
     lastName: exports.nameSchema.optional(),
 });
 exports.googleAuthSchema = zod_1.z.object({
+    ...termsConsentSchema,
     token: zod_1.z.string().min(1, "Google token is required"),
+});
+exports.appleAuthSchema = zod_1.z.object({
+    ...termsConsentSchema,
+    familyName: exports.nameSchema.optional(),
+    firstName: exports.nameSchema.optional(),
+    token: zod_1.z.string().min(1, "Apple identity token is required"),
 });
 exports.refreshTokenSchema = zod_1.z.object({
     refreshToken: zod_1.z.string().min(1, "Refresh token is required"),

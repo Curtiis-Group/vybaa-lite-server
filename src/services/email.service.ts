@@ -2,6 +2,7 @@ import { render } from "@react-email/render";
 import nodemailer from "nodemailer";
 import { ConfirmationEmail } from "../emails/ConfirmationEmail";
 import { CommunityInviteEmail } from "../emails/CommunityInviteEmail";
+import { ModerationAlertEmail } from "../emails/ModerationAlertEmail";
 import { PasswordResetEmail } from "../emails/PasswordResetEmail";
 import logger from "../utils/logger.util";
 
@@ -82,6 +83,27 @@ class EmailService {
         inviteLink: params.inviteLink,
         inviterName: params.inviterName,
       }),
+    });
+  }
+
+  async sendModerationAlertEmail(params: {
+    reason: string;
+    reportId: string;
+    responseDueAt: string;
+    targetType: string;
+  }): Promise<void> {
+    const recipient =
+      process.env.MODERATION_ALERT_EMAIL ?? process.env.SMTP_USER;
+    if (!recipient) {
+      logger.error("Moderation alert email is not configured", {
+        reportId: params.reportId,
+      });
+      return;
+    }
+    await this.send({
+      to: recipient,
+      subject: `[Action within 24h] Vybaa content report ${params.reportId}`,
+      react: ModerationAlertEmail(params),
     });
   }
 }

@@ -4,9 +4,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.communityActivityService = void 0;
-const db_config_1 = require("../config/db.config");
 const client_1 = require("@prisma/client");
+const db_config_1 = require("../config/db.config");
+const content_moderation_util_1 = require("../utils/content-moderation.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+function canPublishActivity(...values) {
+    return values.every((value) => !value || (0, content_moderation_util_1.isAllowedUserContent)(value));
+}
 /**
  * Service for automatically generating community activities from goal events
  */
@@ -25,6 +29,8 @@ class CommunityActivityService {
             if (!goal || !goal.communityId) {
                 return; // Not a community goal, skip
             }
+            if (!canPublishActivity(goal.goalText))
+                return;
             await db_config_1.prisma.communityActivity.create({
                 data: {
                     communityId: goal.communityId,
@@ -39,7 +45,11 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create goal started activity error:", { error, goalId, userId });
+            logger_util_1.default.error("Create goal started activity error:", {
+                error,
+                goalId,
+                userId,
+            });
         }
     }
     /**
@@ -56,6 +66,8 @@ class CommunityActivityService {
             if (!goal || !goal.communityId) {
                 return; // Not a community goal, skip
             }
+            if (!canPublishActivity(goal.goalText))
+                return;
             // Only create activity for significant check-ins (e.g., milestones)
             // For now, create activity for every check-in, but we could filter by milestones
             await db_config_1.prisma.communityActivity.create({
@@ -73,7 +85,11 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create check-in activity error:", { error, goalId, userId });
+            logger_util_1.default.error("Create check-in activity error:", {
+                error,
+                goalId,
+                userId,
+            });
         }
     }
     /**
@@ -90,6 +106,8 @@ class CommunityActivityService {
             if (!goal || !goal.communityId) {
                 return; // Not a community goal, skip
             }
+            if (!canPublishActivity(goal.goalText))
+                return;
             await db_config_1.prisma.communityActivity.create({
                 data: {
                     communityId: goal.communityId,
@@ -105,7 +123,11 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create goal completed activity error:", { error, goalId, userId });
+            logger_util_1.default.error("Create goal completed activity error:", {
+                error,
+                goalId,
+                userId,
+            });
         }
     }
     /**
@@ -122,6 +144,8 @@ class CommunityActivityService {
             if (!goal || !goal.communityId) {
                 return; // Not a community goal, skip
             }
+            if (!canPublishActivity(goal.goalText))
+                return;
             await db_config_1.prisma.communityActivity.create({
                 data: {
                     communityId: goal.communityId,
@@ -137,7 +161,11 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create streak reset activity error:", { error, goalId, userId });
+            logger_util_1.default.error("Create streak reset activity error:", {
+                error,
+                goalId,
+                userId,
+            });
         }
     }
     /**
@@ -163,6 +191,8 @@ class CommunityActivityService {
             if (!achievement) {
                 return;
             }
+            if (!canPublishActivity(goal.goalText, achievement.title))
+                return;
             await db_config_1.prisma.communityActivity.create({
                 data: {
                     communityId: goal.communityId,
@@ -180,7 +210,12 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create achievement activity error:", { error, achievementId, userId, goalId });
+            logger_util_1.default.error("Create achievement activity error:", {
+                error,
+                achievementId,
+                userId,
+                goalId,
+            });
         }
     }
     /**
@@ -194,6 +229,8 @@ class CommunityActivityService {
             if (!template) {
                 return;
             }
+            if (!canPublishActivity(template.goalText))
+                return;
             await db_config_1.prisma.communityActivity.create({
                 data: {
                     communityId,
@@ -207,7 +244,12 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create template created activity error:", { error, templateId, userId, communityId });
+            logger_util_1.default.error("Create template created activity error:", {
+                error,
+                templateId,
+                userId,
+                communityId,
+            });
         }
     }
     /**
@@ -225,7 +267,11 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create member left activity error:", { error, communityId, userId });
+            logger_util_1.default.error("Create member left activity error:", {
+                error,
+                communityId,
+                userId,
+            });
         }
     }
     /**
@@ -239,6 +285,8 @@ class CommunityActivityService {
             if (!goal || !goal.communityId) {
                 return; // Not a community goal, skip
             }
+            if (!canPublishActivity(goal.goalText))
+                return;
             await db_config_1.prisma.communityActivity.create({
                 data: {
                     communityId: goal.communityId,
@@ -253,7 +301,11 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create goal deleted activity error:", { error, goalId, userId });
+            logger_util_1.default.error("Create goal deleted activity error:", {
+                error,
+                goalId,
+                userId,
+            });
         }
     }
     /**
@@ -267,6 +319,8 @@ class CommunityActivityService {
             if (!goal || !goal.communityId) {
                 return; // Not a community goal, skip
             }
+            if (!canPublishActivity(goal.goalText, milestone.name))
+                return;
             await db_config_1.prisma.communityActivity.create({
                 data: {
                     communityId: goal.communityId,
@@ -283,7 +337,12 @@ class CommunityActivityService {
             });
         }
         catch (error) {
-            logger_util_1.default.error("Create milestone reached activity error:", { error, goalId, userId, milestoneId: milestone.id });
+            logger_util_1.default.error("Create milestone reached activity error:", {
+                error,
+                goalId,
+                userId,
+                milestoneId: milestone.id,
+            });
         }
     }
 }

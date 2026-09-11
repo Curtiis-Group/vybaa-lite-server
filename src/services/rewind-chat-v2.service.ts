@@ -2927,9 +2927,25 @@ export async function enqueueRewindChatMessage(params: {
         };
       }
     }
+    const currentChat = await tx.rewindChat.findUniqueOrThrow({
+      select: { contextRevision: true },
+      where: { id: chat.id },
+    });
+    const activeGeneratingRun = await tx.rewindChatRun.findFirst({
+      select: { contextRevision: true },
+      where: {
+        chatId: chat.id,
+        contextRevision: currentChat.contextRevision,
+        status: RewindChatRunStatus.GENERATING,
+        userId: params.userId,
+      },
+    });
     const revisedChat = await tx.rewindChat.update({
       data: {
-        contextRevision: { increment: 1 },
+        // Keep the active burst's revision stable so a new user message does
+        // not invalidate turns that are already typing or streaming. The
+        // next queued run will consume the new message once that burst ends.
+        ...(activeGeneratingRun ? {} : { contextRevision: { increment: 1 } }),
         lastMessageAt: userMessage.createdAt,
       },
       select: { contextRevision: true },
@@ -2952,26 +2968,13 @@ export async function enqueueRewindChatMessage(params: {
       where: { id: userMessage.id },
     });
     const cancelledAt = new Date();
-    const stoppedTurns = await tx.rewindChatTurn.findMany({
-      select: { id: true, personaId: true, runId: true },
-      where: {
-        chatId: chat.id,
-        runId: { not: run.id },
-        status: RewindChatTurnStatus.GENERATING,
-        userId: params.userId,
-      },
-    });
     const cancelledRuns = await tx.rewindChatRun.findMany({
       select: { id: true },
       where: {
         chatId: chat.id,
         id: { not: run.id },
         status: {
-          in: [
-            RewindChatRunStatus.GENERATING,
-            RewindChatRunStatus.PLANNING,
-            RewindChatRunStatus.QUEUED,
-          ],
+          in: [RewindChatRunStatus.PLANNING, RewindChatRunStatus.QUEUED],
         },
         userId: params.userId,
       },
@@ -2985,11 +2988,7 @@ export async function enqueueRewindChatMessage(params: {
         chatId: chat.id,
         id: { not: run.id },
         status: {
-          in: [
-            RewindChatRunStatus.GENERATING,
-            RewindChatRunStatus.PLANNING,
-            RewindChatRunStatus.QUEUED,
-          ],
+          in: [RewindChatRunStatus.PLANNING, RewindChatRunStatus.QUEUED],
         },
         userId: params.userId,
       },
@@ -2999,23 +2998,23 @@ export async function enqueueRewindChatMessage(params: {
       where: {
         chatId: chat.id,
         runId: { not: run.id },
-        status: {
-          in: [RewindChatTurnStatus.GENERATING, RewindChatTurnStatus.PLANNED],
-        },
+        status: RewindChatTurnStatus.PLANNED,
         userId: params.userId,
       },
     });
-    await tx.rewindPartnerMind.updateMany({
-      data: {
-        confidence: null,
-        contextRevision: revisedChat.contextRevision,
-        intentSummary: null,
-        lastEvaluatedAt: cancelledAt,
-        state: RewindPartnerMindState.WATCHING,
-      },
-      where: { chatId: chat.id, userId: params.userId },
-    });
-    return { cancelledRuns, run, stoppedTurns, userMessage };
+    if (!activeGeneratingRun) {
+      await tx.rewindPartnerMind.updateMany({
+        data: {
+          confidence: null,
+          contextRevision: revisedChat.contextRevision,
+          intentSummary: null,
+          lastEvaluatedAt: cancelledAt,
+          state: RewindPartnerMindState.WATCHING,
+        },
+        where: { chatId: chat.id, userId: params.userId },
+      });
+    }
+    return { cancelledRuns, run, stoppedTurns: [], userMessage };
   });
   await recordActivitySignal({
     dedupeKey: `rewind-chat-v2:${result.userMessage.id}`,
@@ -3100,6 +3099,7 @@ export async function processQueuedRewindChatRun(
   timezone: string,
 ): Promise<void> {
   const leaseToken = randomUUID();
+  const activeLeaseAfter = new Date(Date.now() - RUN_LEASE_MS);
   const claimed = await prisma.rewindChatRun.updateMany({
     data: {
       leasedAt: new Date(),
@@ -3110,6 +3110,24 @@ export async function processQueuedRewindChatRun(
     where: {
       id: runId,
       userId,
+      // A chat owns one active burst at a time. New messages queue behind a
+      // burst that is already typing/streaming instead of racing it and
+      // producing duplicate partner waves.
+      chat: {
+        runs: {
+          none: {
+            id: { not: runId },
+            leasedAt: { gte: activeLeaseAfter },
+            status: {
+              in: [
+                RewindChatRunStatus.PLANNING,
+                RewindChatRunStatus.GENERATING,
+              ],
+            },
+            userId,
+          },
+        },
+      },
       OR: [
         { status: RewindChatRunStatus.QUEUED },
         {

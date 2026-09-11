@@ -258,6 +258,19 @@ async function getPublicProfile(req, res) {
         if (!user) {
             return res.status(404).json({ msg: "User not found" });
         }
+        if (req.userId && req.userId !== user.id) {
+            const block = await db_config_1.prisma.userBlock.findFirst({
+                where: {
+                    OR: [
+                        { blockedId: user.id, blockerId: req.userId },
+                        { blockedId: req.userId, blockerId: user.id },
+                    ],
+                },
+                select: { id: true },
+            });
+            if (block)
+                return res.status(404).json({ msg: "User not found" });
+        }
         res.json({
             msg: "Public profile retrieved",
             data: {

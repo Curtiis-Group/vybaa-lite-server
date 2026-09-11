@@ -22,5 +22,7 @@ import "./services/rewind-temporal-context.service.test";
 import "./utils/notification-dedupe.util.test";
 import "./utils/rewind-notification-personalization.util.test";
 import "./utils/goal-reminder.util.test";
+import "./utils/content-moderation.util.test";
 import "./validators/goal-v2.validators.test";
 import "./validators/rewind.validators.test";
+import "./validators/ugc-safety.validators.test";

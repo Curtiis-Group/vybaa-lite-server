@@ -1,4 +1,15 @@
 import { z } from "zod";
+import { CURRENT_TERMS_VERSION } from "../constants/legal.constants";
+import { isAllowedUserContent } from "../utils/content-moderation.util";
+
+const termsConsentSchema = {
+  acceptedTerms: z.literal(true, {
+    errorMap: () => ({ message: "You must accept the Terms of Use" }),
+  }),
+  termsVersion: z.literal(CURRENT_TERMS_VERSION, {
+    errorMap: () => ({ message: "Please accept the current Terms of Use" }),
+  }),
+};
 
 // Common validation schemas
 export const emailSchema = z.string().email("Invalid email format");
@@ -9,7 +20,11 @@ export const passwordSchema = z
 export const nameSchema = z
   .string()
   .min(1, "Name is required")
-  .max(100, "Name must be less than 100 characters");
+  .max(100, "Name must be less than 100 characters")
+  .refine(
+    isAllowedUserContent,
+    "This name contains content that is not allowed",
+  );
 export const otpSchema = z
   .union([
     z
@@ -26,15 +41,21 @@ export const usernameSchema = z
   .regex(
     /^[a-zA-Z0-9_]+$/,
     "Username can only contain letters, numbers, and underscores",
+  )
+  .refine(
+    isAllowedUserContent,
+    "This username contains content that is not allowed",
   );
 
 // Auth request validators
 export const loginSchema = z.object({
+  ...termsConsentSchema,
   email: emailSchema,
   password: z.string().min(1, "Password is required"),
 });
 
 export const registerSchema = z.object({
+  ...termsConsentSchema,
   email: emailSchema,
   password: passwordSchema,
   firstName: nameSchema.optional(),
@@ -42,7 +63,15 @@ export const registerSchema = z.object({
 });
 
 export const googleAuthSchema = z.object({
+  ...termsConsentSchema,
   token: z.string().min(1, "Google token is required"),
+});
+
+export const appleAuthSchema = z.object({
+  ...termsConsentSchema,
+  familyName: nameSchema.optional(),
+  firstName: nameSchema.optional(),
+  token: z.string().min(1, "Apple identity token is required"),
 });
 
 export const refreshTokenSchema = z.object({

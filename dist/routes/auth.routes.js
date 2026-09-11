@@ -45,6 +45,8 @@ router.post("/login", (0, validation_middleware_1.validate)(auth_validators_1.lo
 router.post("/register", (0, validation_middleware_1.validate)(auth_validators_1.registerSchema), authController.register);
 // POST /api/v1/auth/google
 router.post("/google", (0, validation_middleware_1.validate)(auth_validators_1.googleAuthSchema), authController.googleAuth);
+// POST /api/v1/auth/apple
+router.post("/apple", (0, validation_middleware_1.validate)(auth_validators_1.appleAuthSchema), authController.appleAuth);
 // POST /api/v1/auth/session
 router.post("/session", auth_middleware_1.authMiddleware, authController.getSession);
 // POST /api/v1/auth/refresh-token

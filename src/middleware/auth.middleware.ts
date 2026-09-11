@@ -1,11 +1,16 @@
-import { Request, Response, NextFunction } from "express";
+import type { NextFunction, Request, Response } from "express";
+import { prisma } from "../config/db.config";
 import { verifyAccessToken } from "../utils/auth.util";
 
 export interface AuthRequest extends Request {
   userId?: string;
 }
 
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+export async function authMiddleware(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<Response | void> {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -19,8 +24,18 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       return res.status(401).json({ msg: "Invalid or expired token" });
     }
 
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { suspendedAt: true },
+    });
+    if (!user || user.suspendedAt) {
+      return res.status(403).json({
+        code: "ACCOUNT_SUSPENDED",
+        msg: "This account is unavailable.",
+      });
+    }
     req.userId = decoded.userId;
-    next();
+    return next();
   } catch (error) {
     return res.status(401).json({ msg: "Authentication failed" });
   }
@@ -36,7 +51,7 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
 export function optionalAuthMiddleware(
   req: AuthRequest,
   _res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) {
   try {
     const authHeader = req.headers.authorization;

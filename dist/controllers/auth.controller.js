@@ -7,6 +7,7 @@ exports.formatUserResponse = formatUserResponse;
 exports.login = login;
 exports.register = register;
 exports.googleAuth = googleAuth;
+exports.appleAuth = appleAuth;
 exports.getSession = getSession;
 exports.refreshToken = refreshToken;
 exports.logout = logout;
@@ -19,6 +20,7 @@ exports.checkEmail = checkEmail;
 exports.changePassword = changePassword;
 exports.getSuggestions = getSuggestions;
 exports.completeOnboarding = completeOnboarding;
+const legal_constants_1 = require("../constants/legal.constants");
 const db_config_1 = require("../config/db.config");
 const email_service_1 = require("../services/email.service");
 const rewind_partner_switch_service_1 = require("../services/rewind-partner-switch.service");
@@ -56,7 +58,7 @@ async function login(req, res) {
     try {
         const { email, password } = req.body;
         const user = await db_config_1.prisma.user.findUnique({ where: { email } });
-        if (!user || !user.password) {
+        if (!user || !user.password || user.suspendedAt) {
             return res.status(401).json({ msg: "Invalid credentials" });
         }
         const isPasswordValid = await (0, auth_util_1.comparePassword)(password, user.password);
@@ -77,6 +79,8 @@ async function login(req, res) {
             where: { id: refreshedUser.id },
             data: {
                 refreshToken,
+                termsAcceptedAt: new Date(),
+                termsVersion: legal_constants_1.CURRENT_TERMS_VERSION,
             },
         });
         res.json({
@@ -115,6 +119,8 @@ async function register(req, res) {
                 lastUsernameChangeAt: new Date(), // Set initial change date
                 isConfirmed: false,
                 isFirstTime: true,
+                termsAcceptedAt: new Date(),
+                termsVersion: legal_constants_1.CURRENT_TERMS_VERSION,
             },
         });
         // Generate tokens
@@ -152,13 +158,19 @@ async function googleAuth(req, res) {
         let user = await db_config_1.prisma.user.findUnique({
             where: { email: googleUser.email },
         });
+        if (user?.suspendedAt) {
+            return res.status(403).json({
+                code: "ACCOUNT_SUSPENDED",
+                msg: "This account has been suspended for violating our community standards.",
+            });
+        }
         if (!user) {
             // Create new user
             const nameParts = googleUser.name?.split(" ") || [];
             const firstName = nameParts[0] || "";
             const lastName = nameParts.slice(1).join(" ") || "";
             // Generate unique username
-            const baseName = firstName || googleUser.email.split("@")[0];
+            const baseName = firstName || googleUser.email.split("@")[0] || "user";
             const username = await (0, username_util_1.generateUniqueUsername)(baseName);
             // Upload Google avatar to Cloudinary (async, non-blocking)
             let cloudinaryAvatarUrl = undefined;
@@ -197,7 +209,7 @@ async function googleAuth(req, res) {
                 const firstName = nameParts[0] || "";
                 const lastName = nameParts.slice(1).join(" ") || "";
                 // Upload avatar to Cloudinary if available
-                let cloudinaryAvatarUrl = user.avatarUrl;
+                let cloudinaryAvatarUrl = user.avatarUrl || undefined;
                 if (googleUser.picture && !user.avatarUrl) {
                     try {
                         const uploadedUrl = await (0, cloudinary_util_1.uploadImageFromUrl)(googleUser.picture, user.id, "google-avatars");
@@ -264,7 +276,11 @@ async function googleAuth(req, res) {
         const refreshToken = (0, auth_util_1.generateRefreshToken)(refreshedUser.id);
         await db_config_1.prisma.user.update({
             where: { id: refreshedUser.id },
-            data: { refreshToken },
+            data: {
+                refreshToken,
+                termsAcceptedAt: new Date(),
+                termsVersion: legal_constants_1.CURRENT_TERMS_VERSION,
+            },
         });
         res.json({
             msg: "Google login successful",
@@ -278,6 +294,101 @@ async function googleAuth(req, res) {
     catch (error) {
         logger_util_1.default.error("Google auth error:", { error });
         res.status(500).json({ msg: "Internal server error" });
+    }
+}
+async function appleAuth(req, res) {
+    try {
+        const { familyName, firstName, token } = req.body;
+        const appleUser = await (0, auth_util_1.verifyAppleToken)(token, req.clientApp);
+        if (!appleUser) {
+            return res.status(401).json({ msg: "Invalid Apple identity token" });
+        }
+        let user = await db_config_1.prisma.user.findUnique({
+            where: { appleId: appleUser.sub },
+        });
+        // Apple may only return the email on the first authorization. Once the
+        // stable subject is linked, subsequent logins do not need the email.
+        if (!user && appleUser.email) {
+            user = await db_config_1.prisma.user.findUnique({
+                where: { email: appleUser.email },
+            });
+        }
+        if (user?.suspendedAt) {
+            return res.status(403).json({
+                code: "ACCOUNT_SUSPENDED",
+                msg: "This account has been suspended for violating our community standards.",
+            });
+        }
+        if (!user && !appleUser.email) {
+            return res.status(400).json({
+                msg: "Apple did not provide an email address. Please try Apple sign-in again and allow email sharing.",
+            });
+        }
+        if (!user) {
+            const safeFirstName = firstName?.trim() || "";
+            const safeLastName = familyName?.trim() || "";
+            const email = appleUser.email;
+            const baseName = safeFirstName || email.split("@")[0];
+            const username = await (0, username_util_1.generateUniqueUsername)(baseName);
+            user = await db_config_1.prisma.user.create({
+                data: {
+                    appleId: appleUser.sub,
+                    email,
+                    firstName: safeFirstName || undefined,
+                    isConfirmed: true,
+                    isFirstTime: true,
+                    lastName: safeLastName || undefined,
+                    lastUsernameChangeAt: new Date(),
+                    username,
+                },
+            });
+        }
+        else if (user.appleId && user.appleId !== appleUser.sub) {
+            // Never silently merge two different Apple identities solely because
+            // their relay/email value happens to match.
+            return res.status(409).json({
+                msg: "This email is already linked to another Apple account.",
+            });
+        }
+        else {
+            user = await db_config_1.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    appleId: appleUser.sub,
+                    firstName: user.firstName || firstName?.trim() || undefined,
+                    lastName: user.lastName || familyName?.trim() || undefined,
+                },
+            });
+        }
+        await user_mood_service_1.userMoodService.refreshCurrentMoodIfNeeded(user.id);
+        const refreshedUser = await db_config_1.prisma.user.findUnique({
+            where: { id: user.id },
+        });
+        if (!refreshedUser) {
+            return res.status(404).json({ msg: "User not found" });
+        }
+        const accessToken = (0, auth_util_1.generateAccessToken)(refreshedUser.id);
+        const refreshToken = (0, auth_util_1.generateRefreshToken)(refreshedUser.id);
+        await db_config_1.prisma.user.update({
+            where: { id: refreshedUser.id },
+            data: {
+                refreshToken,
+                termsAcceptedAt: new Date(),
+                termsVersion: legal_constants_1.CURRENT_TERMS_VERSION,
+            },
+        });
+        return res.json({
+            msg: "Apple login successful",
+            data: {
+                token: accessToken,
+                refreshToken,
+                user: formatUserResponse(refreshedUser),
+            },
+        });
+    }
+    catch (error) {
+        logger_util_1.default.error("Apple auth error:", { error });
+        return res.status(500).json({ msg: "Internal server error" });
     }
 }
 async function getSession(req, res) {
@@ -311,7 +422,7 @@ async function refreshToken(req, res) {
         const user = await db_config_1.prisma.user.findUnique({
             where: { id: decoded.userId },
         });
-        if (!user || user.refreshToken !== refreshToken) {
+        if (!user || user.refreshToken !== refreshToken || user.suspendedAt) {
             return res.status(401).json({ msg: "Invalid refresh token" });
         }
         // Generate new tokens
