@@ -90,7 +90,7 @@ test("RevenueCat v2 active entitlements map Vybaa Pro access", () => {
         items: [
           {
             id: "product-resource-id",
-            store_identifier: "com.vybaa.app.pro.monthly",
+            store_identifier: "com.vybaa.pro.monthly",
           },
         ],
       },
@@ -113,7 +113,7 @@ test("RevenueCat v2 active entitlements map Vybaa Pro access", () => {
   assert.equal(verification.expiresAt?.toISOString(), expiresAt.toISOString());
   assert.equal(verification.environment, "SANDBOX");
   assert.equal(verification.periodType, "trialing");
-  assert.equal(verification.productIdentifier, "com.vybaa.app.pro.monthly");
+  assert.equal(verification.productIdentifier, "com.vybaa.pro.monthly");
   assert.equal(
     matchesRevenueCatEntitlementIdentifier(
       { lookup_key: "Vybaa Pro" },
