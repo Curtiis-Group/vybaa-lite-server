@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { RewindChatMessageRole } from "@prisma/client";
 import {
   getPartnerReactionDelayMs,
   shouldAddPartnerReaction,
@@ -24,6 +25,7 @@ import {
   getRewindChatDeliveryContext,
   getRewindDeliveredToSeenDelayMs,
   getRewindMinimumTypingMs,
+  getRewindSocialGuard,
   getRewindSeenToTypingDelayMs,
   getRewindWaveTypingDelays,
   parseRewindContextCompactionResponse,
@@ -37,6 +39,34 @@ const DIRECTOR_FALLBACK = {
   reactions: [],
   turns: [],
 };
+
+test("social guard cools down after an unanswered partner message", () => {
+  const now = new Date("2026-09-14T12:00:00Z");
+  const guard = getRewindSocialGuard({
+    latestMessageAt: new Date("2026-09-14T08:00:00Z"),
+    latestMessageRole: RewindChatMessageRole.PARTNER,
+    latestUserMessageAt: new Date("2026-09-14T07:00:00Z"),
+    now,
+  });
+  assert.equal(guard.canInitiate, false);
+  assert.equal(guard.reason, "cooling_off");
+  assert.equal(guard.unansweredForMs, 4 * 60 * 60 * 1000);
+});
+
+test("social guard allows a partner to initiate after the user re-engages", () => {
+  const now = new Date("2026-09-14T12:00:00Z");
+  const guard = getRewindSocialGuard({
+    latestMessageAt: new Date("2026-09-14T11:59:00Z"),
+    latestMessageRole: RewindChatMessageRole.USER,
+    latestUserMessageAt: new Date("2026-09-14T11:59:00Z"),
+    now,
+  });
+  assert.deepEqual(guard, {
+    canInitiate: true,
+    reason: "ready",
+    unansweredForMs: 0,
+  });
+});
 
 test("AI-selected reactions retain a natural delay without a random veto", () => {
   for (let index = 0; index < 1000; index += 1) {
