@@ -13,6 +13,7 @@ import {
 import { requestLogger } from "./middleware/request-logger.middleware";
 import {
   apiRateLimit,
+  rejectCommonProbes,
   revenueCatWebhookRateLimit,
   securityHeaders,
 } from "./middleware/security.middleware";
@@ -41,6 +42,7 @@ expressWs(app);
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(securityHeaders);
+app.use(rejectCommonProbes);
 app.use(
   cors({
     credentials: true,
@@ -146,6 +148,11 @@ export const server = app.listen(config.PORT, () => {
   // Start notification scheduler
   schedulerService.start();
 });
+
+// Release slow/incomplete connections so they cannot consume a worker indefinitely.
+server.requestTimeout = 30_000;
+server.headersTimeout = 15_000;
+server.keepAliveTimeout = 5_000;
 
 // Graceful shutdown
 process.on("SIGTERM", () => {

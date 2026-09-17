@@ -6,6 +6,29 @@ const requests = new Map<string, RateEntry>();
 const revenueCatWebhookRequests = new Map<string, RateEntry>();
 const REVENUECAT_WEBHOOK_RATE_LIMIT = 600;
 const REVENUECAT_WEBHOOK_RATE_WINDOW_MS = 60_000;
+const PROBE_PATHS = new Set([
+  "/.env",
+  "/.env.local",
+  "/.env.production",
+  "/.git/config",
+  "/.git/HEAD",
+  "/.git/index",
+  "/wp-admin",
+  "/wp-login.php",
+  "/phpmyadmin",
+]);
+
+export function rejectCommonProbes(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (PROBE_PATHS.has(req.path) || req.path.startsWith("/.git/")) {
+    res.status(404).end();
+    return;
+  }
+  next();
+}
 
 export function securityHeaders(
   _req: Request,
@@ -41,6 +64,13 @@ export function apiRateLimit(
     ? { count: 1, resetAt: now + securityConfig.httpRateWindowMs }
     : { ...current, count: current.count + 1 };
   requests.set(key, entry);
+
+  // Keep this fallback limiter bounded when the service is exposed directly.
+  if (requests.size > 10_000) {
+    for (const [entryKey, entryValue] of requests) {
+      if (entryValue.resetAt <= now) requests.delete(entryKey);
+    }
+  }
 
   res.setHeader("RateLimit-Limit", securityConfig.httpRateLimit);
   res.setHeader("RateLimit-Remaining", Math.max(0, securityConfig.httpRateLimit - entry.count));

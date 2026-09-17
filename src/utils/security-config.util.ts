@@ -39,7 +39,8 @@ export const securityConfig = {
   allowedOrigins: getAllowedOrigins(),
   apiBodyLimit: process.env.API_BODY_LIMIT ?? "256kb",
   uploadBodyLimit: process.env.UPLOAD_BODY_LIMIT ?? "10mb",
-  httpRateLimit: getPositiveInteger("HTTP_RATE_LIMIT", 300),
+  // Generous enough for shared mobile/office IPs while still limiting bursts.
+  httpRateLimit: getPositiveInteger("HTTP_RATE_LIMIT", 600),
   httpRateWindowMs: getPositiveInteger("HTTP_RATE_WINDOW_MS", 60_000),
   rewindMaxConnectionsPerUser: getPositiveInteger(
     "REWIND_MAX_CONNECTIONS_PER_USER",

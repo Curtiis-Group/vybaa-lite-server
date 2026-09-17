@@ -61,6 +61,7 @@ exports.app = (0, express_1.default)();
 exports.app.disable("x-powered-by");
 exports.app.set("trust proxy", 1);
 exports.app.use(security_middleware_1.securityHeaders);
+exports.app.use(security_middleware_1.rejectCommonProbes);
 exports.app.use((0, cors_1.default)({
     credentials: true,
     origin(origin, callback) {
@@ -124,6 +125,10 @@ exports.server = exports.app.listen(config_util_1.default.PORT, () => {
     // Start notification scheduler
     scheduler_service_1.schedulerService.start();
 });
+// Release slow/incomplete connections so they cannot consume a worker indefinitely.
+exports.server.requestTimeout = 30000;
+exports.server.headersTimeout = 15000;
+exports.server.keepAliveTimeout = 5000;
 // Graceful shutdown
 process.on("SIGTERM", () => {
     logger_util_1.default.info("SIGTERM signal received: closing HTTP server");

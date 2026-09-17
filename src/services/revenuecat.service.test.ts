@@ -30,6 +30,10 @@ test("Vybaa uses its own entitlement and store products", () => {
 
   assert.equal(config.entitlementId, VYBAA_ENTITLEMENT_ID);
   assert.deepEqual(config.products, VYBAA_PRODUCT_IDS);
+  assert.deepEqual(config.products, {
+    annual: "com.vybaa.pro.annual",
+    monthly: "com.vybaa.pro.monthly",
+  });
   assert.equal(config.offeringId, "default");
 });
 

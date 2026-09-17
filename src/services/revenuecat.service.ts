@@ -12,8 +12,8 @@ export const VYBAA_ENTITLEMENT_ID = "vybaa_pro";
 export const VYBAA_OFFERING_ID = "default";
 
 export const VYBAA_PRODUCT_IDS = {
-  annual: "com.vybaa.app.pro.annual",
-  monthly: "com.vybaa.app.pro.monthly",
+  annual: "com.vybaa.pro.annual",
+  monthly: "com.vybaa.pro.monthly",
 } as const;
 
 export const FREE_SUBSCRIPTION_LIMITS = {
