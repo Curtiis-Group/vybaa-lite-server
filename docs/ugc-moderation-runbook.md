@@ -1,6 +1,6 @@
 # UGC safety operations
 
-Vybaa’s safety mailbox must be monitored every day. Set `MODERATION_ALERT_EMAIL` in production to a staffed address; it falls back to `SMTP_USER` only when the dedicated address is absent.
+Vybaa’s safety mailbox must be monitored every day. Set `MODERATION_ALERT_EMAIL` in production to a staffed address; it falls back to `PLUNK_FROM_EMAIL` only when the dedicated address is absent.
 
 ## Response target
 
@@ -14,7 +14,7 @@ Open `/app/admin/feature-flags`, enter the production `ADMIN_SECRET`, then use *
 ## Release checklist
 
 1. Apply Prisma migrations with `npm run db:migrate` in `cloud/`.
-2. Set and verify `MODERATION_ALERT_EMAIL`, `SMTP_USER`, `SMTP_PASSWORD`, and `ADMIN_SECRET`.
+2. Set and verify `MODERATION_ALERT_EMAIL`, `PLUNK_SECRET_KEY`, `PLUNK_FROM_EMAIL`, and `ADMIN_SECRET`.
 3. In the Cloudinary console, subscribe to the Amazon Rekognition AI Moderation add-on. Public profile and community-cover uploads fail closed unless Cloudinary returns an `approved` moderation result. Test one safe and one unsafe image before submission.
 4. Deploy the cloud API, app, and public website. Confirm `https://www.vybaa.app/terms` shows the September 11, 2026 policy.
 5. Create two test users. Post an allowed activity from user A and view it as user B.

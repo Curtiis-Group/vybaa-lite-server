@@ -5,22 +5,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emailService = void 0;
 const render_1 = require("@react-email/render");
-const nodemailer_1 = __importDefault(require("nodemailer"));
 const ConfirmationEmail_1 = require("../emails/ConfirmationEmail");
 const CommunityInviteEmail_1 = require("../emails/CommunityInviteEmail");
 const ModerationAlertEmail_1 = require("../emails/ModerationAlertEmail");
 const PasswordResetEmail_1 = require("../emails/PasswordResetEmail");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
-const transport = nodemailer_1.default.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-    },
-});
+const DEFAULT_PLUNK_API_URL = "https://next-api.useplunk.com/v1/send";
 class EmailService {
     isConfigured() {
-        return Boolean(process.env.SMTP_USER && process.env.SMTP_PASSWORD);
+        return Boolean(process.env.PLUNK_SECRET_KEY?.trim() &&
+            process.env.PLUNK_FROM_EMAIL?.trim());
     }
     async send(options) {
         if (!this.isConfigured()) {
@@ -31,12 +25,25 @@ class EmailService {
             return;
         }
         const html = await (0, render_1.render)(options.react);
-        await transport.sendMail({
-            from: `"${options?.from || process.env.APP_NAME}" <${process.env.SMTP_USER}>`,
-            to: options.to,
-            subject: options.subject,
-            html,
+        const fromEmail = options.from || process.env.PLUNK_FROM_EMAIL;
+        const fromName = process.env.PLUNK_FROM_NAME || process.env.APP_NAME;
+        const response = await fetch(process.env.PLUNK_API_URL || DEFAULT_PLUNK_API_URL, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${process.env.PLUNK_SECRET_KEY}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                from: fromName ? { name: fromName, email: fromEmail } : fromEmail,
+                to: options.to,
+                subject: options.subject,
+                body: html,
+            }),
         });
+        if (!response.ok) {
+            const details = await response.text();
+            throw new Error(`Plunk email send failed (${response.status}): ${details}`);
+        }
     }
     async sendPasswordResetEmail(params) {
         await this.send({
@@ -65,7 +72,7 @@ class EmailService {
         });
     }
     async sendModerationAlertEmail(params) {
-        const recipient = process.env.MODERATION_ALERT_EMAIL ?? process.env.SMTP_USER;
+        const recipient = process.env.MODERATION_ALERT_EMAIL ?? process.env.PLUNK_FROM_EMAIL;
         if (!recipient) {
             logger_util_1.default.error("Moderation alert email is not configured", {
                 reportId: params.reportId,
