@@ -28,6 +28,7 @@ import config from "./utils/config.util";
 import { Env, ENVIRONMENT } from "./utils/env.util";
 import logger from "./utils/logger.util";
 import {
+  isPublicProfileOrigin,
   securityConfig,
   validateSecurityEnvironment,
 } from "./utils/security-config.util";
@@ -50,6 +51,7 @@ app.use(
       if (
         !origin ||
         securityConfig.allowedOrigins.includes(origin) ||
+        isPublicProfileOrigin(origin) ||
         Env.ENVIRONMENT == ENVIRONMENT.LOCAL
       ) {
         callback(null, true);

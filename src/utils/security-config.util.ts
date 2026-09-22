@@ -35,6 +35,26 @@ function getAllowedOrigins(): string[] {
   ];
 }
 
+/**
+ * Public profile pages are served from a member-owned subdomain. Keep this
+ * narrow: only usernames accepted by the product can receive credentialed
+ * browser requests to the API.
+ */
+export function isPublicProfileOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    const username = url.hostname.replace(/\.vybaa\.app$/, "");
+
+    return (
+      url.protocol === "https:" &&
+      /^[a-z0-9_]{3,20}\.vybaa\.app$/.test(url.hostname) &&
+      !["api", "app", "cloud", "www"].includes(username)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const securityConfig = {
   allowedOrigins: getAllowedOrigins(),
   apiBodyLimit: process.env.API_BODY_LIMIT ?? "256kb",

@@ -67,6 +67,7 @@ exports.app.use((0, cors_1.default)({
     origin(origin, callback) {
         if (!origin ||
             security_config_util_1.securityConfig.allowedOrigins.includes(origin) ||
+            (0, security_config_util_1.isPublicProfileOrigin)(origin) ||
             env_util_1.Env.ENVIRONMENT == env_util_1.ENVIRONMENT.LOCAL) {
             callback(null, true);
             return;

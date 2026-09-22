@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.securityConfig = void 0;
+exports.isPublicProfileOrigin = isPublicProfileOrigin;
 exports.getJwtSecret = getJwtSecret;
 exports.validateSecurityEnvironment = validateSecurityEnvironment;
 function getPositiveInteger(name, fallback) {
@@ -33,6 +34,23 @@ function getAllowedOrigins() {
         "http://localhost:3001",
         "ionic://localhost",
     ];
+}
+/**
+ * Public profile pages are served from a member-owned subdomain. Keep this
+ * narrow: only usernames accepted by the product can receive credentialed
+ * browser requests to the API.
+ */
+function isPublicProfileOrigin(origin) {
+    try {
+        const url = new URL(origin);
+        const username = url.hostname.replace(/\.vybaa\.app$/, "");
+        return (url.protocol === "https:" &&
+            /^[a-z0-9_]{3,20}\.vybaa\.app$/.test(url.hostname) &&
+            !["api", "app", "cloud", "www"].includes(username));
+    }
+    catch {
+        return false;
+    }
 }
 exports.securityConfig = {
     allowedOrigins: getAllowedOrigins(),
