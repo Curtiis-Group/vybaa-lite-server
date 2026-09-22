@@ -8,6 +8,10 @@ import {
   isValidRewindTimezone,
   refreshFutureRewindOccurrences,
 } from "../services/rewind-routine.service";
+import {
+  assertCanSelectRewindPersona,
+  handleSubscriptionAccessError,
+} from "../services/subscription-access.service";
 import { toPrismaClientApp } from "../types/client-app.type";
 import logger from "../utils/logger.util";
 import {
@@ -114,6 +118,9 @@ export async function updateProfile(
       rewindPersona !== undefined &&
       currentUser !== null &&
       rewindPersona !== currentUser.rewindPersona;
+    if (personaActuallyChanged) {
+      await assertCanSelectRewindPersona(userId, req.clientApp, rewindPersona);
+    }
     const isEstablishedPartnerChange =
       personaActuallyChanged &&
       Boolean(currentUser.rewindPersona || currentUser.rewindPersonaChangedAt);
@@ -192,6 +199,7 @@ export async function updateProfile(
       data: formatUserResponse(user),
     });
   } catch (error: unknown) {
+    if (handleSubscriptionAccessError(error, res)) return;
     logger.error("Update profile error:", { error, userId: req.userId });
     if (getDatabaseErrorCode(error) === "P2002") {
       return res.status(400).json({ msg: "Username already taken" });

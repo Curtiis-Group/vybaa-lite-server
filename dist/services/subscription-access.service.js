@@ -1,12 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SubscriptionAccessError = void 0;
+exports.FREE_REWIND_PERSONA_IDS = exports.SubscriptionAccessError = void 0;
+exports.requiresProForRewindPersona = requiresProForRewindPersona;
 exports.requiresProForRewindFrequency = requiresProForRewindFrequency;
 exports.requiresProForInsightsRange = requiresProForInsightsRange;
 exports.assertCanCreateGoal = assertCanCreateGoal;
 exports.assertCanCreateCommunity = assertCanCreateCommunity;
 exports.assertCanUseRewindFrequency = assertCanUseRewindFrequency;
 exports.assertCanUseRewindInsightsRange = assertCanUseRewindInsightsRange;
+exports.assertCanUseRewindChats = assertCanUseRewindChats;
+exports.assertCanUseQuickGoalSetup = assertCanUseQuickGoalSetup;
+exports.assertCanSelectRewindPersona = assertCanSelectRewindPersona;
 exports.handleSubscriptionAccessError = handleSubscriptionAccessError;
 const client_1 = require("@prisma/client");
 const db_config_1 = require("../config/db.config");
@@ -20,6 +24,12 @@ class SubscriptionAccessError extends Error {
     }
 }
 exports.SubscriptionAccessError = SubscriptionAccessError;
+exports.FREE_REWIND_PERSONA_IDS = ["ella", "lyra"];
+function requiresProForRewindPersona(personaId) {
+    if (!personaId)
+        return false;
+    return !exports.FREE_REWIND_PERSONA_IDS.some((freePersonaId) => freePersonaId === personaId);
+}
 function requiresProForRewindFrequency(frequency) {
     return (frequency === client_1.RewindFrequency.MORNINGS_AND_EVENINGS ||
         frequency === client_1.RewindFrequency.CUSTOM);
@@ -94,6 +104,25 @@ async function assertCanUseRewindInsightsRange(userId, clientApp, range, loadAcc
     if (access?.isPro)
         return;
     throw new SubscriptionAccessError("PRO_REQUIRED", `${range === "30d" ? "30-day" : "90-day"} Rewind insights require Vybaa Pro`);
+}
+async function assertHasProAccess(userId, clientApp, message, loadAccess) {
+    if (clientApp !== "vybaa")
+        return;
+    const access = await loadAccess(userId, clientApp);
+    if (access?.isPro)
+        return;
+    throw new SubscriptionAccessError("PRO_REQUIRED", message);
+}
+async function assertCanUseRewindChats(userId, clientApp, loadAccess = getVybaaAccess) {
+    await assertHasProAccess(userId, clientApp, "Anytime Rewind chats require Vybaa Pro", loadAccess);
+}
+async function assertCanUseQuickGoalSetup(userId, clientApp, loadAccess = getVybaaAccess) {
+    await assertHasProAccess(userId, clientApp, "Quick Goal Setup requires Vybaa Pro", loadAccess);
+}
+async function assertCanSelectRewindPersona(userId, clientApp, personaId, loadAccess = getVybaaAccess) {
+    if (!requiresProForRewindPersona(personaId))
+        return;
+    await assertHasProAccess(userId, clientApp, "Jake, Ariel, Tobi, and Neeja require Vybaa Pro", loadAccess);
 }
 function handleSubscriptionAccessError(error, res) {
     if (!(error instanceof SubscriptionAccessError))

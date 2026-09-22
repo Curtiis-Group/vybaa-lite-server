@@ -38,6 +38,7 @@ const rewindIntelligenceController = __importStar(require("../controllers/rewind
 const rewindController = __importStar(require("../controllers/rewind.controller"));
 const rewindRoutineController = __importStar(require("../controllers/rewind-routine.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
+const subscription_access_middleware_1 = require("../middleware/subscription-access.middleware");
 const validation_middleware_1 = require("../middleware/validation.middleware");
 const rewind_validators_1 = require("../validators/rewind.validators");
 const router = (0, express_1.Router)();
@@ -47,11 +48,11 @@ router.get("/home-greeting", auth_middleware_1.authMiddleware, rewindIntelligenc
 router.get("/observations", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.listRewindRecordsSchema, "query"), rewindIntelligenceController.listObservations);
 router.get("/observations/:observationId", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindObservationIdSchema, "params"), rewindIntelligenceController.getObservation);
 router.delete("/observations/:observationId", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindObservationIdSchema, "params"), rewindIntelligenceController.dismissObservation);
-router.get("/chats", auth_middleware_1.authMiddleware, rewindIntelligenceController.listChats);
-router.get("/chats/:chatId/messages", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.listRewindRecordsSchema, "query"), rewindIntelligenceController.listChatMessages);
-router.post("/chats/:chatId/messages/stream", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.sendRewindChatMessageSchema), rewindIntelligenceController.streamChatMessage);
-router.post("/chats/:chatId/messages", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.sendRewindChatMessageSchema), rewindIntelligenceController.sendChatMessage);
-router.patch("/chats/:chatId", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.updateRewindChatSchema), rewindIntelligenceController.updateChat);
+router.get("/chats", auth_middleware_1.authMiddleware, subscription_access_middleware_1.requireRewindChatProAccess, rewindIntelligenceController.listChats);
+router.get("/chats/:chatId/messages", auth_middleware_1.authMiddleware, subscription_access_middleware_1.requireRewindChatProAccess, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.listRewindRecordsSchema, "query"), rewindIntelligenceController.listChatMessages);
+router.post("/chats/:chatId/messages/stream", auth_middleware_1.authMiddleware, subscription_access_middleware_1.requireRewindChatProAccess, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.sendRewindChatMessageSchema), rewindIntelligenceController.streamChatMessage);
+router.post("/chats/:chatId/messages", auth_middleware_1.authMiddleware, subscription_access_middleware_1.requireRewindChatProAccess, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.sendRewindChatMessageSchema), rewindIntelligenceController.sendChatMessage);
+router.patch("/chats/:chatId", auth_middleware_1.authMiddleware, subscription_access_middleware_1.requireRewindChatProAccess, (0, validation_middleware_1.validate)(rewind_validators_1.rewindChatIdSchema, "params"), (0, validation_middleware_1.validate)(rewind_validators_1.updateRewindChatSchema), rewindIntelligenceController.updateChat);
 router.post("/activity", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_validators_1.recordRewindActivitySchema), rewindIntelligenceController.recordActivity);
 router.get("/sessions", auth_middleware_1.authMiddleware, rewindController.getPaginatedRewindSessions);
 router.get("/insights", auth_middleware_1.authMiddleware, rewindController.getRewindInsights);

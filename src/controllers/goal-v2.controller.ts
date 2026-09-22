@@ -34,6 +34,7 @@ import {
 } from "../services/quick-goal-setup.service";
 import {
   assertCanCreateGoal,
+  assertCanUseQuickGoalSetup,
   handleSubscriptionAccessError,
 } from "../services/subscription-access.service";
 import { toPrismaClientApp } from "../types/client-app.type";
@@ -131,6 +132,7 @@ export async function quickSetup(
 ): Promise<void> {
   try {
     const userId = req.userId!;
+    await assertCanUseQuickGoalSetup(userId, req.clientApp);
     const [timezone, user] = await Promise.all([
       resolveTimezone(req, userId),
       prisma.user.findUnique({

@@ -14,6 +14,7 @@ const db_config_1 = require("../config/db.config");
 const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
 const rewind_partner_switch_service_1 = require("../services/rewind-partner-switch.service");
 const rewind_routine_service_1 = require("../services/rewind-routine.service");
+const subscription_access_service_1 = require("../services/subscription-access.service");
 const client_app_type_1 = require("../types/client-app.type");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const username_util_1 = require("../utils/username.util");
@@ -88,6 +89,9 @@ async function updateProfile(req, res) {
         const personaActuallyChanged = rewindPersona !== undefined &&
             currentUser !== null &&
             rewindPersona !== currentUser.rewindPersona;
+        if (personaActuallyChanged) {
+            await (0, subscription_access_service_1.assertCanSelectRewindPersona)(userId, req.clientApp, rewindPersona);
+        }
         const isEstablishedPartnerChange = personaActuallyChanged &&
             Boolean(currentUser.rewindPersona || currentUser.rewindPersonaChangedAt);
         const partnerChangeTime = new Date();
@@ -161,6 +165,8 @@ async function updateProfile(req, res) {
         });
     }
     catch (error) {
+        if ((0, subscription_access_service_1.handleSubscriptionAccessError)(error, res))
+            return;
         logger_util_1.default.error("Update profile error:", { error, userId: req.userId });
         if (getDatabaseErrorCode(error) === "P2002") {
             return res.status(400).json({ msg: "Username already taken" });

@@ -18,9 +18,13 @@ import {
 import {
   assertCanCreateCommunity,
   assertCanCreateGoal,
+  assertCanSelectRewindPersona,
+  assertCanUseQuickGoalSetup,
+  assertCanUseRewindChats,
   assertCanUseRewindFrequency,
   assertCanUseRewindInsightsRange,
   requiresProForInsightsRange,
+  requiresProForRewindPersona,
   requiresProForRewindFrequency,
 } from "./subscription-access.service";
 import { getFreeTierRoutineFrequency } from "./subscription-downgrade.service";
@@ -215,6 +219,55 @@ test("only advanced Rewind controls require Pro", () => {
   assert.equal(requiresProForInsightsRange("90d"), true);
 });
 
+test("free accounts can choose Ella or Lyra only", () => {
+  assert.equal(requiresProForRewindPersona("ella"), false);
+  assert.equal(requiresProForRewindPersona("lyra"), false);
+  assert.equal(requiresProForRewindPersona("jake"), true);
+  assert.equal(requiresProForRewindPersona("ariel"), true);
+  assert.equal(requiresProForRewindPersona("tobi"), true);
+  assert.equal(requiresProForRewindPersona("neeja"), true);
+  assert.equal(requiresProForRewindPersona(null), false);
+});
+
+test("paid Rewind and goal-assistant features require Pro", async () => {
+  const freeAccess: SubscriptionAccess = {
+    clientApp: "vybaa",
+    entitlementId: VYBAA_ENTITLEMENT_ID,
+    environment: "production",
+    expiresAt: null,
+    isConfigured: true,
+    isPro: false,
+    isTrial: false,
+    managementURL: null,
+    productIdentifier: null,
+    tier: "free",
+    verifiedAt: "2026-09-21T00:00:00.000Z",
+  };
+  const loadFreeAccess = async (): Promise<SubscriptionAccess> => freeAccess;
+
+  await assert.doesNotReject(() =>
+    assertCanSelectRewindPersona("user-free", "vybaa", "ella", loadFreeAccess),
+  );
+  await assert.rejects(
+    () => assertCanUseRewindChats("user-free", "vybaa", loadFreeAccess),
+    /Anytime Rewind chats require Vybaa Pro/,
+  );
+  await assert.rejects(
+    () => assertCanUseQuickGoalSetup("user-free", "vybaa", loadFreeAccess),
+    /Quick Goal Setup requires Vybaa Pro/,
+  );
+  await assert.rejects(
+    () =>
+      assertCanSelectRewindPersona(
+        "user-free",
+        "vybaa",
+        "jake",
+        loadFreeAccess,
+      ),
+    /require Vybaa Pro/,
+  );
+});
+
 test("free Rewind capabilities do not depend on RevenueCat availability", async () => {
   const unavailableSubscription = async (): Promise<never> => {
     throw new Error("RevenueCat unavailable");
@@ -255,20 +308,19 @@ test("Pro accounts can use 30-day and 90-day Rewind insights", async () => {
   const loadProAccess = async (): Promise<SubscriptionAccess> => proAccess;
 
   await assert.doesNotReject(() =>
-    assertCanUseRewindInsightsRange(
-      "user-pro",
-      "vybaa",
-      "30d",
-      loadProAccess,
-    ),
+    assertCanUseRewindInsightsRange("user-pro", "vybaa", "30d", loadProAccess),
   );
   await assert.doesNotReject(() =>
-    assertCanUseRewindInsightsRange(
-      "user-pro",
-      "vybaa",
-      "90d",
-      loadProAccess,
-    ),
+    assertCanUseRewindInsightsRange("user-pro", "vybaa", "90d", loadProAccess),
+  );
+  await assert.doesNotReject(() =>
+    assertCanUseRewindChats("user-pro", "vybaa", loadProAccess),
+  );
+  await assert.doesNotReject(() =>
+    assertCanUseQuickGoalSetup("user-pro", "vybaa", loadProAccess),
+  );
+  await assert.doesNotReject(() =>
+    assertCanSelectRewindPersona("user-pro", "vybaa", "neeja", loadProAccess),
   );
 });
 

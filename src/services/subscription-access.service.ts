@@ -45,6 +45,15 @@ export interface SubscriptionGateDependencies {
   loadAccess?: SubscriptionAccessLoader;
 }
 
+export const FREE_REWIND_PERSONA_IDS = ["ella", "lyra"] as const;
+
+export function requiresProForRewindPersona(personaId: string | null): boolean {
+  if (!personaId) return false;
+  return !FREE_REWIND_PERSONA_IDS.some(
+    (freePersonaId) => freePersonaId === personaId,
+  );
+}
+
 export function requiresProForRewindFrequency(
   frequency: RewindFrequency,
 ): boolean {
@@ -60,7 +69,10 @@ export function requiresProForInsightsRange(
   return range !== "7d";
 }
 
-async function getVybaaAccess(userId: string, clientApp: ClientApp) {
+async function getVybaaAccess(
+  userId: string,
+  clientApp: ClientApp,
+): Promise<SubscriptionAccess | null> {
   if (clientApp !== "vybaa") return null;
 
   try {
@@ -181,6 +193,62 @@ export async function assertCanUseRewindInsightsRange(
   throw new SubscriptionAccessError(
     "PRO_REQUIRED",
     `${range === "30d" ? "30-day" : "90-day"} Rewind insights require Vybaa Pro`,
+  );
+}
+
+async function assertHasProAccess(
+  userId: string,
+  clientApp: ClientApp,
+  message: string,
+  loadAccess: SubscriptionAccessLoader,
+): Promise<void> {
+  if (clientApp !== "vybaa") return;
+
+  const access = await loadAccess(userId, clientApp);
+  if (access?.isPro) return;
+
+  throw new SubscriptionAccessError("PRO_REQUIRED", message);
+}
+
+export async function assertCanUseRewindChats(
+  userId: string,
+  clientApp: ClientApp,
+  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+): Promise<void> {
+  await assertHasProAccess(
+    userId,
+    clientApp,
+    "Anytime Rewind chats require Vybaa Pro",
+    loadAccess,
+  );
+}
+
+export async function assertCanUseQuickGoalSetup(
+  userId: string,
+  clientApp: ClientApp,
+  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+): Promise<void> {
+  await assertHasProAccess(
+    userId,
+    clientApp,
+    "Quick Goal Setup requires Vybaa Pro",
+    loadAccess,
+  );
+}
+
+export async function assertCanSelectRewindPersona(
+  userId: string,
+  clientApp: ClientApp,
+  personaId: string | null,
+  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+): Promise<void> {
+  if (!requiresProForRewindPersona(personaId)) return;
+
+  await assertHasProAccess(
+    userId,
+    clientApp,
+    "Jake, Ariel, Tobi, and Neeja require Vybaa Pro",
+    loadAccess,
   );
 }
 

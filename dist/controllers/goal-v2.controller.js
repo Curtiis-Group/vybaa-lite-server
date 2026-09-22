@@ -108,6 +108,7 @@ async function alarmRegistration(req, res) {
 async function quickSetup(req, res) {
     try {
         const userId = req.userId;
+        await (0, subscription_access_service_1.assertCanUseQuickGoalSetup)(userId, req.clientApp);
         const [timezone, user] = await Promise.all([
             resolveTimezone(req, userId),
             db_config_1.prisma.user.findUnique({

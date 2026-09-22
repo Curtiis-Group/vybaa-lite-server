@@ -3,6 +3,7 @@ import * as rewindIntelligenceController from "../controllers/rewind-intelligenc
 import * as rewindController from "../controllers/rewind.controller";
 import * as rewindRoutineController from "../controllers/rewind-routine.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
+import { requireRewindChatProAccess } from "../middleware/subscription-access.middleware";
 import { validate } from "../middleware/validation.middleware";
 import {
   listRewindRecordsSchema,
@@ -48,10 +49,16 @@ router.delete(
   validate(rewindObservationIdSchema, "params"),
   rewindIntelligenceController.dismissObservation,
 );
-router.get("/chats", authMiddleware, rewindIntelligenceController.listChats);
+router.get(
+  "/chats",
+  authMiddleware,
+  requireRewindChatProAccess,
+  rewindIntelligenceController.listChats,
+);
 router.get(
   "/chats/:chatId/messages",
   authMiddleware,
+  requireRewindChatProAccess,
   validate(rewindChatIdSchema, "params"),
   validate(listRewindRecordsSchema, "query"),
   rewindIntelligenceController.listChatMessages,
@@ -59,6 +66,7 @@ router.get(
 router.post(
   "/chats/:chatId/messages/stream",
   authMiddleware,
+  requireRewindChatProAccess,
   validate(rewindChatIdSchema, "params"),
   validate(sendRewindChatMessageSchema),
   rewindIntelligenceController.streamChatMessage,
@@ -66,6 +74,7 @@ router.post(
 router.post(
   "/chats/:chatId/messages",
   authMiddleware,
+  requireRewindChatProAccess,
   validate(rewindChatIdSchema, "params"),
   validate(sendRewindChatMessageSchema),
   rewindIntelligenceController.sendChatMessage,
@@ -73,6 +82,7 @@ router.post(
 router.patch(
   "/chats/:chatId",
   authMiddleware,
+  requireRewindChatProAccess,
   validate(rewindChatIdSchema, "params"),
   validate(updateRewindChatSchema),
   rewindIntelligenceController.updateChat,
