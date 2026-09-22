@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { DateTime } from "luxon";
 import { prisma } from "../config/db.config";
 import { getStreakMilestonePoints } from "../config/points.config";
-import { fromPrismaClientApp, type ClientApp } from "../types/client-app.type";
+import {
+  fromPrismaClientApp,
+  toPrismaClientApp,
+  type ClientApp,
+} from "../types/client-app.type";
 import logger from "../utils/logger.util";
 import {
   buildGoalReminderCopy,
@@ -10,7 +14,9 @@ import {
 } from "../utils/goal-reminder.util";
 import { isNotificationDedupeConflict } from "../utils/notification-dedupe.util";
 import {
+  isActiveRewindChatSubscription,
   personalizeRewindNotification,
+  prepareRewindChatNotificationForAccess,
   type NotificationPresentation,
 } from "../utils/rewind-notification-personalization.util";
 import { cacheService } from "./cache.service";
@@ -135,6 +141,31 @@ function parseNotificationData(
 }
 
 class NotificationService {
+  private async prepareNotificationForAccess(
+    data: CreateNotificationData,
+  ): Promise<CreateNotificationData> {
+    if (data.type !== "rewind_chat_message") return data;
+
+    const now = new Date();
+    const snapshot = await prisma.subscriptionSnapshot.findUnique({
+      select: { expiresAt: true, isPro: true },
+      where: {
+        userId_clientApp: {
+          clientApp: toPrismaClientApp("vybaa"),
+          userId: data.userId,
+        },
+      },
+    });
+    const presentation = prepareRewindChatNotificationForAccess({
+      data: data.data,
+      isPro: isActiveRewindChatSubscription(snapshot, now),
+      message: data.message,
+      title: data.title,
+    });
+
+    return { ...data, ...presentation };
+  }
+
   private getStartOfUtcDay(date: Date) {
     return new Date(
       Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
@@ -317,22 +348,23 @@ class NotificationService {
    */
   async createNotification(data: CreateNotificationData) {
     try {
+      const preparedData = await this.prepareNotificationForAccess(data);
       const notification = await prisma.notification.create({
         data: {
-          userId: data.userId,
-          goalId: data.goalId,
-          type: data.type,
-          title: data.title,
-          message: data.message,
-          data: data.data ? JSON.stringify(data.data) : null,
-          dedupeKey: data.dedupeKey,
-          scheduledFor: data.scheduledFor ?? new Date(),
+          userId: preparedData.userId,
+          goalId: preparedData.goalId,
+          type: preparedData.type,
+          title: preparedData.title,
+          message: preparedData.message,
+          data: preparedData.data ? JSON.stringify(preparedData.data) : null,
+          dedupeKey: preparedData.dedupeKey,
+          scheduledFor: preparedData.scheduledFor ?? new Date(),
           sentAt: null,
         },
       });
 
       // If not scheduled, send immediately
-      if (!data.scheduledFor) {
+      if (!preparedData.scheduledFor) {
         await this.sendNotification(notification.id);
       }
 

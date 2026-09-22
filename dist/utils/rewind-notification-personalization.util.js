@@ -1,5 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isActiveRewindChatSubscription = isActiveRewindChatSubscription;
+exports.prepareRewindChatNotificationForAccess = prepareRewindChatNotificationForAccess;
 exports.personalizeRewindNotification = personalizeRewindNotification;
 const PERSONAS = {
     ariel: {
@@ -33,6 +35,39 @@ const PERSONAS = {
         personaId: "tobi",
     },
 };
+const REWIND_CHAT_LOCKED_SUFFIX = " · Upgrade to open Discussions and reply.";
+const REWIND_CHAT_NOTIFICATION_MAX_LENGTH = 120;
+function truncateNotificationMessage(message, maxLength) {
+    const normalized = message.trim();
+    if (normalized.length <= maxLength)
+        return normalized;
+    return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+function isActiveRewindChatSubscription(snapshot, now) {
+    if (!snapshot?.isPro)
+        return false;
+    return (snapshot.expiresAt === null || snapshot.expiresAt.getTime() > now.getTime());
+}
+function prepareRewindChatNotificationForAccess(input) {
+    if (input.isPro) {
+        return {
+            data: input.data,
+            message: input.message,
+            title: input.title,
+        };
+    }
+    const previewLength = REWIND_CHAT_NOTIFICATION_MAX_LENGTH - REWIND_CHAT_LOCKED_SUFFIX.length;
+    return {
+        data: {
+            ...input.data,
+            requiresPro: true,
+            route: "/app/rewind-chats",
+            upgradeFeature: "rewind-chats",
+        },
+        message: `${truncateNotificationMessage(input.message, previewLength)}${REWIND_CHAT_LOCKED_SUFFIX}`,
+        title: input.title,
+    };
+}
 function isNotificationPersonaId(value) {
     return (value === "ella" ||
         value === "lyra" ||
@@ -105,12 +140,15 @@ function personalizeRewindNotification(input) {
         ? PERSONAS[sourcePersonaId]
         : null;
     if (input.type === "rewind_chat_message") {
+        const requiresPro = input.data?.requiresPro === true;
         return {
             data: sourcePersona
                 ? { ...input.data, notificationSender: sourcePersona }
                 : input.data,
             message: input.message,
-            title: sourcePersona?.name ?? input.title,
+            title: requiresPro
+                ? `${sourcePersona?.name ?? input.title} · Vybaa Pro`
+                : (sourcePersona?.name ?? input.title),
         };
     }
     if (!isNotificationPersonaId(input.selectedPersonaId)) {

@@ -57,6 +57,27 @@ function parseNotificationData(value) {
     }
 }
 class NotificationService {
+    async prepareNotificationForAccess(data) {
+        if (data.type !== "rewind_chat_message")
+            return data;
+        const now = new Date();
+        const snapshot = await db_config_1.prisma.subscriptionSnapshot.findUnique({
+            select: { expiresAt: true, isPro: true },
+            where: {
+                userId_clientApp: {
+                    clientApp: (0, client_app_type_1.toPrismaClientApp)("vybaa"),
+                    userId: data.userId,
+                },
+            },
+        });
+        const presentation = (0, rewind_notification_personalization_util_1.prepareRewindChatNotificationForAccess)({
+            data: data.data,
+            isPro: (0, rewind_notification_personalization_util_1.isActiveRewindChatSubscription)(snapshot, now),
+            message: data.message,
+            title: data.title,
+        });
+        return { ...data, ...presentation };
+    }
     getStartOfUtcDay(date) {
         return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
     }
@@ -198,21 +219,22 @@ class NotificationService {
      */
     async createNotification(data) {
         try {
+            const preparedData = await this.prepareNotificationForAccess(data);
             const notification = await db_config_1.prisma.notification.create({
                 data: {
-                    userId: data.userId,
-                    goalId: data.goalId,
-                    type: data.type,
-                    title: data.title,
-                    message: data.message,
-                    data: data.data ? JSON.stringify(data.data) : null,
-                    dedupeKey: data.dedupeKey,
-                    scheduledFor: data.scheduledFor ?? new Date(),
+                    userId: preparedData.userId,
+                    goalId: preparedData.goalId,
+                    type: preparedData.type,
+                    title: preparedData.title,
+                    message: preparedData.message,
+                    data: preparedData.data ? JSON.stringify(preparedData.data) : null,
+                    dedupeKey: preparedData.dedupeKey,
+                    scheduledFor: preparedData.scheduledFor ?? new Date(),
                     sentAt: null,
                 },
             });
             // If not scheduled, send immediately
-            if (!data.scheduledFor) {
+            if (!preparedData.scheduledFor) {
                 await this.sendNotification(notification.id);
             }
             return notification;
