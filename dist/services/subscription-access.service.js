@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FREE_REWIND_PERSONA_IDS = exports.SubscriptionAccessError = void 0;
+exports.areVybaaProChecksEnabled = areVybaaProChecksEnabled;
 exports.requiresProForRewindPersona = requiresProForRewindPersona;
 exports.requiresProForRewindFrequency = requiresProForRewindFrequency;
 exports.requiresProForInsightsRange = requiresProForInsightsRange;
@@ -15,6 +16,7 @@ exports.assertCanSelectRewindPersona = assertCanSelectRewindPersona;
 exports.handleSubscriptionAccessError = handleSubscriptionAccessError;
 const client_1 = require("@prisma/client");
 const db_config_1 = require("../config/db.config");
+const env_util_1 = require("../utils/env.util");
 const revenuecat_service_1 = require("./revenuecat.service");
 class SubscriptionAccessError extends Error {
     constructor(code, message, statusCode = 403) {
@@ -26,6 +28,26 @@ class SubscriptionAccessError extends Error {
 }
 exports.SubscriptionAccessError = SubscriptionAccessError;
 exports.FREE_REWIND_PERSONA_IDS = ["ella", "lyra"];
+function areVybaaProChecksEnabled(clientApp) {
+    if (clientApp !== "vybaa")
+        return true;
+    return env_util_1.Env.VYBAA_PRO_CHECKS_ENABLED?.trim().toLowerCase() !== "false";
+}
+function createTemporaryProAccess() {
+    return {
+        clientApp: "vybaa",
+        entitlementId: revenuecat_service_1.VYBAA_ENTITLEMENT_ID,
+        environment: "BYPASS",
+        expiresAt: null,
+        isConfigured: true,
+        isPro: true,
+        isTrial: false,
+        managementURL: null,
+        productIdentifier: null,
+        tier: "pro",
+        verifiedAt: new Date().toISOString(),
+    };
+}
 function requiresProForRewindPersona(personaId) {
     if (!personaId)
         return false;
@@ -41,6 +63,8 @@ function requiresProForInsightsRange(range) {
 async function getConfirmedVybaaAccess(userId, clientApp, loadStatus = revenuecat_service_1.getRevenueCatSubscriptionStatus) {
     if (clientApp !== "vybaa")
         return null;
+    if (!areVybaaProChecksEnabled(clientApp))
+        return createTemporaryProAccess();
     try {
         const cachedAccess = await loadStatus(userId, clientApp);
         if (cachedAccess.isPro)
@@ -72,6 +96,8 @@ async function countOwnedCommunities(userId) {
 async function assertCanCreateGoal(userId, clientApp, dependencies = {}) {
     if (clientApp !== "vybaa")
         return;
+    if (!areVybaaProChecksEnabled(clientApp))
+        return;
     const activeGoalCount = await (dependencies.countActiveGoals ?? countActiveGoals)(userId);
     if (activeGoalCount < revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.activeGoals)
         return;
@@ -82,6 +108,8 @@ async function assertCanCreateGoal(userId, clientApp, dependencies = {}) {
 }
 async function assertCanCreateCommunity(userId, clientApp, dependencies = {}) {
     if (clientApp !== "vybaa")
+        return;
+    if (!areVybaaProChecksEnabled(clientApp))
         return;
     const ownedCommunityCount = await (dependencies.countOwnedCommunities ?? countOwnedCommunities)(userId);
     if (ownedCommunityCount < revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.ownedCommunities)
@@ -96,6 +124,8 @@ async function assertCanCreateCommunity(userId, clientApp, dependencies = {}) {
     throw new SubscriptionAccessError("PLAN_LIMIT_REACHED", `Vybaa Pro supports up to ${limit} owned communities`);
 }
 async function assertCanUseRewindFrequency(userId, clientApp, frequency, loadAccess = getConfirmedVybaaAccess) {
+    if (!areVybaaProChecksEnabled(clientApp))
+        return;
     if (!requiresProForRewindFrequency(frequency))
         return;
     const access = await loadAccess(userId, clientApp);
@@ -104,6 +134,8 @@ async function assertCanUseRewindFrequency(userId, clientApp, frequency, loadAcc
     throw new SubscriptionAccessError("PRO_REQUIRED", "Morning and evening or custom Rewind routines require Vybaa Pro");
 }
 async function assertCanUseRewindInsightsRange(userId, clientApp, range, loadAccess = getConfirmedVybaaAccess) {
+    if (!areVybaaProChecksEnabled(clientApp))
+        return;
     if (!requiresProForInsightsRange(range))
         return;
     const access = await loadAccess(userId, clientApp);
@@ -113,6 +145,8 @@ async function assertCanUseRewindInsightsRange(userId, clientApp, range, loadAcc
 }
 async function assertHasProAccess(userId, clientApp, message, loadAccess) {
     if (clientApp !== "vybaa")
+        return;
+    if (!areVybaaProChecksEnabled(clientApp))
         return;
     const access = await loadAccess(userId, clientApp);
     if (access?.isPro)

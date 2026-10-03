@@ -19,6 +19,7 @@ import {
   type SubscriptionAccess,
 } from "./revenuecat.service";
 import {
+  areVybaaProChecksEnabled,
   assertCanCreateCommunity,
   assertCanCreateGoal,
   assertCanSelectRewindPersona,
@@ -166,6 +167,79 @@ test("cached free access is refreshed before a Pro feature is denied", async () 
 
   assert.equal(access?.isPro, true);
   assert.deepEqual(checks, [false, true]);
+});
+
+test("disabled Vybaa Pro checks bypass every backend subscription gate", async () => {
+  const previousValue = Env.VYBAA_PRO_CHECKS_ENABLED;
+  Env.VYBAA_PRO_CHECKS_ENABLED = "false";
+  let dependencyCalls = 0;
+  const failIfCalled = async (): Promise<never> => {
+    dependencyCalls += 1;
+    throw new Error("Subscription dependency should not be called");
+  };
+
+  try {
+    assert.equal(areVybaaProChecksEnabled("vybaa"), false);
+    assert.equal(areVybaaProChecksEnabled("mycove"), true);
+
+    const access = await getConfirmedVybaaAccess(
+      "temporary-pro-user",
+      "vybaa",
+      failIfCalled,
+    );
+    assert.equal(access?.isPro, true);
+    assert.equal(access?.environment, "BYPASS");
+
+    await assert.doesNotReject(() =>
+      assertCanCreateGoal("temporary-pro-user", "vybaa", {
+        countActiveGoals: failIfCalled,
+        loadAccess: failIfCalled,
+      }),
+    );
+    await assert.doesNotReject(() =>
+      assertCanCreateCommunity("temporary-pro-user", "vybaa", {
+        countOwnedCommunities: failIfCalled,
+        loadAccess: failIfCalled,
+      }),
+    );
+    await assert.doesNotReject(() =>
+      assertCanUseRewindFrequency(
+        "temporary-pro-user",
+        "vybaa",
+        RewindFrequency.CUSTOM,
+        failIfCalled,
+      ),
+    );
+    await assert.doesNotReject(() =>
+      assertCanUseRewindInsightsRange(
+        "temporary-pro-user",
+        "vybaa",
+        "90d",
+        failIfCalled,
+      ),
+    );
+    await assert.doesNotReject(() =>
+      assertCanUseRewindChats("temporary-pro-user", "vybaa", failIfCalled),
+    );
+    await assert.doesNotReject(() =>
+      assertCanUseQuickGoalSetup(
+        "temporary-pro-user",
+        "vybaa",
+        failIfCalled,
+      ),
+    );
+    await assert.doesNotReject(() =>
+      assertCanSelectRewindPersona(
+        "temporary-pro-user",
+        "vybaa",
+        "neeja",
+        failIfCalled,
+      ),
+    );
+    assert.equal(dependencyCalls, 0);
+  } finally {
+    Env.VYBAA_PRO_CHECKS_ENABLED = previousValue;
+  }
 });
 
 test("RevenueCat v2 active entitlements map Vybaa Pro access", () => {

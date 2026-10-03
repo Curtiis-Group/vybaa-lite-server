@@ -3,8 +3,10 @@ import type { Response } from "express";
 
 import { prisma } from "../config/db.config";
 import type { ClientApp } from "../types/client-app.type";
+import { Env } from "../utils/env.util";
 import {
   FREE_SUBSCRIPTION_LIMITS,
+  VYBAA_ENTITLEMENT_ID,
   getLimitsForAccess,
   getRevenueCatSubscriptionStatus,
   type SubscriptionAccess,
@@ -53,6 +55,27 @@ export interface SubscriptionGateDependencies {
 
 export const FREE_REWIND_PERSONA_IDS = ["ella", "lyra"] as const;
 
+export function areVybaaProChecksEnabled(clientApp: ClientApp): boolean {
+  if (clientApp !== "vybaa") return true;
+  return Env.VYBAA_PRO_CHECKS_ENABLED?.trim().toLowerCase() !== "false";
+}
+
+function createTemporaryProAccess(): SubscriptionAccess {
+  return {
+    clientApp: "vybaa",
+    entitlementId: VYBAA_ENTITLEMENT_ID,
+    environment: "BYPASS",
+    expiresAt: null,
+    isConfigured: true,
+    isPro: true,
+    isTrial: false,
+    managementURL: null,
+    productIdentifier: null,
+    tier: "pro",
+    verifiedAt: new Date().toISOString(),
+  };
+}
+
 export function requiresProForRewindPersona(personaId: string | null): boolean {
   if (!personaId) return false;
   return !FREE_REWIND_PERSONA_IDS.some(
@@ -81,6 +104,7 @@ export async function getConfirmedVybaaAccess(
   loadStatus: SubscriptionStatusLoader = getRevenueCatSubscriptionStatus,
 ): Promise<SubscriptionAccess | null> {
   if (clientApp !== "vybaa") return null;
+  if (!areVybaaProChecksEnabled(clientApp)) return createTemporaryProAccess();
 
   try {
     const cachedAccess = await loadStatus(userId, clientApp);
@@ -124,6 +148,7 @@ export async function assertCanCreateGoal(
   dependencies: SubscriptionGateDependencies = {},
 ): Promise<void> {
   if (clientApp !== "vybaa") return;
+  if (!areVybaaProChecksEnabled(clientApp)) return;
 
   const activeGoalCount = await (
     dependencies.countActiveGoals ?? countActiveGoals
@@ -148,6 +173,7 @@ export async function assertCanCreateCommunity(
   dependencies: SubscriptionGateDependencies = {},
 ): Promise<void> {
   if (clientApp !== "vybaa") return;
+  if (!areVybaaProChecksEnabled(clientApp)) return;
 
   const ownedCommunityCount = await (
     dependencies.countOwnedCommunities ?? countOwnedCommunities
@@ -180,6 +206,7 @@ export async function assertCanUseRewindFrequency(
   frequency: RewindFrequency,
   loadAccess: SubscriptionAccessLoader = getConfirmedVybaaAccess,
 ): Promise<void> {
+  if (!areVybaaProChecksEnabled(clientApp)) return;
   if (!requiresProForRewindFrequency(frequency)) return;
 
   const access = await loadAccess(userId, clientApp);
@@ -197,6 +224,7 @@ export async function assertCanUseRewindInsightsRange(
   range: "7d" | "30d" | "90d",
   loadAccess: SubscriptionAccessLoader = getConfirmedVybaaAccess,
 ): Promise<void> {
+  if (!areVybaaProChecksEnabled(clientApp)) return;
   if (!requiresProForInsightsRange(range)) return;
 
   const access = await loadAccess(userId, clientApp);
@@ -215,6 +243,7 @@ async function assertHasProAccess(
   loadAccess: SubscriptionAccessLoader,
 ): Promise<void> {
   if (clientApp !== "vybaa") return;
+  if (!areVybaaProChecksEnabled(clientApp)) return;
 
   const access = await loadAccess(userId, clientApp);
   if (access?.isPro) return;
