@@ -37,6 +37,12 @@ export type SubscriptionAccessLoader = (
   clientApp: ClientApp,
 ) => Promise<SubscriptionAccess | null>;
 
+export type SubscriptionStatusLoader = (
+  userId: string,
+  clientApp: ClientApp,
+  options?: { forceRefresh?: boolean },
+) => Promise<SubscriptionAccess>;
+
 export type SubscriptionUsageLoader = (userId: string) => Promise<number>;
 
 export interface SubscriptionGateDependencies {
@@ -69,14 +75,20 @@ export function requiresProForInsightsRange(
   return range !== "7d";
 }
 
-async function getVybaaAccess(
+export async function getConfirmedVybaaAccess(
   userId: string,
   clientApp: ClientApp,
+  loadStatus: SubscriptionStatusLoader = getRevenueCatSubscriptionStatus,
 ): Promise<SubscriptionAccess | null> {
   if (clientApp !== "vybaa") return null;
 
   try {
-    return await getRevenueCatSubscriptionStatus(userId, clientApp);
+    const cachedAccess = await loadStatus(userId, clientApp);
+    if (cachedAccess.isPro) return cachedAccess;
+
+    // A free snapshot may have been written moments before a purchase. Pro
+    // gates must revalidate that negative result before denying access.
+    return await loadStatus(userId, clientApp, { forceRefresh: true });
   } catch {
     throw new SubscriptionAccessError(
       "SUBSCRIPTION_UNAVAILABLE",
@@ -118,7 +130,7 @@ export async function assertCanCreateGoal(
   )(userId);
   if (activeGoalCount < FREE_SUBSCRIPTION_LIMITS.activeGoals) return;
 
-  const access = await (dependencies.loadAccess ?? getVybaaAccess)(
+  const access = await (dependencies.loadAccess ?? getConfirmedVybaaAccess)(
     userId,
     clientApp,
   );
@@ -142,7 +154,7 @@ export async function assertCanCreateCommunity(
   )(userId);
   if (ownedCommunityCount < FREE_SUBSCRIPTION_LIMITS.ownedCommunities) return;
 
-  const access = await (dependencies.loadAccess ?? getVybaaAccess)(
+  const access = await (dependencies.loadAccess ?? getConfirmedVybaaAccess)(
     userId,
     clientApp,
   );
@@ -166,7 +178,7 @@ export async function assertCanUseRewindFrequency(
   userId: string,
   clientApp: ClientApp,
   frequency: RewindFrequency,
-  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+  loadAccess: SubscriptionAccessLoader = getConfirmedVybaaAccess,
 ): Promise<void> {
   if (!requiresProForRewindFrequency(frequency)) return;
 
@@ -183,7 +195,7 @@ export async function assertCanUseRewindInsightsRange(
   userId: string,
   clientApp: ClientApp,
   range: "7d" | "30d" | "90d",
-  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+  loadAccess: SubscriptionAccessLoader = getConfirmedVybaaAccess,
 ): Promise<void> {
   if (!requiresProForInsightsRange(range)) return;
 
@@ -213,7 +225,7 @@ async function assertHasProAccess(
 export async function assertCanUseRewindChats(
   userId: string,
   clientApp: ClientApp,
-  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+  loadAccess: SubscriptionAccessLoader = getConfirmedVybaaAccess,
 ): Promise<void> {
   await assertHasProAccess(
     userId,
@@ -226,7 +238,7 @@ export async function assertCanUseRewindChats(
 export async function assertCanUseQuickGoalSetup(
   userId: string,
   clientApp: ClientApp,
-  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+  loadAccess: SubscriptionAccessLoader = getConfirmedVybaaAccess,
 ): Promise<void> {
   await assertHasProAccess(
     userId,
@@ -240,7 +252,7 @@ export async function assertCanSelectRewindPersona(
   userId: string,
   clientApp: ClientApp,
   personaId: string | null,
-  loadAccess: SubscriptionAccessLoader = getVybaaAccess,
+  loadAccess: SubscriptionAccessLoader = getConfirmedVybaaAccess,
 ): Promise<void> {
   if (!requiresProForRewindPersona(personaId)) return;
 

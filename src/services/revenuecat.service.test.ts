@@ -23,6 +23,7 @@ import {
   assertCanUseRewindChats,
   assertCanUseRewindFrequency,
   assertCanUseRewindInsightsRange,
+  getConfirmedVybaaAccess,
   requiresProForInsightsRange,
   requiresProForRewindPersona,
   requiresProForRewindFrequency,
@@ -75,6 +76,43 @@ test("expired RevenueCat entitlements are inactive", () => {
   );
   assert.equal(isEntitlementActive({ expires_date: null }, now), true);
   assert.equal(isEntitlementActive(null, now), false);
+});
+
+test("cached free access is refreshed before a Pro feature is denied", async () => {
+  const checks: boolean[] = [];
+  const freeAccess: SubscriptionAccess = {
+    clientApp: "vybaa",
+    entitlementId: VYBAA_ENTITLEMENT_ID,
+    environment: null,
+    expiresAt: null,
+    isConfigured: true,
+    isPro: false,
+    isTrial: false,
+    managementURL: null,
+    productIdentifier: null,
+    tier: "free",
+    verifiedAt: "2026-10-03T09:59:23.063Z",
+  };
+  const proAccess: SubscriptionAccess = {
+    ...freeAccess,
+    environment: "SANDBOX",
+    expiresAt: "2026-10-03T10:06:00.134Z",
+    isPro: true,
+    productIdentifier: VYBAA_PRODUCT_IDS.monthly,
+    tier: "pro",
+  };
+
+  const access = await getConfirmedVybaaAccess(
+    "user-who-just-purchased",
+    "vybaa",
+    async (_userId, _clientApp, options) => {
+      checks.push(Boolean(options?.forceRefresh));
+      return options?.forceRefresh ? proAccess : freeAccess;
+    },
+  );
+
+  assert.equal(access?.isPro, true);
+  assert.deepEqual(checks, [false, true]);
 });
 
 test("RevenueCat v2 active entitlements map Vybaa Pro access", () => {

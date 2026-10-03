@@ -4,6 +4,7 @@ exports.FREE_REWIND_PERSONA_IDS = exports.SubscriptionAccessError = void 0;
 exports.requiresProForRewindPersona = requiresProForRewindPersona;
 exports.requiresProForRewindFrequency = requiresProForRewindFrequency;
 exports.requiresProForInsightsRange = requiresProForInsightsRange;
+exports.getConfirmedVybaaAccess = getConfirmedVybaaAccess;
 exports.assertCanCreateGoal = assertCanCreateGoal;
 exports.assertCanCreateCommunity = assertCanCreateCommunity;
 exports.assertCanUseRewindFrequency = assertCanUseRewindFrequency;
@@ -37,11 +38,16 @@ function requiresProForRewindFrequency(frequency) {
 function requiresProForInsightsRange(range) {
     return range !== "7d";
 }
-async function getVybaaAccess(userId, clientApp) {
+async function getConfirmedVybaaAccess(userId, clientApp, loadStatus = revenuecat_service_1.getRevenueCatSubscriptionStatus) {
     if (clientApp !== "vybaa")
         return null;
     try {
-        return await (0, revenuecat_service_1.getRevenueCatSubscriptionStatus)(userId, clientApp);
+        const cachedAccess = await loadStatus(userId, clientApp);
+        if (cachedAccess.isPro)
+            return cachedAccess;
+        // A free snapshot may have been written moments before a purchase. Pro
+        // gates must revalidate that negative result before denying access.
+        return await loadStatus(userId, clientApp, { forceRefresh: true });
     }
     catch {
         throw new SubscriptionAccessError("SUBSCRIPTION_UNAVAILABLE", "Subscription status is temporarily unavailable", 503);
@@ -69,7 +75,7 @@ async function assertCanCreateGoal(userId, clientApp, dependencies = {}) {
     const activeGoalCount = await (dependencies.countActiveGoals ?? countActiveGoals)(userId);
     if (activeGoalCount < revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.activeGoals)
         return;
-    const access = await (dependencies.loadAccess ?? getVybaaAccess)(userId, clientApp);
+    const access = await (dependencies.loadAccess ?? getConfirmedVybaaAccess)(userId, clientApp);
     if (access?.isPro)
         return;
     throw new SubscriptionAccessError("FREE_LIMIT_REACHED", `Free accounts can have up to ${revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.activeGoals} active goals`);
@@ -80,7 +86,7 @@ async function assertCanCreateCommunity(userId, clientApp, dependencies = {}) {
     const ownedCommunityCount = await (dependencies.countOwnedCommunities ?? countOwnedCommunities)(userId);
     if (ownedCommunityCount < revenuecat_service_1.FREE_SUBSCRIPTION_LIMITS.ownedCommunities)
         return;
-    const access = await (dependencies.loadAccess ?? getVybaaAccess)(userId, clientApp);
+    const access = await (dependencies.loadAccess ?? getConfirmedVybaaAccess)(userId, clientApp);
     if (!access?.isPro) {
         throw new SubscriptionAccessError("FREE_LIMIT_REACHED", "Upgrade to Vybaa Pro to create another community");
     }
@@ -89,7 +95,7 @@ async function assertCanCreateCommunity(userId, clientApp, dependencies = {}) {
         return;
     throw new SubscriptionAccessError("PLAN_LIMIT_REACHED", `Vybaa Pro supports up to ${limit} owned communities`);
 }
-async function assertCanUseRewindFrequency(userId, clientApp, frequency, loadAccess = getVybaaAccess) {
+async function assertCanUseRewindFrequency(userId, clientApp, frequency, loadAccess = getConfirmedVybaaAccess) {
     if (!requiresProForRewindFrequency(frequency))
         return;
     const access = await loadAccess(userId, clientApp);
@@ -97,7 +103,7 @@ async function assertCanUseRewindFrequency(userId, clientApp, frequency, loadAcc
         return;
     throw new SubscriptionAccessError("PRO_REQUIRED", "Morning and evening or custom Rewind routines require Vybaa Pro");
 }
-async function assertCanUseRewindInsightsRange(userId, clientApp, range, loadAccess = getVybaaAccess) {
+async function assertCanUseRewindInsightsRange(userId, clientApp, range, loadAccess = getConfirmedVybaaAccess) {
     if (!requiresProForInsightsRange(range))
         return;
     const access = await loadAccess(userId, clientApp);
@@ -113,13 +119,13 @@ async function assertHasProAccess(userId, clientApp, message, loadAccess) {
         return;
     throw new SubscriptionAccessError("PRO_REQUIRED", message);
 }
-async function assertCanUseRewindChats(userId, clientApp, loadAccess = getVybaaAccess) {
+async function assertCanUseRewindChats(userId, clientApp, loadAccess = getConfirmedVybaaAccess) {
     await assertHasProAccess(userId, clientApp, "Anytime Rewind chats require Vybaa Pro", loadAccess);
 }
-async function assertCanUseQuickGoalSetup(userId, clientApp, loadAccess = getVybaaAccess) {
+async function assertCanUseQuickGoalSetup(userId, clientApp, loadAccess = getConfirmedVybaaAccess) {
     await assertHasProAccess(userId, clientApp, "Quick Goal Setup requires Vybaa Pro", loadAccess);
 }
-async function assertCanSelectRewindPersona(userId, clientApp, personaId, loadAccess = getVybaaAccess) {
+async function assertCanSelectRewindPersona(userId, clientApp, personaId, loadAccess = getConfirmedVybaaAccess) {
     if (!requiresProForRewindPersona(personaId))
         return;
     await assertHasProAccess(userId, clientApp, "Jake, Ariel, Tobi, and Neeja require Vybaa Pro", loadAccess);
