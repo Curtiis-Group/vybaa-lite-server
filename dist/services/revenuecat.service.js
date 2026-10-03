@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PRO_SUBSCRIPTION_LIMITS = exports.FREE_SUBSCRIPTION_LIMITS = exports.VYBAA_PRODUCT_IDS = exports.VYBAA_OFFERING_ID = exports.VYBAA_ENTITLEMENT_ID = exports.SUBSCRIPTION_SNAPSHOT_TTL_MS = void 0;
+exports.PRO_SUBSCRIPTION_LIMITS = exports.FREE_SUBSCRIPTION_LIMITS = exports.VYBAA_PRODUCT_IDS = exports.VYBAA_OFFERING_ID = exports.VYBAA_ENTITLEMENT_ID = exports.SANDBOX_SUBSCRIPTION_GRACE_MS = exports.PRODUCTION_SUBSCRIPTION_GRACE_MS = exports.SUBSCRIPTION_SNAPSHOT_TTL_MS = void 0;
 exports.getRevenueCatConfig = getRevenueCatConfig;
 exports.isEntitlementActive = isEntitlementActive;
+exports.isSubscriptionRecordActive = isSubscriptionRecordActive;
 exports.matchesRevenueCatEntitlementIdentifier = matchesRevenueCatEntitlementIdentifier;
 exports.parseRevenueCatV2Access = parseRevenueCatV2Access;
 exports.refreshRevenueCatSubscription = refreshRevenueCatSubscription;
@@ -13,6 +14,8 @@ const client_app_type_1 = require("../types/client-app.type");
 const env_util_1 = require("../utils/env.util");
 const subscription_downgrade_service_1 = require("./subscription-downgrade.service");
 exports.SUBSCRIPTION_SNAPSHOT_TTL_MS = 5 * 60 * 1000;
+exports.PRODUCTION_SUBSCRIPTION_GRACE_MS = 15 * 60 * 1000;
+exports.SANDBOX_SUBSCRIPTION_GRACE_MS = 24 * 60 * 60 * 1000;
 exports.VYBAA_ENTITLEMENT_ID = "vybaa_pro";
 exports.VYBAA_OFFERING_ID = "default";
 exports.VYBAA_PRODUCT_IDS = {
@@ -66,9 +69,18 @@ function isEntitlementActive(entitlement, now) {
         return true;
     return new Date(entitlement.expires_date).getTime() > now.getTime();
 }
+function isSubscriptionRecordActive(isPro, expiresAt, environment, now) {
+    if (!isPro)
+        return false;
+    if (!expiresAt)
+        return true;
+    const gracePeriod = environment?.toUpperCase() === "SANDBOX"
+        ? exports.SANDBOX_SUBSCRIPTION_GRACE_MS
+        : exports.PRODUCTION_SUBSCRIPTION_GRACE_MS;
+    return expiresAt.getTime() + gracePeriod > now.getTime();
+}
 function snapshotToAccess(snapshot, clientApp, isConfigured, now) {
-    const isPro = snapshot.isPro &&
-        (!snapshot.expiresAt || snapshot.expiresAt.getTime() > now.getTime());
+    const isPro = isSubscriptionRecordActive(snapshot.isPro, snapshot.expiresAt, snapshot.environment, now);
     return {
         clientApp,
         entitlementId: snapshot.entitlementId,
@@ -270,6 +282,19 @@ async function refreshRevenueCatSubscription(appUserId, clientApp, now = new Dat
             },
         },
     });
+    const preservePreviousAccess = !verification.isPro &&
+        Boolean(previousSnapshot &&
+            isSubscriptionRecordActive(previousSnapshot.isPro, previousSnapshot.expiresAt, previousSnapshot.environment, now));
+    const effectiveVerification = preservePreviousAccess
+        ? {
+            environment: previousSnapshot?.environment ?? null,
+            expiresAt: previousSnapshot?.expiresAt ?? null,
+            isPro: true,
+            managementURL: previousSnapshot?.managementUrl ?? null,
+            periodType: previousSnapshot?.periodType ?? null,
+            productIdentifier: previousSnapshot?.productIdentifier ?? null,
+        }
+        : verification;
     const snapshot = await db_config_1.prisma.subscriptionSnapshot.upsert({
         where: {
             userId_clientApp: {
@@ -280,27 +305,29 @@ async function refreshRevenueCatSubscription(appUserId, clientApp, now = new Dat
         create: {
             clientApp: (0, client_app_type_1.toPrismaClientApp)(clientApp),
             entitlementId: config.entitlementId,
-            environment: verification.environment,
-            expiresAt: verification.expiresAt,
-            isPro: verification.isPro,
-            managementUrl: verification.managementURL,
-            periodType: verification.periodType,
-            productIdentifier: verification.productIdentifier,
+            environment: effectiveVerification.environment,
+            expiresAt: effectiveVerification.expiresAt,
+            isPro: effectiveVerification.isPro,
+            managementUrl: effectiveVerification.managementURL,
+            periodType: effectiveVerification.periodType,
+            productIdentifier: effectiveVerification.productIdentifier,
             userId: appUserId,
             verifiedAt: now,
         },
         update: {
             entitlementId: config.entitlementId,
-            environment: verification.environment,
-            expiresAt: verification.expiresAt,
-            isPro: verification.isPro,
-            managementUrl: verification.managementURL,
-            periodType: verification.periodType,
-            productIdentifier: verification.productIdentifier,
+            environment: effectiveVerification.environment,
+            expiresAt: effectiveVerification.expiresAt,
+            isPro: effectiveVerification.isPro,
+            managementUrl: effectiveVerification.managementURL,
+            periodType: effectiveVerification.periodType,
+            productIdentifier: effectiveVerification.productIdentifier,
             verifiedAt: now,
         },
     });
-    if (clientApp === "vybaa" && previousSnapshot?.isPro && !verification.isPro) {
+    if (clientApp === "vybaa" &&
+        previousSnapshot?.isPro &&
+        !effectiveVerification.isPro) {
         await (0, subscription_downgrade_service_1.downgradeRewindRoutineToFreeTier)(appUserId);
     }
     return snapshotToAccess(snapshot, clientApp, true, now);

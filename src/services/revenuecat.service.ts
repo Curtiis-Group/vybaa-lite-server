@@ -7,6 +7,8 @@ import { Env } from "../utils/env.util";
 import { downgradeRewindRoutineToFreeTier } from "./subscription-downgrade.service";
 
 export const SUBSCRIPTION_SNAPSHOT_TTL_MS = 5 * 60 * 1000;
+export const PRODUCTION_SUBSCRIPTION_GRACE_MS = 15 * 60 * 1000;
+export const SANDBOX_SUBSCRIPTION_GRACE_MS = 24 * 60 * 60 * 1000;
 
 export const VYBAA_ENTITLEMENT_ID = "vybaa_pro";
 export const VYBAA_OFFERING_ID = "default";
@@ -173,15 +175,34 @@ export function isEntitlementActive(
   return new Date(entitlement.expires_date).getTime() > now.getTime();
 }
 
+export function isSubscriptionRecordActive(
+  isPro: boolean,
+  expiresAt: Date | null,
+  environment: string | null,
+  now: Date,
+): boolean {
+  if (!isPro) return false;
+  if (!expiresAt) return true;
+
+  const gracePeriod =
+    environment?.toUpperCase() === "SANDBOX"
+      ? SANDBOX_SUBSCRIPTION_GRACE_MS
+      : PRODUCTION_SUBSCRIPTION_GRACE_MS;
+  return expiresAt.getTime() + gracePeriod > now.getTime();
+}
+
 function snapshotToAccess(
   snapshot: SubscriptionSnapshot,
   clientApp: ClientApp,
   isConfigured: boolean,
   now: Date,
 ): SubscriptionAccess {
-  const isPro =
-    snapshot.isPro &&
-    (!snapshot.expiresAt || snapshot.expiresAt.getTime() > now.getTime());
+  const isPro = isSubscriptionRecordActive(
+    snapshot.isPro,
+    snapshot.expiresAt,
+    snapshot.environment,
+    now,
+  );
 
   return {
     clientApp,
@@ -515,6 +536,28 @@ export async function refreshRevenueCatSubscription(
     },
   });
 
+  const preservePreviousAccess =
+    !verification.isPro &&
+    Boolean(
+      previousSnapshot &&
+        isSubscriptionRecordActive(
+          previousSnapshot.isPro,
+          previousSnapshot.expiresAt,
+          previousSnapshot.environment,
+          now,
+        ),
+    );
+  const effectiveVerification: RevenueCatVerification = preservePreviousAccess
+    ? {
+        environment: previousSnapshot?.environment ?? null,
+        expiresAt: previousSnapshot?.expiresAt ?? null,
+        isPro: true,
+        managementURL: previousSnapshot?.managementUrl ?? null,
+        periodType: previousSnapshot?.periodType ?? null,
+        productIdentifier: previousSnapshot?.productIdentifier ?? null,
+      }
+    : verification;
+
   const snapshot = await prisma.subscriptionSnapshot.upsert({
     where: {
       userId_clientApp: {
@@ -525,28 +568,32 @@ export async function refreshRevenueCatSubscription(
     create: {
       clientApp: toPrismaClientApp(clientApp),
       entitlementId: config.entitlementId,
-      environment: verification.environment,
-      expiresAt: verification.expiresAt,
-      isPro: verification.isPro,
-      managementUrl: verification.managementURL,
-      periodType: verification.periodType,
-      productIdentifier: verification.productIdentifier,
+      environment: effectiveVerification.environment,
+      expiresAt: effectiveVerification.expiresAt,
+      isPro: effectiveVerification.isPro,
+      managementUrl: effectiveVerification.managementURL,
+      periodType: effectiveVerification.periodType,
+      productIdentifier: effectiveVerification.productIdentifier,
       userId: appUserId,
       verifiedAt: now,
     },
     update: {
       entitlementId: config.entitlementId,
-      environment: verification.environment,
-      expiresAt: verification.expiresAt,
-      isPro: verification.isPro,
-      managementUrl: verification.managementURL,
-      periodType: verification.periodType,
-      productIdentifier: verification.productIdentifier,
+      environment: effectiveVerification.environment,
+      expiresAt: effectiveVerification.expiresAt,
+      isPro: effectiveVerification.isPro,
+      managementUrl: effectiveVerification.managementURL,
+      periodType: effectiveVerification.periodType,
+      productIdentifier: effectiveVerification.productIdentifier,
       verifiedAt: now,
     },
   });
 
-  if (clientApp === "vybaa" && previousSnapshot?.isPro && !verification.isPro) {
+  if (
+    clientApp === "vybaa" &&
+    previousSnapshot?.isPro &&
+    !effectiveVerification.isPro
+  ) {
     await downgradeRewindRoutineToFreeTier(appUserId);
   }
 

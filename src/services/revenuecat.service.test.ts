@@ -5,12 +5,15 @@ import test from "node:test";
 import { Env } from "../utils/env.util";
 import {
   FREE_SUBSCRIPTION_LIMITS,
+  PRODUCTION_SUBSCRIPTION_GRACE_MS,
   PRO_SUBSCRIPTION_LIMITS,
+  SANDBOX_SUBSCRIPTION_GRACE_MS,
   VYBAA_ENTITLEMENT_ID,
   VYBAA_PRODUCT_IDS,
   getLimitsForAccess,
   getRevenueCatConfig,
   isEntitlementActive,
+  isSubscriptionRecordActive,
   matchesRevenueCatEntitlementIdentifier,
   parseRevenueCatV2Access,
   type SubscriptionAccess,
@@ -76,6 +79,56 @@ test("expired RevenueCat entitlements are inactive", () => {
   );
   assert.equal(isEntitlementActive({ expires_date: null }, now), true);
   assert.equal(isEntitlementActive(null, now), false);
+});
+
+test("recently expired subscriptions retain a bounded verification grace", () => {
+  const expiredAt = new Date("2026-10-03T10:11:00.000Z");
+
+  assert.equal(
+    isSubscriptionRecordActive(
+      true,
+      expiredAt,
+      "PRODUCTION",
+      new Date(expiredAt.getTime() + PRODUCTION_SUBSCRIPTION_GRACE_MS - 1),
+    ),
+    true,
+  );
+  assert.equal(
+    isSubscriptionRecordActive(
+      true,
+      expiredAt,
+      "PRODUCTION",
+      new Date(expiredAt.getTime() + PRODUCTION_SUBSCRIPTION_GRACE_MS),
+    ),
+    false,
+  );
+  assert.equal(
+    isSubscriptionRecordActive(
+      true,
+      expiredAt,
+      "SANDBOX",
+      new Date(expiredAt.getTime() + SANDBOX_SUBSCRIPTION_GRACE_MS - 1),
+    ),
+    true,
+  );
+  assert.equal(
+    isSubscriptionRecordActive(
+      true,
+      expiredAt,
+      "SANDBOX",
+      new Date(expiredAt.getTime() + SANDBOX_SUBSCRIPTION_GRACE_MS),
+    ),
+    false,
+  );
+  assert.equal(
+    isSubscriptionRecordActive(
+      false,
+      null,
+      "SANDBOX",
+      new Date("2026-10-03T10:11:00.000Z"),
+    ),
+    false,
+  );
 });
 
 test("cached free access is refreshed before a Pro feature is denied", async () => {
