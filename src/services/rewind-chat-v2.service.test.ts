@@ -68,6 +68,19 @@ test("social guard allows a partner to initiate after the user re-engages", () =
   });
 });
 
+test("social guard permits a periodic follow-up after a long unanswered pause", () => {
+  const now = new Date("2026-09-15T01:00:00Z");
+  const guard = getRewindSocialGuard({
+    latestMessageAt: new Date("2026-09-14T12:00:00Z"),
+    latestMessageRole: RewindChatMessageRole.PARTNER,
+    latestUserMessageAt: new Date("2026-09-14T11:00:00Z"),
+    now,
+  });
+  assert.equal(guard.canInitiate, true);
+  assert.equal(guard.reason, "unanswered_follow_up");
+  assert.equal(guard.unansweredForMs, 13 * 60 * 60 * 1000);
+});
+
 test("AI-selected reactions retain a natural delay without a random veto", () => {
   for (let index = 0; index < 1000; index += 1) {
     const delay = getPartnerReactionDelayMs();

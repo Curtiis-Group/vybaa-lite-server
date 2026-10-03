@@ -16,8 +16,8 @@ exports.SUBSCRIPTION_SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 exports.VYBAA_ENTITLEMENT_ID = "vybaa_pro";
 exports.VYBAA_OFFERING_ID = "default";
 exports.VYBAA_PRODUCT_IDS = {
-    annual: "com.vybaa.app.pro.annual",
-    monthly: "com.vybaa.app.pro.monthly",
+    annual: "com.vybaa.pro.annual",
+    monthly: "com.vybaa.pro.monthly",
 };
 exports.FREE_SUBSCRIPTION_LIMITS = {
     activeGoals: 3,

@@ -255,7 +255,14 @@ function getRewindSocialGuard(input) {
         latestMessageAt > latestUserMessageAt;
     if (latestPartnerMessageIsUnanswered) {
         const unansweredForMs = Math.max(0, input.now.getTime() - latestMessageAt);
-        return { canInitiate: false, reason: "cooling_off", unansweredForMs };
+        if (unansweredForMs < SOCIAL_SPOKE_COOLDOWN_MS) {
+            return { canInitiate: false, reason: "cooling_off", unansweredForMs };
+        }
+        return {
+            canInitiate: true,
+            reason: "unanswered_follow_up",
+            unansweredForMs,
+        };
     }
     const lastPartnerSpokeAt = input.lastPartnerSpokeAt?.getTime() ?? 0;
     if (lastPartnerSpokeAt &&
@@ -290,6 +297,9 @@ function formatSocialContext(messages, now = new Date()) {
     });
     if (!guard.canInitiate && guard.reason === "cooling_off") {
         return "Your latest message is still unanswered by the user. Keep your dignity: do not double-text, chase, guilt-trip, or manufacture a reason to speak. Wait for the user to re-engage.";
+    }
+    if (guard.canInitiate && guard.reason === "unanswered_follow_up") {
+        return "The user still has not answered your latest message. You may send one brief, natural follow-up that carries the unfinished thread without guilt-tripping or demanding a reply. Do not repeat the same question.";
     }
     if (!guard.canInitiate) {
         return "You spoke recently. Let the exchange breathe; do not start another thread just to stay visible.";
@@ -2741,7 +2751,7 @@ async function processDueRewindPartnerMinds() {
         });
         if (recentProactive)
             continue;
-        // One unanswered automatic nudge per thread per day gives the user room.
+        // Leave a full social cooldown between unanswered follow-ups.
         const latestNudgeUserMessage = await db_config_1.prisma.rewindChatMessage.findFirst({
             select: { createdAt: true },
             orderBy: { createdAt: "desc" },
@@ -2760,7 +2770,7 @@ async function processDueRewindPartnerMinds() {
                 status: client_1.RewindChatRunStatus.COMPLETED,
                 turnsUsed: { gt: 0 },
                 createdAt: {
-                    gt: new Date(Math.max(now.getTime() - DAY_MS, latestNudgeUserMessage?.createdAt.getTime() ?? 0)),
+                    gt: new Date(Math.max(now.getTime() - SOCIAL_SPOKE_COOLDOWN_MS, latestNudgeUserMessage?.createdAt.getTime() ?? 0)),
                 },
             },
         });

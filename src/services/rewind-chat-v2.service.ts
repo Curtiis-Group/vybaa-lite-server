@@ -467,7 +467,7 @@ type SocialGuardInput = {
 
 export type RewindSocialGuard = {
   canInitiate: boolean;
-  reason: "cooling_off" | "recently_spoke" | "ready";
+  reason: "cooling_off" | "recently_spoke" | "ready" | "unanswered_follow_up";
   unansweredForMs: number;
 };
 
@@ -481,7 +481,14 @@ export function getRewindSocialGuard(
     latestMessageAt > latestUserMessageAt;
   if (latestPartnerMessageIsUnanswered) {
     const unansweredForMs = Math.max(0, input.now.getTime() - latestMessageAt);
-    return { canInitiate: false, reason: "cooling_off", unansweredForMs };
+    if (unansweredForMs < SOCIAL_SPOKE_COOLDOWN_MS) {
+      return { canInitiate: false, reason: "cooling_off", unansweredForMs };
+    }
+    return {
+      canInitiate: true,
+      reason: "unanswered_follow_up",
+      unansweredForMs,
+    };
   }
   const lastPartnerSpokeAt = input.lastPartnerSpokeAt?.getTime() ?? 0;
   if (
@@ -524,6 +531,9 @@ function formatSocialContext(
   });
   if (!guard.canInitiate && guard.reason === "cooling_off") {
     return "Your latest message is still unanswered by the user. Keep your dignity: do not double-text, chase, guilt-trip, or manufacture a reason to speak. Wait for the user to re-engage.";
+  }
+  if (guard.canInitiate && guard.reason === "unanswered_follow_up") {
+    return "The user still has not answered your latest message. You may send one brief, natural follow-up that carries the unfinished thread without guilt-tripping or demanding a reply. Do not repeat the same question.";
   }
   if (!guard.canInitiate) {
     return "You spoke recently. Let the exchange breathe; do not start another thread just to stay visible.";
@@ -3404,7 +3414,7 @@ export async function processDueRewindPartnerMinds(): Promise<void> {
       },
     });
     if (recentProactive) continue;
-    // One unanswered automatic nudge per thread per day gives the user room.
+    // Leave a full social cooldown between unanswered follow-ups.
     const latestNudgeUserMessage = await prisma.rewindChatMessage.findFirst({
       select: { createdAt: true },
       orderBy: { createdAt: "desc" },
@@ -3425,7 +3435,7 @@ export async function processDueRewindPartnerMinds(): Promise<void> {
         createdAt: {
           gt: new Date(
             Math.max(
-              now.getTime() - DAY_MS,
+              now.getTime() - SOCIAL_SPOKE_COOLDOWN_MS,
               latestNudgeUserMessage?.createdAt.getTime() ?? 0,
             ),
           ),
@@ -3486,9 +3496,7 @@ export async function processDueRewindPartnerMinds(): Promise<void> {
             socialGuard.reason === "cooling_off"
               ? "Stay quiet until the user re-engages. Do not double-text or chase an unanswered message."
               : "Let the exchange breathe before starting another thought.",
-          nextConsiderAt: new Date(
-            now.getTime() + SOCIAL_SPOKE_COOLDOWN_MS,
-          ),
+          nextConsiderAt: new Date(now.getTime() + SOCIAL_SPOKE_COOLDOWN_MS),
           state: RewindPartnerMindState.WATCHING,
         },
         where: { id: mind.id, userId: mind.userId },
