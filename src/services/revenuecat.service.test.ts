@@ -28,6 +28,7 @@ import {
   assertCanUseRewindFrequency,
   assertCanUseRewindInsightsRange,
   getConfirmedVybaaAccess,
+  getSubscriptionStatusWithProBypass,
   requiresProForInsightsRange,
   requiresProForRewindPersona,
   requiresProForRewindFrequency,
@@ -189,6 +190,15 @@ test("disabled Vybaa Pro checks bypass every backend subscription gate", async (
     );
     assert.equal(access?.isPro, true);
     assert.equal(access?.environment, "BYPASS");
+
+    const synchronizedAccess = await getSubscriptionStatusWithProBypass(
+      "temporary-pro-user",
+      "vybaa",
+      { forceRefresh: true },
+      failIfCalled,
+    );
+    assert.equal(synchronizedAccess.isPro, true);
+    assert.equal(synchronizedAccess.environment, "BYPASS");
 
     await assert.doesNotReject(() =>
       assertCanCreateGoal("temporary-pro-user", "vybaa", {

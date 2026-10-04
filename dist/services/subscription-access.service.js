@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FREE_REWIND_PERSONA_IDS = exports.SubscriptionAccessError = void 0;
 exports.areVybaaProChecksEnabled = areVybaaProChecksEnabled;
+exports.getSubscriptionStatusWithProBypass = getSubscriptionStatusWithProBypass;
 exports.requiresProForRewindPersona = requiresProForRewindPersona;
 exports.requiresProForRewindFrequency = requiresProForRewindFrequency;
 exports.requiresProForInsightsRange = requiresProForInsightsRange;
@@ -48,6 +49,12 @@ function createTemporaryProAccess() {
         verifiedAt: new Date().toISOString(),
     };
 }
+async function getSubscriptionStatusWithProBypass(userId, clientApp, options, loadStatus = revenuecat_service_1.getRevenueCatSubscriptionStatus) {
+    if (!areVybaaProChecksEnabled(clientApp)) {
+        return createTemporaryProAccess();
+    }
+    return loadStatus(userId, clientApp, options);
+}
 function requiresProForRewindPersona(personaId) {
     if (!personaId)
         return false;
@@ -63,15 +70,13 @@ function requiresProForInsightsRange(range) {
 async function getConfirmedVybaaAccess(userId, clientApp, loadStatus = revenuecat_service_1.getRevenueCatSubscriptionStatus) {
     if (clientApp !== "vybaa")
         return null;
-    if (!areVybaaProChecksEnabled(clientApp))
-        return createTemporaryProAccess();
     try {
-        const cachedAccess = await loadStatus(userId, clientApp);
+        const cachedAccess = await getSubscriptionStatusWithProBypass(userId, clientApp, undefined, loadStatus);
         if (cachedAccess.isPro)
             return cachedAccess;
         // A free snapshot may have been written moments before a purchase. Pro
         // gates must revalidate that negative result before denying access.
-        return await loadStatus(userId, clientApp, { forceRefresh: true });
+        return await getSubscriptionStatusWithProBypass(userId, clientApp, { forceRefresh: true }, loadStatus);
     }
     catch {
         throw new SubscriptionAccessError("SUBSCRIPTION_UNAVAILABLE", "Subscription status is temporarily unavailable", 503);

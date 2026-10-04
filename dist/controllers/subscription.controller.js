@@ -7,6 +7,7 @@ exports.getSubscriptionConfig = getSubscriptionConfig;
 exports.getSubscriptionStatus = getSubscriptionStatus;
 exports.syncSubscriptionStatus = syncSubscriptionStatus;
 const db_config_1 = require("../config/db.config");
+const subscription_access_service_1 = require("../services/subscription-access.service");
 const revenuecat_service_1 = require("../services/revenuecat.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 async function getSubscriptionUsage(userId) {
@@ -34,7 +35,7 @@ async function getSubscriptionStatus(req, res) {
     }
     try {
         const [status, usage] = await Promise.all([
-            (0, revenuecat_service_1.getRevenueCatSubscriptionStatus)(req.userId, req.clientApp),
+            (0, subscription_access_service_1.getSubscriptionStatusWithProBypass)(req.userId, req.clientApp),
             getSubscriptionUsage(req.userId),
         ]);
         res.status(200).json({
@@ -59,7 +60,7 @@ async function syncSubscriptionStatus(req, res) {
         return res.status(401).json({ msg: "Authentication required" });
     }
     try {
-        const status = await (0, revenuecat_service_1.getRevenueCatSubscriptionStatus)(req.userId, req.clientApp, { forceRefresh: true });
+        const status = await (0, subscription_access_service_1.getSubscriptionStatusWithProBypass)(req.userId, req.clientApp, { forceRefresh: true });
         const usage = await getSubscriptionUsage(req.userId);
         return res.status(200).json({
             msg: "Subscription synchronized",

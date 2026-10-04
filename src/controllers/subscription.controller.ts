@@ -2,10 +2,10 @@ import type { Response } from "express";
 
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
+import { getSubscriptionStatusWithProBypass } from "../services/subscription-access.service";
 import {
   getLimitsForAccess,
   getRevenueCatConfig,
-  getRevenueCatSubscriptionStatus,
 } from "../services/revenuecat.service";
 import logger from "../utils/logger.util";
 
@@ -47,7 +47,7 @@ export async function getSubscriptionStatus(
 
   try {
     const [status, usage] = await Promise.all([
-      getRevenueCatSubscriptionStatus(req.userId, req.clientApp),
+      getSubscriptionStatusWithProBypass(req.userId, req.clientApp),
       getSubscriptionUsage(req.userId),
     ]);
 
@@ -77,7 +77,7 @@ export async function syncSubscriptionStatus(
   }
 
   try {
-    const status = await getRevenueCatSubscriptionStatus(
+    const status = await getSubscriptionStatusWithProBypass(
       req.userId,
       req.clientApp,
       { forceRefresh: true },
