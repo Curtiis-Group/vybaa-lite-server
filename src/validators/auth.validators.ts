@@ -49,7 +49,6 @@ export const usernameSchema = z
 
 // Auth request validators
 export const loginSchema = z.object({
-  ...termsConsentSchema,
   email: emailSchema,
   password: z.string().min(1, "Password is required"),
 });
@@ -60,6 +59,7 @@ export const registerSchema = z.object({
   password: passwordSchema,
   firstName: nameSchema.optional(),
   lastName: nameSchema.optional(),
+  username: usernameSchema.optional(),
 });
 
 export const googleAuthSchema = z.object({

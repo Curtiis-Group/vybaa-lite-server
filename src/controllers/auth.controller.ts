@@ -105,11 +105,7 @@ export async function login(req: Request, res: Response) {
     // Update refresh token
     await prisma.user.update({
       where: { id: refreshedUser.id },
-      data: {
-        refreshToken,
-        termsAcceptedAt: new Date(),
-        termsVersion: CURRENT_TERMS_VERSION,
-      },
+      data: { refreshToken },
     });
 
     res.json({
@@ -128,7 +124,8 @@ export async function login(req: Request, res: Response) {
 
 export async function register(req: Request, res: Response) {
   try {
-    const { email, password, firstName, lastName } = req.body;
+    const { email, password, firstName, lastName, username: requestedUsername } =
+      req.body;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -138,9 +135,9 @@ export async function register(req: Request, res: Response) {
 
     const hashedPassword = await hashPassword(password);
 
-    // Generate unique username from first name or email
-    const baseName = firstName || email.split("@")[0];
-    const username = await generateUniqueUsername(baseName);
+    const username = requestedUsername
+      ? requestedUsername.trim().toLowerCase()
+      : await generateUniqueUsername(firstName || email.split("@")[0]);
 
     const user = await prisma.user.create({
       data: {

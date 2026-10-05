@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CURRENT_TERMS_VERSION } from "../constants/legal.constants";
-import { loginSchema } from "./auth.validators";
+import { loginSchema, registerSchema } from "./auth.validators";
 import {
   createCommunitySchema,
   createTemplateSchema,
@@ -11,11 +11,21 @@ import {
   moderationEvidenceSchema,
 } from "./moderation.validators";
 
-test("authentication requires current explicit terms consent", () => {
+test("returning users can log in without repeating terms consent", () => {
   const base = { email: "friend@example.com", password: "password" };
-  assert.equal(loginSchema.safeParse(base).success, false);
+  assert.equal(loginSchema.safeParse(base).success, true);
+});
+
+test("registration records current consent and accepts a chosen username", () => {
+  const base = {
+    email: "friend@example.com",
+    password: "password",
+    username: "goal_friend",
+  };
+
+  assert.equal(registerSchema.safeParse(base).success, false);
   assert.equal(
-    loginSchema.safeParse({
+    registerSchema.safeParse({
       ...base,
       acceptedTerms: true,
       termsVersion: CURRENT_TERMS_VERSION,

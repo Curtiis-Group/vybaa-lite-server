@@ -26,7 +26,7 @@ Open `/app/admin/feature-flags`, enter the production `ADMIN_SECRET`, then use *
 
 Record on a physical iPhone in one continuous take:
 
-1. Open Log in and show the unchecked Terms/Community Standards agreement. Open **Terms of Use**, return, tick the agreement, and log in.
+1. Open Sign up and show the Terms/Community Standards agreement directly beneath the create-account action. Open **Terms of Use**, return, and create the account.
 2. Open Communities, select a community, open a different user’s activity overflow menu, choose **Report content**, select a reason, and submit.
 3. Open the same safety menu, choose **Block**, show the explanation, confirm, and show the content disappear immediately.
 4. Optionally open another user’s public profile and show the visible **Report or block** button.
@@ -35,4 +35,4 @@ Upload the recording to a stable reviewer-accessible URL and add it to App Store
 
 Suggested review reply:
 
-> We implemented the Guideline 1.2 safeguards throughout Vybaa. Users must accept our Terms of Use and Community Standards before email or Google registration/login; the terms explicitly prohibit objectionable content and abusive behavior. Shared community fields are filtered before posting. Every other user’s activity and public profile exposes Report and Block controls. Reports enter an oldest-first moderation queue, alert our safety mailbox, and carry a 24-hour deadline. Blocking immediately removes that user’s content from the blocker’s feed and also creates a developer-visible safety report with preserved evidence. Our moderation action removes offending content and suspends the responsible account. The physical-device demonstration is linked in App Review Notes.
+> We implemented the Guideline 1.2 safeguards throughout Vybaa. Account creation clearly states that continuing accepts our Terms of Use and Community Standards; the terms explicitly prohibit objectionable content and abusive behavior. Shared community fields are filtered before posting. Every other user’s activity and public profile exposes Report and Block controls. Reports enter an oldest-first moderation queue, alert our safety mailbox, and carry a 24-hour deadline. Blocking immediately removes that user’s content from the blocker’s feed and also creates a developer-visible safety report with preserved evidence. Our moderation action removes offending content and suspends the responsible account. The physical-device demonstration is linked in App Review Notes.

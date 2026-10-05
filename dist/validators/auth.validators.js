@@ -40,7 +40,6 @@ exports.usernameSchema = zod_1.z
     .refine(content_moderation_util_1.isAllowedUserContent, "This username contains content that is not allowed");
 // Auth request validators
 exports.loginSchema = zod_1.z.object({
-    ...termsConsentSchema,
     email: exports.emailSchema,
     password: zod_1.z.string().min(1, "Password is required"),
 });
@@ -50,6 +49,7 @@ exports.registerSchema = zod_1.z.object({
     password: exports.passwordSchema,
     firstName: exports.nameSchema.optional(),
     lastName: exports.nameSchema.optional(),
+    username: exports.usernameSchema.optional(),
 });
 exports.googleAuthSchema = zod_1.z.object({
     ...termsConsentSchema,

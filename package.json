@@ -16,6 +16,7 @@
     "seed:communities": "tsx src/scripts/seed-community-density.ts",
     "test:fcm": "tsx src/scripts/test-fcm.ts",
     "test:elevenlabs": "tsx src/scripts/test-elevenlabs-rewind.ts",
+    "test:openrouter": "tsx src/scripts/test-openrouter.ts",
     "generate-secrets": "node scripts/generate-secrets.js",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
@@ -47,16 +48,17 @@
     "express-ws": "^5.0.2",
     "firebase-admin": "^13.6.1",
     "google-auth-library": "^9.4.1",
+    "jose": "^5.10.0",
     "jsonwebtoken": "^9.0.2",
     "luxon": "^3.7.2",
+    "openai": "^6.49.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "redis": "^4.7.0",
     "tsx": "^4.21.0",
     "winston": "^3.15.0",
     "ws": "^8.21.0",
-    "zod": "^3.23.8",
-    "jose": "^5.10.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
