@@ -12,9 +12,24 @@ const node_crypto_1 = require("node:crypto");
 const db_config_1 = require("../config/db.config");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const rewind_chat_realtime_service_1 = require("./rewind-chat-realtime.service");
+const READ_DELAY_LONG_CHANCE_PERCENT = 12;
+const READ_INITIAL_MIN_MS = 900;
+const READ_INITIAL_MAX_MS = 1800;
+const READ_INITIAL_LONG_MIN_MS = 3000;
+const READ_INITIAL_LONG_MAX_MS = 5000;
+const READ_STEP_MIN_MS = 450;
+const READ_STEP_MAX_MS = 1200;
+const READ_STEP_LONG_MIN_MS = 2200;
+const READ_STEP_LONG_MAX_MS = 4000;
+function randomPacedReadDelay(minimumMs, maximumMs, longMinimumMs, longMaximumMs) {
+    const useLongDelay = (0, node_crypto_1.randomInt)(0, 100) < READ_DELAY_LONG_CHANCE_PERCENT;
+    return useLongDelay
+        ? (0, node_crypto_1.randomInt)(longMinimumMs, longMaximumMs + 1)
+        : (0, node_crypto_1.randomInt)(minimumMs, maximumMs + 1);
+}
 function createRewindReadSchedule(personas, now) {
     const schedule = {};
-    let delay = (0, node_crypto_1.randomInt)(2500, 6001);
+    let delay = randomPacedReadDelay(READ_INITIAL_MIN_MS, READ_INITIAL_MAX_MS, READ_INITIAL_LONG_MIN_MS, READ_INITIAL_LONG_MAX_MS);
     // Shuffle who notices first, rather than always letting the same partner lead.
     const remaining = [...new Set(personas)];
     while (remaining.length) {
@@ -23,7 +38,7 @@ function createRewindReadSchedule(personas, now) {
         if (!persona)
             continue;
         schedule[persona] = new Date(now.getTime() + delay).toISOString();
-        delay += (0, node_crypto_1.randomInt)(2000, 7001);
+        delay += randomPacedReadDelay(READ_STEP_MIN_MS, READ_STEP_MAX_MS, READ_STEP_LONG_MIN_MS, READ_STEP_LONG_MAX_MS);
     }
     return schedule;
 }

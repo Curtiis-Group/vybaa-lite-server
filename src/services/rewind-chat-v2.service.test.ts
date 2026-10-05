@@ -156,8 +156,8 @@ test("group reading staggers every partner, with full read after the last reader
     const times = getRewindReadTimes(schedule).sort((a, b) => a - b);
     assert.equal(times.length, 6);
     assert.equal(new Set(times).size, 6);
-    assert.ok(Math.min(...times) >= now.getTime() + 2500);
-    assert.ok(Math.max(...times) <= now.getTime() + 41000);
+    assert.ok(Math.min(...times) >= now.getTime() + 900);
+    assert.ok(Math.max(...times) <= now.getTime() + 25000);
     for (const persona of personas)
       assert.ok(getRewindPersonaReadTime(schedule, persona));
     assert.ok(Math.max(...times) > Math.min(...times));
@@ -592,32 +592,32 @@ test("v2 seen-to-typing jitter always stays within the intended range", () => {
     const deliveredToSeenDelay = getRewindDeliveredToSeenDelayMs();
     const delay = getRewindSeenToTypingDelayMs();
     const betweenWavesDelay = getRewindBetweenWavesDelayMs();
-    assert.ok(deliveredToSeenDelay >= 1_800);
+    assert.ok(deliveredToSeenDelay >= 900);
     assert.ok(deliveredToSeenDelay <= 5_000);
-    assert.ok(delay >= 1_200);
-    assert.ok(delay <= 3_000);
-    assert.ok(betweenWavesDelay >= 2_500);
-    assert.ok(betweenWavesDelay <= 5_000);
+    assert.ok(delay >= 350);
+    assert.ok(delay <= 3_500);
+    assert.ok(betweenWavesDelay >= 800);
+    assert.ok(betweenWavesDelay <= 4_500);
 
     const waveDelays = getRewindWaveTypingDelays(4);
     assert.equal(waveDelays.length, 4);
-    assert.ok((waveDelays[0] ?? 0) >= 1_200);
-    assert.ok((waveDelays[0] ?? 0) <= 3_000);
+    assert.ok((waveDelays[0] ?? 0) >= 350);
+    assert.ok((waveDelays[0] ?? 0) <= 3_500);
     for (let index = 1; index < waveDelays.length; index += 1) {
       const stagger = (waveDelays[index] ?? 0) - (waveDelays[index - 1] ?? 0);
-      assert.ok(stagger >= 1_500);
-      assert.ok(stagger <= 3_000);
+      assert.ok(stagger >= 450);
+      assert.ok(stagger <= 3_500);
     }
   }
 });
 
 test("typing duration grows with a message but remains bounded for long replies", () => {
-  assert.ok(getRewindMinimumTypingMs("hey") >= 1_800);
+  assert.ok(getRewindMinimumTypingMs("hey") >= 700);
   assert.ok(
     getRewindMinimumTypingMs("hey, how did it go today?") >
       getRewindMinimumTypingMs("hey"),
   );
-  assert.equal(getRewindMinimumTypingMs("x".repeat(4_000)), 6_500);
+  assert.equal(getRewindMinimumTypingMs("x".repeat(4_000)), 3_500);
   assert.equal(getRewindMinimumTypingMs("😀"), getRewindMinimumTypingMs("x"));
 });
 

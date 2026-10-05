@@ -70,14 +70,23 @@ const PROACTIVE_CHAT_COOLDOWN_MS = 45 * 60 * 1000;
 const PROACTIVE_THREAD_COOLDOWN_MS = 90 * 60 * 1000;
 const QUIET_START_HOUR = 8;
 const QUIET_END_HOUR = 21;
-const DELIVERED_TO_SEEN_MIN_MS = 1_800;
-const DELIVERED_TO_SEEN_MAX_MS = 5_000;
-const SEEN_TO_TYPING_MIN_MS = 1_200;
-const SEEN_TO_TYPING_MAX_MS = 3_000;
-const TURN_TYPING_STAGGER_MIN_MS = 1_500;
-const TURN_TYPING_STAGGER_MAX_MS = 3_000;
-const BETWEEN_WAVES_MIN_MS = 2_500;
-const BETWEEN_WAVES_MAX_MS = 5_000;
+const DELIVERED_TO_SEEN_MIN_MS = 900;
+const DELIVERED_TO_SEEN_MAX_MS = 2_000;
+const DELIVERED_TO_SEEN_LONG_MIN_MS = 3_000;
+const DELIVERED_TO_SEEN_LONG_MAX_MS = 5_000;
+const SEEN_TO_TYPING_MIN_MS = 350;
+const SEEN_TO_TYPING_MAX_MS = 900;
+const SEEN_TO_TYPING_LONG_MIN_MS = 1_800;
+const SEEN_TO_TYPING_LONG_MAX_MS = 3_500;
+const TURN_TYPING_STAGGER_MIN_MS = 450;
+const TURN_TYPING_STAGGER_MAX_MS = 1_000;
+const TURN_TYPING_STAGGER_LONG_MIN_MS = 1_800;
+const TURN_TYPING_STAGGER_LONG_MAX_MS = 3_500;
+const BETWEEN_WAVES_MIN_MS = 800;
+const BETWEEN_WAVES_MAX_MS = 1_600;
+const BETWEEN_WAVES_LONG_MIN_MS = 2_800;
+const BETWEEN_WAVES_LONG_MAX_MS = 4_500;
+const OCCASIONAL_LONG_DELAY_CHANCE_PERCENT = 12;
 const STREAM_FRAGMENT_MIN_MS = 16;
 const STREAM_FRAGMENT_MAX_MS = 46;
 const DIRECTOR_INTENT_MAX_CHARS = 280;
@@ -379,6 +388,19 @@ function randomDelay(minimumMs: number, maximumMs: number): number {
   return randomInt(minimumMs, maximumMs + 1);
 }
 
+function randomPacedDelay(
+  minimumMs: number,
+  maximumMs: number,
+  longMinimumMs: number,
+  longMaximumMs: number,
+): number {
+  const useLongDelay =
+    randomInt(0, 100) < OCCASIONAL_LONG_DELAY_CHANCE_PERCENT;
+  return useLongDelay
+    ? randomDelay(longMinimumMs, longMaximumMs)
+    : randomDelay(minimumMs, maximumMs);
+}
+
 function waitFor(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
@@ -386,19 +408,34 @@ function waitFor(milliseconds: number): Promise<void> {
 }
 
 export function getRewindSeenToTypingDelayMs(): number {
-  return randomDelay(SEEN_TO_TYPING_MIN_MS, SEEN_TO_TYPING_MAX_MS);
+  return randomPacedDelay(
+    SEEN_TO_TYPING_MIN_MS,
+    SEEN_TO_TYPING_MAX_MS,
+    SEEN_TO_TYPING_LONG_MIN_MS,
+    SEEN_TO_TYPING_LONG_MAX_MS,
+  );
 }
 
 export function getRewindDeliveredToSeenDelayMs(): number {
-  return randomDelay(DELIVERED_TO_SEEN_MIN_MS, DELIVERED_TO_SEEN_MAX_MS);
+  return randomPacedDelay(
+    DELIVERED_TO_SEEN_MIN_MS,
+    DELIVERED_TO_SEEN_MAX_MS,
+    DELIVERED_TO_SEEN_LONG_MIN_MS,
+    DELIVERED_TO_SEEN_LONG_MAX_MS,
+  );
 }
 
 export function getRewindBetweenWavesDelayMs(): number {
-  return randomDelay(BETWEEN_WAVES_MIN_MS, BETWEEN_WAVES_MAX_MS);
+  return randomPacedDelay(
+    BETWEEN_WAVES_MIN_MS,
+    BETWEEN_WAVES_MAX_MS,
+    BETWEEN_WAVES_LONG_MIN_MS,
+    BETWEEN_WAVES_LONG_MAX_MS,
+  );
 }
 
 export function getRewindMinimumTypingMs(message: string): number {
-  return Math.min(6_500, 1_800 + Array.from(message).length * 45);
+  return Math.min(3_500, 700 + Array.from(message).length * 30);
 }
 
 export function getRewindWaveTypingDelays(turnCount: number): number[] {
@@ -410,9 +447,11 @@ export function getRewindWaveTypingDelays(turnCount: number): number[] {
   let nextDelay = getRewindSeenToTypingDelayMs();
   for (let index = 0; index < boundedTurnCount; index += 1) {
     if (index) {
-      nextDelay += randomDelay(
+      nextDelay += randomPacedDelay(
         TURN_TYPING_STAGGER_MIN_MS,
         TURN_TYPING_STAGGER_MAX_MS,
+        TURN_TYPING_STAGGER_LONG_MIN_MS,
+        TURN_TYPING_STAGGER_LONG_MAX_MS,
       );
     }
     delays.push(nextDelay);

@@ -4,12 +4,39 @@ import { prisma } from "../config/db.config";
 import logger from "../utils/logger.util";
 import { publishRewindChatEvent } from "./rewind-chat-realtime.service";
 
+const READ_DELAY_LONG_CHANCE_PERCENT = 12;
+const READ_INITIAL_MIN_MS = 900;
+const READ_INITIAL_MAX_MS = 1_800;
+const READ_INITIAL_LONG_MIN_MS = 3_000;
+const READ_INITIAL_LONG_MAX_MS = 5_000;
+const READ_STEP_MIN_MS = 450;
+const READ_STEP_MAX_MS = 1_200;
+const READ_STEP_LONG_MIN_MS = 2_200;
+const READ_STEP_LONG_MAX_MS = 4_000;
+
+function randomPacedReadDelay(
+  minimumMs: number,
+  maximumMs: number,
+  longMinimumMs: number,
+  longMaximumMs: number,
+): number {
+  const useLongDelay = randomInt(0, 100) < READ_DELAY_LONG_CHANCE_PERCENT;
+  return useLongDelay
+    ? randomInt(longMinimumMs, longMaximumMs + 1)
+    : randomInt(minimumMs, maximumMs + 1);
+}
+
 export function createRewindReadSchedule(
   personas: readonly string[],
   now: Date,
 ): Record<string, string> {
   const schedule: Record<string, string> = {};
-  let delay = randomInt(2_500, 6_001);
+  let delay = randomPacedReadDelay(
+    READ_INITIAL_MIN_MS,
+    READ_INITIAL_MAX_MS,
+    READ_INITIAL_LONG_MIN_MS,
+    READ_INITIAL_LONG_MAX_MS,
+  );
   // Shuffle who notices first, rather than always letting the same partner lead.
   const remaining = [...new Set(personas)];
   while (remaining.length) {
@@ -17,7 +44,12 @@ export function createRewindReadSchedule(
     const persona = remaining.splice(index, 1)[0];
     if (!persona) continue;
     schedule[persona] = new Date(now.getTime() + delay).toISOString();
-    delay += randomInt(2_000, 7_001);
+    delay += randomPacedReadDelay(
+      READ_STEP_MIN_MS,
+      READ_STEP_MAX_MS,
+      READ_STEP_LONG_MIN_MS,
+      READ_STEP_LONG_MAX_MS,
+    );
   }
   return schedule;
 }
