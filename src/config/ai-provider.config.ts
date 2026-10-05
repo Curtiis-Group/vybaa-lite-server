@@ -70,12 +70,12 @@ export const AI_TEXT_CONFIG: Readonly<
     reasoningEnabled: true,
   },
   REWIND_CHAT: {
-    model: OPENROUTER_MODELS.luna,
+    model: OPENROUTER_MODELS.gemini,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   REWIND_CHAT_V2: {
-    model: OPENROUTER_MODELS.luna,
+    model: OPENROUTER_MODELS.gemini,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
