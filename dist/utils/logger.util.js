@@ -4,18 +4,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.redactRequestPath = redactRequestPath;
-const fs_1 = require("fs");
-const path_1 = __importDefault(require("path"));
 const chalk_1 = __importDefault(require("chalk"));
 require("dotenv/config");
+const fs_1 = require("fs");
+const path_1 = __importDefault(require("path"));
 const winston_1 = __importDefault(require("winston"));
 const logDir = "logs";
 (0, fs_1.mkdirSync)(logDir, { recursive: true });
-const logFormat = winston_1.default.format.combine(winston_1.default.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston_1.default.format.errors({ stack: true }), winston_1.default.format.splat(), winston_1.default.format.json());
+const logFormat = winston_1.default.format.combine(winston_1.default.format.timestamp({ format: "HH:mm:ss" }), winston_1.default.format.errors({ stack: true }), winston_1.default.format.splat(), winston_1.default.format.json());
 const logLevel = (process.env.LOG_LEVEL ??
     (process.env.NODE_ENV === "production" ? "info" : "debug")).toLowerCase();
 const verboseConsoleOutput = ["debug", "silly", "verbose"].includes(logLevel);
-const consoleFormat = winston_1.default.format.combine(winston_1.default.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston_1.default.format.errors({ stack: true }), winston_1.default.format.splat(), winston_1.default.format.printf((info) => {
+const consoleFormat = winston_1.default.format.combine(winston_1.default.format.timestamp({ format: "HH:mm MM/DD" }), winston_1.default.format.errors({ stack: true }), winston_1.default.format.splat(), winston_1.default.format.printf((info) => {
     const level = String(info.level ?? "info");
     const context = {};
     let errorStack = typeof info.stack === "string" ? info.stack : undefined;
@@ -65,7 +65,7 @@ const consoleFormat = winston_1.default.format.combine(winston_1.default.format.
         (process.env.LOG_STACKS === "true" || level === "error")
         ? `\n${chalk_1.default.dim(errorStack)}`
         : "";
-    return `[${chalk_1.default.yellow(String(info.timestamp ?? ""))}][${colorizeLevel(level)}]: ${displayedMessage}${contextSuffix}${stackSuffix}`;
+    return `[${chalk_1.default.yellow(String(info.timestamp ?? ""))}]|${colorizeLevel(level)}| ${displayedMessage}${contextSuffix}${stackSuffix}`;
 }));
 const logger = winston_1.default.createLogger({
     level: logLevel,
@@ -89,7 +89,7 @@ const logger = winston_1.default.createLogger({
     ],
 });
 function colorizeLevel(level) {
-    const label = level.toUpperCase().padEnd(5, " ");
+    const label = level.toUpperCase().padEnd(5, "");
     switch (level.toLowerCase()) {
         case "error":
             return chalk_1.default.red(label);

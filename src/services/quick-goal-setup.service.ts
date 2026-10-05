@@ -1,12 +1,12 @@
 import { DateTime } from "luxon";
 
 import { AI_TEXT_FEATURE } from "../config/ai-provider.config";
+import logger from "../utils/logger.util";
 import {
   quickGoalSetupDecisionSchema,
   type QuickGoalSetupInput,
   type QuickGoalSetupResponse,
 } from "../validators/goal-v2.validators";
-import logger from "../utils/logger.util";
 import { generateOpenRouterText } from "./openrouter-text.service";
 import { formatRewindTemporalContext } from "./rewind-temporal-context.service";
 
@@ -274,6 +274,8 @@ export async function generateQuickGoalSetup(
     temperature: 0.25,
   });
 
+       console.log(responseText)
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(responseText.trim()) as unknown;
@@ -286,6 +288,8 @@ export async function generateQuickGoalSetup(
     today,
     input.edit?.draft.reminderTimes ?? [],
   );
+
+ 
 
   logger.debug("Quick goal setup normalized", {
     kind: isRecord(normalized) && typeof normalized.kind === "string"
@@ -301,6 +305,9 @@ export async function generateQuickGoalSetup(
           ? normalized.kind
           : "unknown",
     });
+
+
+
     throw new QuickGoalSetupError("AI goal setup returned an invalid result");
   }
   return validated.data;

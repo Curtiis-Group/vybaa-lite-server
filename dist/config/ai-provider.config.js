@@ -32,7 +32,7 @@ exports.AI_TEXT_CONFIG = {
     // All text generation uses OpenRouter. Gemini is reserved for the live
     // Rewind session below, where the partner actually speaks.
     DAILY_OBSERVATION: {
-        model: exports.OPENROUTER_MODELS.qwen,
+        model: exports.OPENROUTER_MODELS.luna,
         provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
         // This is a strict structured response. Reasoning can consume the model's
         // output budget and leave OpenRouter with no visible `content` field.
@@ -54,12 +54,12 @@ exports.AI_TEXT_CONFIG = {
         reasoningEnabled: true,
     },
     REWIND_CHAT: {
-        model: exports.OPENROUTER_MODELS.luna,
+        model: exports.OPENROUTER_MODELS.gemini,
         provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
         reasoningEnabled: true,
     },
     REWIND_CHAT_V2: {
-        model: exports.OPENROUTER_MODELS.luna,
+        model: exports.OPENROUTER_MODELS.gemini,
         provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
         reasoningEnabled: true,
     },

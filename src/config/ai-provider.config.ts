@@ -65,7 +65,7 @@ export const AI_TEXT_CONFIG: Readonly<
     reasoningEnabled: true,
   },
   QUICK_GOAL_SETUP: {
-    model: OPENROUTER_MODELS.luna,
+    model: OPENROUTER_MODELS.gemini,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
