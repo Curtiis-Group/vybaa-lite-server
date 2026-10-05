@@ -28,7 +28,9 @@ exports.AI_TEXT_CONFIG = {
     DAILY_OBSERVATION: {
         model: "qwen/qwen3.8-27b:free",
         provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
-        reasoningEnabled: true,
+        // This is a strict structured response. Reasoning can consume the model's
+        // output budget and leave OpenRouter with no visible `content` field.
+        reasoningEnabled: false,
     },
     EMOTION_SUMMARY: {
         model: "qwen/qwen3.8-27b:free",

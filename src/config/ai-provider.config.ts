@@ -49,7 +49,9 @@ export const AI_TEXT_CONFIG: Readonly<
   DAILY_OBSERVATION: {
     model: OPENROUTER_MODELS.qwen,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
-    reasoningEnabled: true,
+    // This is a strict structured response. Reasoning can consume the model's
+    // output budget and leave OpenRouter with no visible `content` field.
+    reasoningEnabled: false,
   },
   EMOTION_SUMMARY: {
     model: OPENROUTER_MODELS.qwen,
