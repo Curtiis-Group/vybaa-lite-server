@@ -697,6 +697,7 @@ export async function refreshPendingDailyObservations(
       });
       if (observation) generated += 1;
     } catch (error: unknown) {
+      console.log(error)
       logger.warn("Unable to generate a pending Rewind observation", {
         errorName: error instanceof Error ? error.name : "UnknownError",
         localDateKey: day.localDateKey,

@@ -4,9 +4,10 @@ export const AI_TEXT_PROVIDER = {
 } as const;
 
 export const OPENROUTER_MODELS = {
-  qwen: "qwen/qwen3.8-27b:free",
-  laguna: "poolside/laguna-s-2.1:free",
-  gemini: "google/gemini-3.5-flash-lite"
+  qwen: "qwen/qwen3.8-27b",
+  laguna: "poolside/laguna-s-2.1",
+  gemini: "google/gemini-3.5-flash-lite",
+  luna: "openai/gpt-5.6-luna"
 }
 
 export type AiTextProvider =
@@ -47,7 +48,7 @@ export const AI_TEXT_CONFIG: Readonly<
   // All text generation uses OpenRouter. Gemini is reserved for the live
   // Rewind session below, where the partner actually speaks.
   DAILY_OBSERVATION: {
-    model: OPENROUTER_MODELS.qwen,
+    model: OPENROUTER_MODELS.luna,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     // This is a strict structured response. Reasoning can consume the model's
     // output budget and leave OpenRouter with no visible `content` field.
@@ -59,27 +60,27 @@ export const AI_TEXT_CONFIG: Readonly<
     reasoningEnabled: true,
   },
   JOURNAL_SUMMARY: {
-    model: OPENROUTER_MODELS.qwen,
+    model: OPENROUTER_MODELS.luna,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   QUICK_GOAL_SETUP: {
-    model: OPENROUTER_MODELS.gemini,
+    model: OPENROUTER_MODELS.luna,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   REWIND_CHAT: {
-    model: OPENROUTER_MODELS.qwen,
+    model: OPENROUTER_MODELS.luna,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   REWIND_CHAT_V2: {
-    model: OPENROUTER_MODELS.qwen,
+    model: OPENROUTER_MODELS.luna,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   REWIND_REFLECTION: {
-    model: OPENROUTER_MODELS.qwen,
+    model: OPENROUTER_MODELS.luna,
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },

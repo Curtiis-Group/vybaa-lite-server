@@ -1,7 +1,7 @@
-import { mkdirSync } from "fs";
-import path from "path";
 import chalk from "chalk";
 import "dotenv/config";
+import { mkdirSync } from "fs";
+import path from "path";
 import winston from "winston";
 
 const logDir = "logs";
@@ -9,7 +9,7 @@ const logDir = "logs";
 mkdirSync(logDir, { recursive: true });
 
 const logFormat = winston.format.combine(
-  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+  winston.format.timestamp({ format: "HH:mm:ss" }),
   winston.format.errors({ stack: true }),
   winston.format.splat(),
   winston.format.json()
@@ -22,7 +22,7 @@ const logLevel = (
 const verboseConsoleOutput = ["debug", "silly", "verbose"].includes(logLevel);
 
 const consoleFormat = winston.format.combine(
-  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+  winston.format.timestamp({ format: "HH:mm MM/DD" }),
   winston.format.errors({ stack: true }),
   winston.format.splat(),
   winston.format.printf((info) => {
@@ -86,9 +86,7 @@ const consoleFormat = winston.format.combine(
         ? `\n${chalk.dim(errorStack)}`
         : "";
 
-    return `[${chalk.yellow(String(info.timestamp ?? ""))}][${colorizeLevel(
-      level,
-    )}]: ${displayedMessage}${contextSuffix}${stackSuffix}`;
+    return `[${chalk.yellow(String(info.timestamp ?? ""))}]|${colorizeLevel(level)}| ${displayedMessage}${contextSuffix}${stackSuffix}`;
   }),
 );
 
@@ -115,7 +113,7 @@ const logger = winston.createLogger({
 });
 
 function colorizeLevel(level: string): string {
-  const label = level.toUpperCase().padEnd(5, " ");
+  const label = level.toUpperCase().padEnd(5, "");
   switch (level.toLowerCase()) {
     case "error":
       return chalk.red(label);
