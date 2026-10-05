@@ -196,14 +196,20 @@ function formatHttpConsoleContext(
     return ` ${chalk.cyan("→")} ${requestLabel}`;
   }
 
-  const details: string[] = [
-    message === "HTTP request closed before response completed"
-      ? chalk.red("✕")
-      : chalk.green("✓"),
-  ];
-  if (typeof context.status === "number") {
-    const statusColor = context.status >= 400 ? chalk.yellow : chalk.green;
-    details.push(statusColor(String(context.status)));
+  const status = typeof context.status === "number" ? context.status : null;
+  let marker = chalk.green("✓");
+  if (
+    message === "HTTP request closed before response completed" ||
+    (status !== null && status >= 500)
+  ) {
+    marker = chalk.red("✕");
+  } else if (status !== null && status >= 400) {
+    marker = chalk.yellow("!");
+  }
+  const details: string[] = [marker];
+  if (status !== null) {
+    const statusColor = status >= 400 ? chalk.yellow : chalk.green;
+    details.push(statusColor(String(status)));
   }
   if (typeof context.durationMs === "number") {
     details.push(chalk.dim(`${Math.round(context.durationMs)}ms`));
