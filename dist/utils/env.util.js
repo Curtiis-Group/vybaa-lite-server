@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Env = exports.ENVIRONMENT = void 0;
+require("dotenv/config");
 var ENVIRONMENT;
 (function (ENVIRONMENT) {
     ENVIRONMENT["LOCAL"] = "local";
@@ -24,7 +25,7 @@ exports.Env = {
     MYCOVE_FIREBASE_PRIVATE_KEY: process.env.MYCOVE_FIREBASE_PRIVATE_KEY,
     MYCOVE_FIREBASE_CLIENT_EMAIL: process.env.MYCOVE_FIREBASE_CLIENT_EMAIL,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-    OPENROUTER_API_KEY: process.env.OPEN_ROUTER_API_KEY,
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? process.env.OPEN_ROUTER_API_KEY,
     REWIND_ASYNC_CHAT_ENABLED: process.env.REWIND_ASYNC_CHAT_ENABLED ?? "true",
     REWIND_AUTONOMOUS_CHAT_ENABLED: process.env.REWIND_AUTONOMOUS_CHAT_ENABLED ?? "true",
     VYBAA_PRO_CHECKS_ENABLED: process.env.VYBAA_PRO_CHECKS_ENABLED ?? "true",

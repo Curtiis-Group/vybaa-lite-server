@@ -208,26 +208,29 @@ export class PushNotificationService {
             result,
           });
           return { success: true, token, result };
-        } catch (error: any) {
-          console.log(error);
+        } catch (error: unknown) {
+          const errorCode = getErrorProperty(error, "code");
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
 
           logger.error("Failed to send FCM push", {
-            token: token.substring(0, 20) + "...",
-            error: error.message,
-            code: error.code,
+            code: typeof errorCode === "string" ? errorCode : undefined,
+            errorMessage,
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            token: `${token.substring(0, 20)}...`,
           });
 
           // Handle invalid tokens - they should be removed from database
           if (
-            error.code === "messaging/invalid-registration-token" ||
-            error.code === "messaging/registration-token-not-registered"
+            errorCode === "messaging/invalid-registration-token" ||
+            errorCode === "messaging/registration-token-not-registered"
           ) {
             logger.warn("Invalid FCM token detected, should be removed", {
-              token: token.substring(0, 20) + "...",
+              token: `${token.substring(0, 20)}...`,
             });
           }
 
-          return { success: false, token, error: error.message };
+          return { success: false, token, error: errorMessage };
         }
       }),
     );
@@ -392,6 +395,13 @@ export class PushNotificationService {
 
     return { successCount, failureCount, failedTokens };
   }
+}
+
+function getErrorProperty(error: unknown, property: string): unknown {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+  return Reflect.get(error, property);
 }
 
 export const pushNotificationService = new PushNotificationService();

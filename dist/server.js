@@ -122,7 +122,14 @@ exports.app.ws("/mycove/v2/realtime/live", (ws, req) => {
 });
 void (0, realtime_websocket_service_1.startRealtimeWebSocketBroker)();
 exports.server = exports.app.listen(config_util_1.default.PORT, () => {
-    logger_util_1.default.info(`🚀 Server running on port ${config_util_1.default.PORT}`);
+    logger_util_1.default.info("Server ready", {
+        environment: env_util_1.Env.ENVIRONMENT,
+        port: config_util_1.default.PORT,
+        providers: {
+            geminiLive: env_util_1.Env.GEMINI_API_KEY ? "configured" : "missing",
+            openRouterText: env_util_1.Env.OPENROUTER_API_KEY ? "configured" : "missing",
+        },
+    });
     // Start notification scheduler
     scheduler_service_1.schedulerService.start();
 });

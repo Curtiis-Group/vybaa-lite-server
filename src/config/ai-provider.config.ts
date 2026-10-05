@@ -56,7 +56,7 @@ export const AI_TEXT_CONFIG: Readonly<
     reasoningEnabled: true,
   },
   QUICK_GOAL_SETUP: {
-    model: "qwen/qwen3.8-27b:free",
+    model: "google/gemini-3.5-flash-lite",
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },

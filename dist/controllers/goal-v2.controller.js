@@ -29,8 +29,8 @@ exports.deleteLegacy = deleteLegacy;
 const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
 const goal_alarm_service_1 = require("../services/goal-alarm.service");
-const goal_v2_service_1 = require("../services/goal-v2.service");
 const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
+const goal_v2_service_1 = require("../services/goal-v2.service");
 const quick_goal_setup_service_1 = require("../services/quick-goal-setup.service");
 const subscription_access_service_1 = require("../services/subscription-access.service");
 const client_app_type_1 = require("../types/client-app.type");
@@ -120,6 +120,11 @@ async function quickSetup(req, res) {
         res.json({ data: draft, msg: "Goal setup generated" });
     }
     catch (error) {
+        logger_util_1.default.error("Quick goal setup request failed", {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            userId: req.userId,
+        });
         handleControllerError(error, req, res, "quick setup");
     }
 }

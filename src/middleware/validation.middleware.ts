@@ -1,5 +1,6 @@
-import { NextFunction, Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { z, ZodError } from "zod";
+import logger from "../utils/logger.util";
 
 type ValidationTarget = "body" | "params" | "query";
 
@@ -16,10 +17,14 @@ export function validate(schema: z.ZodSchema, target: ValidationTarget = "body")
           message: err.message,
         }));
 
-        console.log(errors)
+        logger.warn("Request validation failed", {
+          errors,
+          method: req.method,
+          path: req.path,
+        });
 
         return res.status(400).json({
-          msg: "Validation failed:"+(errors?.[0] as any)?.message,
+          msg: `Validation failed: ${errors[0]?.message ?? "Invalid request data"}`,
           errors,
         });
       }

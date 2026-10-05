@@ -6,8 +6,9 @@ import {
   type QuickGoalSetupInput,
   type QuickGoalSetupResponse,
 } from "../validators/goal-v2.validators";
-import { formatRewindTemporalContext } from "./rewind-temporal-context.service";
+import logger from "../utils/logger.util";
 import { generateOpenRouterText } from "./openrouter-text.service";
+import { formatRewindTemporalContext } from "./rewind-temporal-context.service";
 
 type QuickGoalSetupPartnerId =
   "ariel" | "ella" | "jake" | "lyra" | "tobi" | "neeja";
@@ -215,6 +216,7 @@ export async function generateQuickGoalSetup(
         : "First decide whether a goal can be made well from the user's idea. Ask one or two QUESTIONS only when an answer would materially change the target or schedule. Do not ask for details you can reasonably infer. Otherwise return a DRAFT immediately. ") +
     "For a DRAFT, choose a clear short title, an optional one-sentence reason, a measurable target, " +
     "and a realistic schedule. Prefer CHECK_IN_COUNT with DAILY for habits unless the " +
+    "refrain from unnecessary questions"+
     "user clearly asks for a quantity, weekday, weekly, or one-time goal. " +
     "Always return reminderTimes as an array of up to three unique HH:MM times in the user's local timezone. " +
     "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
@@ -233,7 +235,7 @@ export async function generateQuickGoalSetup(
     (input.edit
       ? `\n\nCurrent draft:\n${JSON.stringify(input.edit.draft)}\n\nRequested changes:\n${input.edit.instruction.trim()}`
       : "") +
-    "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user";
+    " lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user";
 
   const responseText = await generateOpenRouterText({
     feature: AI_TEXT_FEATURE.QUICK_GOAL_SETUP,
@@ -255,6 +257,12 @@ export async function generateQuickGoalSetup(
     today,
     input.edit?.draft.reminderTimes ?? [],
   );
+
+  logger.debug("Quick goal setup normalized", {
+    kind: isRecord(normalized) && typeof normalized.kind === "string"
+      ? normalized.kind
+      : "unknown",
+  });
   const validated = quickGoalSetupDecisionSchema.safeParse(normalized);
   if (!validated.success) {
     throw new QuickGoalSetupError("AI goal setup returned an invalid result");

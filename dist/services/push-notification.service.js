@@ -167,20 +167,22 @@ class PushNotificationService {
                 return { success: true, token, result };
             }
             catch (error) {
-                console.log(error);
+                const errorCode = getErrorProperty(error, "code");
+                const errorMessage = error instanceof Error ? error.message : String(error);
                 logger_util_1.default.error("Failed to send FCM push", {
-                    token: token.substring(0, 20) + "...",
-                    error: error.message,
-                    code: error.code,
+                    code: typeof errorCode === "string" ? errorCode : undefined,
+                    errorMessage,
+                    errorName: error instanceof Error ? error.name : "UnknownError",
+                    token: `${token.substring(0, 20)}...`,
                 });
                 // Handle invalid tokens - they should be removed from database
-                if (error.code === "messaging/invalid-registration-token" ||
-                    error.code === "messaging/registration-token-not-registered") {
+                if (errorCode === "messaging/invalid-registration-token" ||
+                    errorCode === "messaging/registration-token-not-registered") {
                     logger_util_1.default.warn("Invalid FCM token detected, should be removed", {
-                        token: token.substring(0, 20) + "...",
+                        token: `${token.substring(0, 20)}...`,
                     });
                 }
-                return { success: false, token, error: error.message };
+                return { success: false, token, error: errorMessage };
             }
         }));
         const successful = results.filter((r) => r.status === "fulfilled" && r.value.success).length;
@@ -313,4 +315,10 @@ class PushNotificationService {
     }
 }
 exports.PushNotificationService = PushNotificationService;
+function getErrorProperty(error, property) {
+    if (typeof error !== "object" || error === null) {
+        return undefined;
+    }
+    return Reflect.get(error, property);
+}
 exports.pushNotificationService = new PushNotificationService();

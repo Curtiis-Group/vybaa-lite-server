@@ -1,4 +1,7 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QuickGoalSetupError = void 0;
 exports.normalizeQuickGoalSetupResult = normalizeQuickGoalSetupResult;
@@ -6,8 +9,9 @@ exports.generateQuickGoalSetup = generateQuickGoalSetup;
 const luxon_1 = require("luxon");
 const ai_provider_config_1 = require("../config/ai-provider.config");
 const goal_v2_validators_1 = require("../validators/goal-v2.validators");
-const rewind_temporal_context_service_1 = require("./rewind-temporal-context.service");
+const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const openrouter_text_service_1 = require("./openrouter-text.service");
+const rewind_temporal_context_service_1 = require("./rewind-temporal-context.service");
 const QUICK_GOAL_SETUP_RESPONSE_SCHEMA = {
     additionalProperties: false,
     properties: {
@@ -175,6 +179,7 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
                 : "First decide whether a goal can be made well from the user's idea. Ask one or two QUESTIONS only when an answer would materially change the target or schedule. Do not ask for details you can reasonably infer. Otherwise return a DRAFT immediately. ") +
         "For a DRAFT, choose a clear short title, an optional one-sentence reason, a measurable target, " +
         "and a realistic schedule. Prefer CHECK_IN_COUNT with DAILY for habits unless the " +
+        "refrain from unnecessary questions" +
         "user clearly asks for a quantity, weekday, weekly, or one-time goal. " +
         "Always return reminderTimes as an array of up to three unique HH:MM times in the user's local timezone. " +
         "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
@@ -193,7 +198,7 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
         (input.edit
             ? `\n\nCurrent draft:\n${JSON.stringify(input.edit.draft)}\n\nRequested changes:\n${input.edit.instruction.trim()}`
             : "") +
-        "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user";
+        " lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user";
     const responseText = await (0, openrouter_text_service_1.generateOpenRouterText)({
         feature: ai_provider_config_1.AI_TEXT_FEATURE.QUICK_GOAL_SETUP,
         jsonSchema: QUICK_GOAL_SETUP_RESPONSE_SCHEMA,
@@ -209,6 +214,11 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
         throw new QuickGoalSetupError("AI goal setup returned invalid JSON");
     }
     const normalized = normalizeQuickGoalSetupResult(parsed, today, input.edit?.draft.reminderTimes ?? []);
+    logger_util_1.default.debug("Quick goal setup normalized", {
+        kind: isRecord(normalized) && typeof normalized.kind === "string"
+            ? normalized.kind
+            : "unknown",
+    });
     const validated = goal_v2_validators_1.quickGoalSetupDecisionSchema.safeParse(normalized);
     if (!validated.success) {
         throw new QuickGoalSetupError("AI goal setup returned an invalid result");

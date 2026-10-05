@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 export enum ENVIRONMENT {
   LOCAL = "local",
   DEVELOPMENT = "development",
@@ -56,7 +58,8 @@ export const Env: Env = {
   MYCOVE_FIREBASE_CLIENT_EMAIL: process.env.MYCOVE_FIREBASE_CLIENT_EMAIL,
 
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  OPENROUTER_API_KEY: process.env.OPEN_ROUTER_API_KEY,
+  OPENROUTER_API_KEY:
+    process.env.OPENROUTER_API_KEY ?? process.env.OPEN_ROUTER_API_KEY,
   REWIND_ASYNC_CHAT_ENABLED: process.env.REWIND_ASYNC_CHAT_ENABLED ?? "true",
   REWIND_AUTONOMOUS_CHAT_ENABLED:
     process.env.REWIND_AUTONOMOUS_CHAT_ENABLED ?? "true",

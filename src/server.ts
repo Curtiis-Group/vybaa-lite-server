@@ -145,7 +145,14 @@ app.ws("/mycove/v2/realtime/live", (ws, req) => {
 void startRealtimeWebSocketBroker();
 
 export const server = app.listen(config.PORT, () => {
-  logger.info(`🚀 Server running on port ${config.PORT}`);
+  logger.info("Server ready", {
+    environment: Env.ENVIRONMENT,
+    port: config.PORT,
+    providers: {
+      geminiLive: Env.GEMINI_API_KEY ? "configured" : "missing",
+      openRouterText: Env.OPENROUTER_API_KEY ? "configured" : "missing",
+    },
+  });
 
   // Start notification scheduler
   schedulerService.start();

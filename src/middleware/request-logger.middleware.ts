@@ -1,111 +1,170 @@
-import chalk from "chalk";
-import { NextFunction, Request, Response } from "express";
+import { randomUUID } from "crypto";
+import type { NextFunction, Request, Response } from "express";
 import { metricsService } from "../services/metrics.service";
+import logger from "../utils/logger.util";
 
-export function requestLogger(req: Request, res: Response, next: NextFunction) {
+export function requestLogger(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
   const start = Date.now();
+  const requestId = getRequestId(req);
+  const requestPath = req.originalUrl ?? req.path;
+  let responseLogged = false;
 
-  const methodColor = (method: string) => {
-    switch (method) {
-      case "GET":
-        return chalk.green(method);
-      case "POST":
-        return chalk.blue(method);
-      case "PUT":
-        return chalk.yellow(method);
-      case "PATCH":
-        return chalk.magenta(method);
-      case "DELETE":
-        return chalk.red(method);
-      default:
-        return chalk.white(method);
+  res.setHeader("x-request-id", requestId);
+  logRequestStarted(req, requestId, requestPath);
+
+  if (shouldLogBody(req.method, req.path) && req.body !== undefined) {
+    logger.debug("HTTP request body", {
+      body: sanitizeBody(req.body),
+      requestId,
+    });
+  }
+
+  res.once("finish", () => {
+    if (responseLogged) {
+      return;
     }
-  };
+    responseLogged = true;
+    logRequestCompleted(req, res, requestId, requestPath, Date.now() - start);
+  });
 
-  const statusColor = (code: number) => {
-    if (code >= 500) return chalk.red(code);
-    if (code >= 400) return chalk.yellow(code);
-    if (code >= 300) return chalk.cyan(code);
-    return chalk.green(code);
-  };
-
-  const body =
-    shouldLogBody(req.method, req.path) && req.body
-      ? chalk.gray(` body=${JSON.stringify(sanitizeBody(req.body))}`)
-      : "";
-
-  console.log(
-    `${chalk.dim("→")} ${methodColor(req.method)} ${chalk.white(
-      req.path
-    )}${body}`
-  );
-
-  const originalSend = res.send;
-
-  res.send = function (data) {
-    const duration = Date.now() - start;
-
-    console.log(
-      //put the datestamp i this format 2026-02-24 13:28:31
-      `[${chalk.yellow(new Date().toISOString())}]${chalk.dim("←")} ${methodColor(req.method)} ${chalk.white(
-        req.path
-      )} ${statusColor(res.statusCode)} ${chalk.gray(`${duration}ms`)} ${chalk.dim(
-        req.ip
-      )} `
-    );
-
-    console.log(`\n`)
-
-    // Fire-and-forget metrics record; do not await to avoid impacting latency.
-    metricsService
-      .record("http_request_duration_ms", duration, {
-        route: req.route?.path ?? req.path,
-        method: req.method,
-        status: res.statusCode,
-      })
-      .catch(() => {});
-
-    return originalSend.call(this, data);
-  };
+  res.once("close", () => {
+    if (responseLogged || res.writableFinished) {
+      return;
+    }
+    responseLogged = true;
+    logger.warn("HTTP request closed before response completed", {
+      durationMs: Date.now() - start,
+      method: req.method,
+      path: requestPath,
+      requestId,
+    });
+  });
 
   next();
 }
 
-// Determine if request body should be logged
+function getRequestId(req: Request): string {
+  const suppliedRequestId = req.header("x-request-id")?.trim();
+  if (suppliedRequestId && suppliedRequestId.length <= 128) {
+    return suppliedRequestId;
+  }
+  return randomUUID();
+}
+
+function logRequestStarted(
+  req: Request,
+  requestId: string,
+  requestPath: string,
+): void {
+  logger.info("HTTP request started", {
+    ip: req.ip ?? "unknown",
+    method: req.method,
+    path: requestPath,
+    requestId,
+    userAgent: req.get("user-agent") ?? "unknown",
+  });
+}
+
+function logRequestCompleted(
+  req: Request,
+  res: Response,
+  requestId: string,
+  requestPath: string,
+  durationMs: number,
+): void {
+  const context = {
+    contentLength: res.getHeader("content-length"),
+    durationMs,
+    method: req.method,
+    path: requestPath,
+    requestId,
+    route: req.route?.path ?? req.path,
+    status: res.statusCode,
+  };
+
+  if (res.statusCode >= 500) {
+    logger.error("HTTP request completed", context);
+    recordRequestMetrics(req, res, durationMs, requestId);
+    return;
+  }
+  if (res.statusCode >= 400) {
+    logger.warn("HTTP request completed", context);
+    recordRequestMetrics(req, res, durationMs, requestId);
+    return;
+  }
+
+  logger.info("HTTP request completed", context);
+  recordRequestMetrics(req, res, durationMs, requestId);
+}
+
+function recordRequestMetrics(
+  req: Request,
+  res: Response,
+  durationMs: number,
+  requestId: string,
+): void {
+  void metricsService
+    .record("http_request_duration_ms", durationMs, {
+      method: req.method,
+      route: req.route?.path ?? req.path,
+      status: res.statusCode,
+    })
+    .catch((error: unknown) => {
+      logger.warn("HTTP metrics recording failed", {
+        ...describeError(error),
+        requestId,
+      });
+    });
+}
+
 function shouldLogBody(method: string, path: string): boolean {
-  // Don't log sensitive endpoints
   const sensitivePaths = ["/auth/login", "/auth/register", "/auth/google"];
-  if (sensitivePaths.some((p) => path.includes(p))) {
+  if (sensitivePaths.some((sensitivePath) => path.includes(sensitivePath))) {
     return false;
   }
 
-  // Only log body for POST, PUT, PATCH
   return ["POST", "PUT", "PATCH"].includes(method);
 }
 
-// Sanitize request body to remove sensitive information
-function sanitizeBody(body: any): any {
-  if (!body || typeof body !== "object") {
+function sanitizeBody(body: unknown, fieldName?: string): unknown {
+  if (fieldName && isSensitiveField(fieldName)) {
+    return "[REDACTED]";
+  }
+  if (typeof body === "string") {
+    if (body.startsWith("data:image/")) {
+      return "[base64 image]";
+    }
+    return body.length > 1000 ? `${body.slice(0, 1000)}…[TRUNCATED]` : body;
+  }
+  if (Array.isArray(body)) {
+    return body.slice(0, 20).map((item) => sanitizeBody(item));
+  }
+  if (!isRecord(body)) {
     return body;
   }
 
-  const sensitiveFields = ["password", "currentPassword", "newPassword", "token", "refreshToken", "otp", "otpCode"];
-  const sanitized = { ...body };
+  return Object.fromEntries(
+    Object.entries(body).map(([key, value]) => [key, sanitizeBody(value, key)]),
+  );
+}
 
-  for (const field of sensitiveFields) {
-    if (sanitized[field]) {
-      sanitized[field] = "[REDACTED]";
-    }
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-  // Remove base64 image data from logs
-  if (sanitized.image && typeof sanitized.image === 'string' && sanitized.image.startsWith('data:image/')) {
-    sanitized.image = '[base64 image]';
-  }
-  
-  if (sanitized.profileImageId && typeof sanitized.profileImageId === 'string' && sanitized.profileImageId.startsWith('data:image/')) {
-    sanitized.profileImageId = '[base64 image]';
-  }
+function isSensitiveField(fieldName: string): boolean {
+  return /password|refreshToken|token|otp|authorization|cookie|secret/i.test(
+    fieldName,
+  );
+}
 
-  return sanitized;
+function describeError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return { errorMessage: error.message, errorName: error.name };
+  }
+  return { errorMessage: String(error) };
 }

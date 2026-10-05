@@ -1,5 +1,5 @@
-import { DateTime } from "luxon";
 import type { Response } from "express";
+import { DateTime } from "luxon";
 
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
@@ -8,6 +8,7 @@ import {
   GoalAlarmServiceError,
   updateGoalAlarmRegistration,
 } from "../services/goal-alarm.service";
+import { refreshGoalV2RemindersForUser } from "../services/goal-v2-reminder.service";
 import {
   abandonGoalV2,
   archiveGoalV2,
@@ -27,7 +28,6 @@ import {
   updateGoalProgress,
   updateGoalV2,
 } from "../services/goal-v2.service";
-import { refreshGoalV2RemindersForUser } from "../services/goal-v2-reminder.service";
 import {
   generateQuickGoalSetup,
   QuickGoalSetupError,
@@ -145,8 +145,14 @@ export async function quickSetup(
       req.body,
       user?.rewindPersona ?? null,
     );
+
     res.json({ data: draft, msg: "Goal setup generated" });
   } catch (error) {
+    logger.error("Quick goal setup request failed", {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      userId: req.userId,
+    });
     handleControllerError(error, req, res, "quick setup");
   }
 }
