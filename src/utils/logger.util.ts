@@ -74,7 +74,7 @@ const consoleFormat = winston.format.combine(
         : serializeLogValue(info.message);
     const contextSuffix = verboseConsoleOutput && Object.keys(context).length
       ? ` ${chalk.dim(`context=${serializeLogValue(context)}`)}`
-      : "";
+      : formatHttpConsoleContext(message, context);
     const stackSuffix =
       errorStack &&
       verboseConsoleOutput &&
@@ -175,6 +175,31 @@ function serializeLogValue(value: unknown): string {
   } catch {
     return "[Unserializable]";
   }
+}
+
+function formatHttpConsoleContext(
+  message: string,
+  context: Record<string, unknown>,
+): string {
+  if (!message.startsWith("HTTP request")) return "";
+  const method = typeof context.method === "string" ? context.method : null;
+  const requestPath = typeof context.path === "string" ? context.path : null;
+  const requestLabel = [method, requestPath].filter(
+    (value): value is string => Boolean(value),
+  ).join(" ");
+  if (!requestLabel) return "";
+  if (message === "HTTP request started") return ` ${requestLabel}`;
+
+  const details: string[] = [];
+  if (typeof context.status === "number") {
+    details.push(String(context.status));
+  }
+  if (typeof context.durationMs === "number") {
+    details.push(`in ${Math.round(context.durationMs)}ms`);
+  }
+  return details.length
+    ? ` ${requestLabel} -> ${details.join(" ")}`
+    : ` ${requestLabel}`;
 }
 
 function writeLogStream(message: string): void {
