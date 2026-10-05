@@ -38,7 +38,7 @@ async function runOpenRouterReasoningTest() {
     if (!apiKey) {
         throw new Error("OPENROUTER_API_KEY is missing. Set it only in the shell or a local untracked env file.");
     }
-    const model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL;
+    const model = DEFAULT_MODEL;
     const client = new openai_1.default({
         apiKey,
         baseURL: OPENROUTER_BASE_URL,

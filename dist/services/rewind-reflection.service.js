@@ -3,7 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseRewindReflection = parseRewindReflection;
 exports.generateRewindReflection = generateRewindReflection;
 const genai_1 = require("@google/genai");
+const ai_provider_config_1 = require("../config/ai-provider.config");
 const env_util_1 = require("../utils/env.util");
+const REWIND_REFLECTION_MODEL = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.REWIND_REFLECTION).model;
 const REFLECTION_SIGNAL_KEYS = [
     "emotionalSteadiness",
     "energy",
@@ -101,7 +103,7 @@ async function generateRewindReflection(context) {
     }
     const client = new genai_1.GoogleGenAI({ apiKey: env_util_1.Env.GEMINI_API_KEY });
     const response = await client.models.generateContent({
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+        model: REWIND_REFLECTION_MODEL,
         contents: [
             {
                 role: "user",

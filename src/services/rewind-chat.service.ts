@@ -7,6 +7,10 @@ import {
 } from "@prisma/client";
 import { DateTime } from "luxon";
 
+import {
+  AI_TEXT_FEATURE,
+  getAiTextProviderConfig,
+} from "../config/ai-provider.config";
 import { prisma } from "../config/db.config";
 import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
@@ -32,6 +36,8 @@ const REWIND_PERSONAS: RewindPersonaId[] = [
   "tobi",
   "neeja",
 ];
+const REWIND_CHAT_MODEL =
+  getAiTextProviderConfig(AI_TEXT_FEATURE.REWIND_CHAT).model;
 const PERSONA_NAMES: Record<RewindPersonaId, string> = {
   ariel: "Ariel",
   ella: "Ella",
@@ -433,7 +439,7 @@ async function generateChatReply(params: {
       },
       temperature: 0.55,
     },
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+    model: REWIND_CHAT_MODEL,
   });
   if (!response.text) throw new Error("Rewind chat response was empty");
   const generated = parseGeneratedReply(JSON.parse(response.text));
@@ -553,7 +559,7 @@ async function generateStreamingPartnerTurn(params: {
       maxOutputTokens: 300,
       temperature: 0.72,
     },
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+    model: REWIND_CHAT_MODEL,
   });
 
   let reply = "";

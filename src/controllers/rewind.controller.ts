@@ -24,6 +24,7 @@ import jwt from "jsonwebtoken";
 import { DateTime } from "luxon";
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
+import { GEMINI_LIVE_REWIND_MODEL } from "../config/ai-provider.config";
 import { prisma } from "../config/db.config";
 import type { AuthRequest } from "../middleware/auth.middleware";
 import { metricsService } from "../services/metrics.service";
@@ -81,8 +82,6 @@ type OpeningPromptUserData = {
   rewindPersonalizationEnabled?: boolean;
 } | null;
 
-const GEMINI_LIVE_MODEL =
-  process.env.GEMINI_LIVE_MODEL ?? "models/gemini-3.1-flash-live-preview";
 const REWIND_WS_TOKEN_TTL = "10m";
 const REWIND_TOKEN_ISSUER = "vybaa-api";
 const REWIND_TOKEN_AUDIENCE = "vybaa-rewind-live";
@@ -1707,7 +1706,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       connectionId,
       personaId,
       sessionId: sessionState!?.sessionId,
-      model: GEMINI_LIVE_MODEL,
+      model: GEMINI_LIVE_REWIND_MODEL,
       voiceName,
       responseModalities: ["AUDIO"],
       voiceProvider,
@@ -2172,7 +2171,7 @@ export async function handleLiveConnection(ws: WebSocket, req: Request) {
       const isResuming = Boolean(resumptionHandle);
 
       const connectedSession = await ai.live.connect({
-        model: GEMINI_LIVE_MODEL,
+        model: GEMINI_LIVE_REWIND_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
           mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW,

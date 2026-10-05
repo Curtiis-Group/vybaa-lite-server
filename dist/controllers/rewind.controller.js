@@ -28,6 +28,7 @@ const client_1 = require("@prisma/client");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const luxon_1 = require("luxon");
 const node_crypto_1 = require("node:crypto");
+const ai_provider_config_1 = require("../config/ai-provider.config");
 const db_config_1 = require("../config/db.config");
 const metrics_service_1 = require("../services/metrics.service");
 const daily_observation_service_1 = require("../services/daily-observation.service");
@@ -40,7 +41,6 @@ const rewind_voice_provider_service_1 = require("../services/rewind-voice-provid
 const subscription_access_service_1 = require("../services/subscription-access.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const security_config_util_1 = require("../utils/security-config.util");
-const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "models/gemini-3.1-flash-live-preview";
 const REWIND_WS_TOKEN_TTL = "10m";
 const REWIND_TOKEN_ISSUER = "vybaa-api";
 const REWIND_TOKEN_AUDIENCE = "vybaa-rewind-live";
@@ -1266,7 +1266,7 @@ async function handleLiveConnection(ws, req) {
             connectionId,
             personaId,
             sessionId: sessionState?.sessionId,
-            model: GEMINI_LIVE_MODEL,
+            model: ai_provider_config_1.GEMINI_LIVE_REWIND_MODEL,
             voiceName,
             responseModalities: ["AUDIO"],
             voiceProvider,
@@ -1674,7 +1674,7 @@ async function handleLiveConnection(ws, req) {
             connectionGeneration = generation;
             const isResuming = Boolean(resumptionHandle);
             const connectedSession = await ai.live.connect({
-                model: GEMINI_LIVE_MODEL,
+                model: ai_provider_config_1.GEMINI_LIVE_REWIND_MODEL,
                 config: {
                     responseModalities: [genai_1.Modality.AUDIO],
                     mediaResolution: genai_1.MediaResolution.MEDIA_RESOLUTION_LOW,

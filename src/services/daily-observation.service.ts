@@ -8,6 +8,10 @@ import {
 } from "@prisma/client";
 import { DateTime } from "luxon";
 
+import {
+  AI_TEXT_FEATURE,
+  getAiTextProviderConfig,
+} from "../config/ai-provider.config";
 import { prisma } from "../config/db.config";
 import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
@@ -18,6 +22,8 @@ import { publishRewindChatEvent } from "./rewind-chat-realtime.service";
 const OBSERVATION_GENERATION_VERSION = 2;
 const MAX_OBSERVATION_SIGNALS = 40;
 const MAX_EVIDENCE_ITEMS = 8;
+const DAILY_OBSERVATION_MODEL =
+  getAiTextProviderConfig(AI_TEXT_FEATURE.DAILY_OBSERVATION).model;
 
 type RewindPersonaId = "ariel" | "ella" | "jake" | "lyra" | "tobi" | "neeja";
 
@@ -226,7 +232,7 @@ async function generateDailyObservation(
       },
       temperature: 0.25,
     },
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+    model: DAILY_OBSERVATION_MODEL,
   });
   if (!response.text) {
     throw new Error("Daily observation response was empty");

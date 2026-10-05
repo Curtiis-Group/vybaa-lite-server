@@ -78,7 +78,7 @@ async function runOpenRouterReasoningTest(): Promise<void> {
     );
   }
 
-  const model = process.env.OPENROUTER_MODEL?.trim() || DEFAULT_MODEL;
+  const model = DEFAULT_MODEL;
   const client = new OpenAI({
     apiKey,
     baseURL: OPENROUTER_BASE_URL,

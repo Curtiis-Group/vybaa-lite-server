@@ -5,9 +5,11 @@ exports.normalizeQuickGoalSetupResult = normalizeQuickGoalSetupResult;
 exports.generateQuickGoalSetup = generateQuickGoalSetup;
 const genai_1 = require("@google/genai");
 const luxon_1 = require("luxon");
+const ai_provider_config_1 = require("../config/ai-provider.config");
 const env_util_1 = require("../utils/env.util");
 const goal_v2_validators_1 = require("../validators/goal-v2.validators");
 const rewind_temporal_context_service_1 = require("./rewind-temporal-context.service");
+const QUICK_GOAL_SETUP_MODEL = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.QUICK_GOAL_SETUP).model;
 const QUICK_GOAL_SETUP_PARTNERS = {
     ariel: {
         name: "Ariel",
@@ -218,7 +220,7 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
             },
             temperature: 0.25,
         },
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+        model: QUICK_GOAL_SETUP_MODEL,
     });
     if (!response.text) {
         throw new QuickGoalSetupError("AI goal setup returned no result");

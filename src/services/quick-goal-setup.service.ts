@@ -1,6 +1,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DateTime } from "luxon";
 
+import {
+  AI_TEXT_FEATURE,
+  getAiTextProviderConfig,
+} from "../config/ai-provider.config";
 import { Env } from "../utils/env.util";
 import {
   quickGoalSetupDecisionSchema,
@@ -16,6 +20,9 @@ type QuickGoalSetupPartner = {
   name: string;
   setupDirection: string;
 };
+
+const QUICK_GOAL_SETUP_MODEL =
+  getAiTextProviderConfig(AI_TEXT_FEATURE.QUICK_GOAL_SETUP).model;
 
 const QUICK_GOAL_SETUP_PARTNERS: Record<
   QuickGoalSetupPartnerId,
@@ -258,7 +265,7 @@ export async function generateQuickGoalSetup(
       },
       temperature: 0.25,
     },
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+    model: QUICK_GOAL_SETUP_MODEL,
   });
 
   if (!response.text) {

@@ -1,5 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
+
+import {
+  AI_TEXT_FEATURE,
+  getAiTextProviderConfig,
+} from "../config/ai-provider.config";
 import { Env } from "../utils/env.util";
+
+const REWIND_REFLECTION_MODEL =
+  getAiTextProviderConfig(AI_TEXT_FEATURE.REWIND_REFLECTION).model;
 
 export type RewindSignalKey =
   | "agency"
@@ -148,7 +156,7 @@ export async function generateRewindReflection(
 
   const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
   const response = await client.models.generateContent({
-    model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+    model: REWIND_REFLECTION_MODEL,
     contents: [
       {
         role: "user",

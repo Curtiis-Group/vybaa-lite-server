@@ -15,6 +15,7 @@ exports.setRewindChatArchived = setRewindChatArchived;
 const genai_1 = require("@google/genai");
 const client_1 = require("@prisma/client");
 const luxon_1 = require("luxon");
+const ai_provider_config_1 = require("../config/ai-provider.config");
 const db_config_1 = require("../config/db.config");
 const env_util_1 = require("../utils/env.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
@@ -30,6 +31,7 @@ const REWIND_PERSONAS = [
     "tobi",
     "neeja",
 ];
+const REWIND_CHAT_MODEL = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.REWIND_CHAT).model;
 const PERSONA_NAMES = {
     ariel: "Ariel",
     ella: "Ella",
@@ -304,7 +306,7 @@ async function generateChatReply(params) {
             },
             temperature: 0.55,
         },
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+        model: REWIND_CHAT_MODEL,
     });
     if (!response.text)
         throw new Error("Rewind chat response was empty");
@@ -395,7 +397,7 @@ async function generateStreamingPartnerTurn(params) {
             maxOutputTokens: 300,
             temperature: 0.72,
         },
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+        model: REWIND_CHAT_MODEL,
     });
     let reply = "";
     for await (const chunk of response) {

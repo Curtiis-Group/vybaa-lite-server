@@ -16,6 +16,7 @@ exports.getRecentObservationContext = getRecentObservationContext;
 const genai_1 = require("@google/genai");
 const client_1 = require("@prisma/client");
 const luxon_1 = require("luxon");
+const ai_provider_config_1 = require("../config/ai-provider.config");
 const db_config_1 = require("../config/db.config");
 const env_util_1 = require("../utils/env.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
@@ -25,6 +26,7 @@ const rewind_chat_realtime_service_1 = require("./rewind-chat-realtime.service")
 const OBSERVATION_GENERATION_VERSION = 2;
 const MAX_OBSERVATION_SIGNALS = 40;
 const MAX_EVIDENCE_ITEMS = 8;
+const DAILY_OBSERVATION_MODEL = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.DAILY_OBSERVATION).model;
 const REWIND_PERSONA_NAMES = {
     ariel: "Ariel",
     ella: "Ella",
@@ -169,7 +171,7 @@ async function generateDailyObservation(localDateKey, signals, userDisplayName, 
             },
             temperature: 0.25,
         },
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+        model: DAILY_OBSERVATION_MODEL,
     });
     if (!response.text) {
         throw new Error("Daily observation response was empty");

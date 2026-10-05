@@ -29,6 +29,7 @@ const genai_1 = require("@google/genai");
 const client_1 = require("@prisma/client");
 const luxon_1 = require("luxon");
 const node_crypto_1 = require("node:crypto");
+const ai_provider_config_1 = require("../config/ai-provider.config");
 const db_config_1 = require("../config/db.config");
 const env_util_1 = require("../utils/env.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
@@ -77,6 +78,7 @@ const ACCOUNT_PROACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ACCOUNT_PROACTIVE_MAX_RUNS = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RELATIONSHIP_SOFTENING_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const REWIND_CHAT_V2_MODEL = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.REWIND_CHAT_V2).model;
 const PERSONAS = [
     "ella",
     "lyra",
@@ -620,7 +622,7 @@ async function generateCompactedChatSummary(params) {
     if (!env_util_1.Env.GEMINI_API_KEY) {
         throw new Error("GEMINI_API_KEY is not configured");
     }
-    const model = process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash";
+    const model = REWIND_CHAT_V2_MODEL;
     const client = new genai_1.GoogleGenAI({ apiKey: env_util_1.Env.GEMINI_API_KEY });
     const response = await client.models.generateContent({
         contents: [
@@ -1036,7 +1038,7 @@ async function chooseTurns(params) {
             temperature: 0.48,
             thinkingConfig: { thinkingLevel: genai_1.ThinkingLevel.MINIMAL },
         },
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+        model: REWIND_CHAT_V2_MODEL,
     });
     if (!response.text)
         throw new Error("Rewind room director returned no decision");
@@ -1047,7 +1049,7 @@ async function chooseTurns(params) {
     await (0, ai_usage_ledger_service_1.recordGeminiUsage)({
         idempotencyKey: `gemini:${params.runId}:director:${params.round}`,
         metadata: response.usageMetadata,
-        model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+        model: REWIND_CHAT_V2_MODEL,
         operation: "REWIND_DIRECTOR",
         runId: params.runId,
         userId: params.userId,
@@ -1655,12 +1657,12 @@ async function generateTurn(params) {
                     temperature: 0.72,
                     thinkingConfig: { thinkingLevel: genai_1.ThinkingLevel.MINIMAL },
                 },
-                model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+                model: REWIND_CHAT_V2_MODEL,
             });
             await (0, ai_usage_ledger_service_1.recordGeminiUsage)({
                 idempotencyKey: `gemini:${params.turnId}:partner-turn:${attempt}`,
                 metadata: response.usageMetadata,
-                model: process.env.GEMINI_REWIND_ANALYSIS_MODEL ?? "gemini-3.6-flash",
+                model: REWIND_CHAT_V2_MODEL,
                 operation: "REWIND_PARTNER_TURN",
                 runId: params.runId,
                 turnId: params.turnId,
