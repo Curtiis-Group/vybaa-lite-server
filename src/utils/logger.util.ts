@@ -72,9 +72,13 @@ const consoleFormat = winston.format.combine(
       typeof info.message === "string"
         ? info.message
         : serializeLogValue(info.message);
+    const conciseHttpContext = formatHttpConsoleContext(message, context);
+    const displayedMessage = !verboseConsoleOutput && conciseHttpContext
+      ? conciseHttpContext.trim()
+      : message;
     const contextSuffix = verboseConsoleOutput && Object.keys(context).length
       ? ` ${chalk.dim(`context=${serializeLogValue(context)}`)}`
-      : formatHttpConsoleContext(message, context);
+      : "";
     const stackSuffix =
       errorStack &&
       verboseConsoleOutput &&
@@ -84,7 +88,7 @@ const consoleFormat = winston.format.combine(
 
     return `[${chalk.yellow(String(info.timestamp ?? ""))}][${colorizeLevel(
       level,
-    )}]: ${message}${contextSuffix}${stackSuffix}`;
+    )}]: ${displayedMessage}${contextSuffix}${stackSuffix}`;
   }),
 );
 
@@ -188,18 +192,27 @@ function formatHttpConsoleContext(
     (value): value is string => Boolean(value),
   ).join(" ");
   if (!requestLabel) return "";
-  if (message === "HTTP request started") return ` ${requestLabel}`;
+  if (message === "HTTP request started") {
+    return ` ${chalk.cyan("→")} ${requestLabel}`;
+  }
 
-  const details: string[] = [];
+  const details: string[] = [
+    message === "HTTP request closed before response completed"
+      ? chalk.red("✕")
+      : chalk.green("✓"),
+  ];
   if (typeof context.status === "number") {
-    details.push(String(context.status));
+    const statusColor = context.status >= 400 ? chalk.yellow : chalk.green;
+    details.push(statusColor(String(context.status)));
   }
   if (typeof context.durationMs === "number") {
-    details.push(`in ${Math.round(context.durationMs)}ms`);
+    details.push(chalk.dim(`${Math.round(context.durationMs)}ms`));
   }
-  return details.length
-    ? ` ${requestLabel} -> ${details.join(" ")}`
-    : ` ${requestLabel}`;
+  const statusDetails = details.slice(1);
+  const detailSuffix = statusDetails.length
+    ? ` ${statusDetails.join(" · ")}`
+    : "";
+  return ` ${details[0]} ${requestLabel}${detailSuffix}`;
 }
 
 function writeLogStream(message: string): void {

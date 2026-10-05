@@ -52,15 +52,19 @@ const consoleFormat = winston_1.default.format.combine(winston_1.default.format.
     const message = typeof info.message === "string"
         ? info.message
         : serializeLogValue(info.message);
+    const conciseHttpContext = formatHttpConsoleContext(message, context);
+    const displayedMessage = !verboseConsoleOutput && conciseHttpContext
+        ? conciseHttpContext.trim()
+        : message;
     const contextSuffix = verboseConsoleOutput && Object.keys(context).length
         ? ` ${chalk_1.default.dim(`context=${serializeLogValue(context)}`)}`
-        : formatHttpConsoleContext(message, context);
+        : "";
     const stackSuffix = errorStack &&
         verboseConsoleOutput &&
         (process.env.LOG_STACKS === "true" || level === "error")
         ? `\n${chalk_1.default.dim(errorStack)}`
         : "";
-    return `[${chalk_1.default.yellow(String(info.timestamp ?? ""))}][${colorizeLevel(level)}]: ${message}${contextSuffix}${stackSuffix}`;
+    return `[${chalk_1.default.yellow(String(info.timestamp ?? ""))}][${colorizeLevel(level)}]: ${displayedMessage}${contextSuffix}${stackSuffix}`;
 }));
 const logger = winston_1.default.createLogger({
     level: logLevel,
@@ -152,18 +156,26 @@ function formatHttpConsoleContext(message, context) {
     const requestLabel = [method, requestPath].filter((value) => Boolean(value)).join(" ");
     if (!requestLabel)
         return "";
-    if (message === "HTTP request started")
-        return ` ${requestLabel}`;
-    const details = [];
+    if (message === "HTTP request started") {
+        return ` ${chalk_1.default.cyan("→")} ${requestLabel}`;
+    }
+    const details = [
+        message === "HTTP request closed before response completed"
+            ? chalk_1.default.red("✕")
+            : chalk_1.default.green("✓"),
+    ];
     if (typeof context.status === "number") {
-        details.push(String(context.status));
+        const statusColor = context.status >= 400 ? chalk_1.default.yellow : chalk_1.default.green;
+        details.push(statusColor(String(context.status)));
     }
     if (typeof context.durationMs === "number") {
-        details.push(`in ${Math.round(context.durationMs)}ms`);
+        details.push(chalk_1.default.dim(`${Math.round(context.durationMs)}ms`));
     }
-    return details.length
-        ? ` ${requestLabel} -> ${details.join(" ")}`
-        : ` ${requestLabel}`;
+    const statusDetails = details.slice(1);
+    const detailSuffix = statusDetails.length
+        ? ` ${statusDetails.join(" · ")}`
+        : "";
+    return ` ${details[0]} ${requestLabel}${detailSuffix}`;
 }
 function writeLogStream(message) {
     const trimmedMessage = message.trim();
