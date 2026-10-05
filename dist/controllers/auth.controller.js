@@ -29,6 +29,14 @@ const auth_util_1 = require("../utils/auth.util");
 const cloudinary_util_1 = require("../utils/cloudinary.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const username_util_1 = require("../utils/username.util");
+const EMAIL_NOT_CONFIRMED_CODE = "EMAIL_NOT_CONFIRMED";
+function sendEmailConfirmationRequired(res, email) {
+    return res.status(403).json({
+        code: EMAIL_NOT_CONFIRMED_CODE,
+        msg: "Please confirm your email before logging in.",
+        data: { email },
+    });
+}
 // Helper function to format user response
 function formatUserResponse(user) {
     const partnerSwitch = (0, rewind_partner_switch_service_1.getRewindPartnerSwitchAvailability)(user.rewindPersonaChangedAt, user.timezone);
@@ -64,6 +72,9 @@ async function login(req, res) {
         const isPasswordValid = await (0, auth_util_1.comparePassword)(password, user.password);
         if (!isPasswordValid) {
             return res.status(401).json({ msg: "Invalid credentials" });
+        }
+        if (!user.isConfirmed) {
+            return sendEmailConfirmationRequired(res, user.email);
         }
         await user_mood_service_1.userMoodService.refreshCurrentMoodIfNeeded(user.id);
         const refreshedUser = await db_config_1.prisma.user.findUnique({
@@ -395,6 +406,9 @@ async function getSession(req, res) {
         if (!user) {
             return res.status(404).json({ msg: "User not found" });
         }
+        if (!user.isConfirmed) {
+            return sendEmailConfirmationRequired(res, user.email);
+        }
         res.json({
             msg: "Session retrieved",
             data: {
@@ -420,6 +434,9 @@ async function refreshToken(req, res) {
         });
         if (!user || user.refreshToken !== refreshToken || user.suspendedAt) {
             return res.status(401).json({ msg: "Invalid refresh token" });
+        }
+        if (!user.isConfirmed) {
+            return sendEmailConfirmationRequired(res, user.email);
         }
         // Generate new tokens
         const newToken = (0, auth_util_1.generateAccessToken)(user.id);
@@ -601,7 +618,7 @@ async function accountConfirmation(req, res) {
         if ((0, auth_util_1.isOTPExpired)(user.otpExpiresAt)) {
             return res.status(401).json({ msg: "OTP has expired" });
         }
-        await db_config_1.prisma.user.update({
+        const confirmedUser = await db_config_1.prisma.user.update({
             where: { id: user.id },
             data: {
                 isConfirmed: true,
@@ -612,7 +629,7 @@ async function accountConfirmation(req, res) {
         res.json({
             msg: "Account confirmed successfully",
             data: {
-                user: formatUserResponse(user),
+                user: formatUserResponse(confirmedUser),
             },
         });
     }

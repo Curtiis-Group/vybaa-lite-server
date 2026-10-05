@@ -43,6 +43,16 @@ export type FormattedUserResponse = {
   username: string | undefined;
 };
 
+const EMAIL_NOT_CONFIRMED_CODE = "EMAIL_NOT_CONFIRMED";
+
+function sendEmailConfirmationRequired(res: Response, email: string): Response {
+  return res.status(403).json({
+    code: EMAIL_NOT_CONFIRMED_CODE,
+    msg: "Please confirm your email before logging in.",
+    data: { email },
+  });
+}
+
 // Helper function to format user response
 export function formatUserResponse(user: User): FormattedUserResponse {
   const partnerSwitch = getRewindPartnerSwitchAvailability(
@@ -88,6 +98,10 @@ export async function login(req: Request, res: Response) {
     const isPasswordValid = await comparePassword(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({ msg: "Invalid credentials" });
+    }
+
+    if (!user.isConfirmed) {
+      return sendEmailConfirmationRequired(res, user.email);
     }
 
     await userMoodService.refreshCurrentMoodIfNeeded(user.id);
@@ -471,6 +485,10 @@ export async function getSession(req: AuthRequest, res: Response) {
       return res.status(404).json({ msg: "User not found" });
     }
 
+    if (!user.isConfirmed) {
+      return sendEmailConfirmationRequired(res, user.email);
+    }
+
     res.json({
       msg: "Session retrieved",
       data: {
@@ -499,6 +517,10 @@ export async function refreshToken(req: Request, res: Response) {
 
     if (!user || user.refreshToken !== refreshToken || user.suspendedAt) {
       return res.status(401).json({ msg: "Invalid refresh token" });
+    }
+
+    if (!user.isConfirmed) {
+      return sendEmailConfirmationRequired(res, user.email);
     }
 
     // Generate new tokens
@@ -711,7 +733,7 @@ export async function accountConfirmation(req: Request, res: Response) {
       return res.status(401).json({ msg: "OTP has expired" });
     }
 
-    await prisma.user.update({
+    const confirmedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
         isConfirmed: true,
@@ -723,7 +745,7 @@ export async function accountConfirmation(req: Request, res: Response) {
     res.json({
       msg: "Account confirmed successfully",
       data: {
-        user: formatUserResponse(user),
+        user: formatUserResponse(confirmedUser),
       },
     });
   } catch (error) {

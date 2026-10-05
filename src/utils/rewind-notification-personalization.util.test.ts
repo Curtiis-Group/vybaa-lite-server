@@ -21,7 +21,7 @@ test("keeps paid Rewind chat notifications actionable", () => {
   });
 });
 
-test("turns free Rewind chat notifications into honest upgrade previews", () => {
+test("keeps free Rewind chat notifications conversational without an upsell", () => {
   const result = prepareRewindChatNotificationForAccess({
     data: {
       chatId: "chat-1",
@@ -34,11 +34,13 @@ test("turns free Rewind chat notifications into honest upgrade previews", () => 
     title: "Ella sent you a message",
   });
 
-  assert.equal(result.data?.route, "/app/rewind-chats");
-  assert.equal(result.data?.requiresPro, true);
-  assert.equal(result.data?.upgradeFeature, "rewind-chats");
-  assert.match(result.message, /Upgrade to open Discussions and reply\.$/);
-  assert.ok(result.message.length <= 120);
+  assert.equal(result.data?.route, "/app/rewind-chat/chat-1");
+  assert.equal(result.data?.requiresPro, undefined);
+  assert.equal(result.data?.upgradeFeature, undefined);
+  assert.equal(
+    result.message,
+    "I noticed something important about the way you handled that difficult conversation today, and I think it is worth revisiting together.",
+  );
 });
 
 test("treats missing, inactive, and expired snapshots as free", () => {
@@ -169,7 +171,7 @@ test("uses the actual message sender regardless of the selected partner", () => 
   );
 });
 
-test("labels a locked partner preview as Vybaa Pro", () => {
+test("removes legacy upsell copy from stored partner notifications", () => {
   const result = personalizeRewindNotification({
     data: {
       requiresPro: true,
@@ -182,8 +184,11 @@ test("labels a locked partner preview as Vybaa Pro", () => {
     type: "rewind_chat_message",
   });
 
-  assert.equal(result.title, "Ella · Vybaa Pro");
+  assert.equal(result.title, "Ella");
   assert.equal(result.data?.route, "/app/rewind-chats");
+  assert.equal(result.data?.requiresPro, undefined);
+  assert.equal(result.data?.upgradeFeature, undefined);
+  assert.equal(result.message, "I noticed something.");
   assert.deepEqual(result.data?.notificationSender, {
     avatarUrl:
       "https://res.cloudinary.com/dqdtazdda/image/upload/c_fill,f_png,g_auto,h_256,q_auto:good,w_256/v1/vybaa/rewind/partners/ella",

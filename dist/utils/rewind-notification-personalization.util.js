@@ -35,13 +35,17 @@ const PERSONAS = {
         personaId: "tobi",
     },
 };
-const REWIND_CHAT_LOCKED_SUFFIX = " · Upgrade to open Discussions and reply.";
-const REWIND_CHAT_NOTIFICATION_MAX_LENGTH = 120;
-function truncateNotificationMessage(message, maxLength) {
-    const normalized = message.trim();
-    if (normalized.length <= maxLength)
-        return normalized;
-    return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+const LEGACY_REWIND_CHAT_UPSELL_SUFFIX = /\s*[·•]\s*Upgrade to open Discussions and reply\.\s*$/i;
+function removeLegacyRewindChatUpsellCopy(message) {
+    const normalized = message
+        .replace(LEGACY_REWIND_CHAT_UPSELL_SUFFIX, "")
+        .trim();
+    return normalized || message.trim();
+}
+function removeLegacyRewindChatUpsellMetadata(data) {
+    if (!data)
+        return undefined;
+    return Object.fromEntries(Object.entries(data).filter(([key]) => key !== "requiresPro" && key !== "upgradeFeature"));
 }
 function isActiveRewindChatSubscription(snapshot, now) {
     if (!snapshot?.isPro)
@@ -49,22 +53,11 @@ function isActiveRewindChatSubscription(snapshot, now) {
     return (snapshot.expiresAt === null || snapshot.expiresAt.getTime() > now.getTime());
 }
 function prepareRewindChatNotificationForAccess(input) {
-    if (input.isPro) {
-        return {
-            data: input.data,
-            message: input.message,
-            title: input.title,
-        };
-    }
-    const previewLength = REWIND_CHAT_NOTIFICATION_MAX_LENGTH - REWIND_CHAT_LOCKED_SUFFIX.length;
     return {
-        data: {
-            ...input.data,
-            requiresPro: true,
-            route: "/app/rewind-chats",
-            upgradeFeature: "rewind-chats",
-        },
-        message: `${truncateNotificationMessage(input.message, previewLength)}${REWIND_CHAT_LOCKED_SUFFIX}`,
+        data: input.isPro
+            ? input.data
+            : removeLegacyRewindChatUpsellMetadata(input.data),
+        message: removeLegacyRewindChatUpsellCopy(input.message),
         title: input.title,
     };
 }
@@ -140,15 +133,15 @@ function personalizeRewindNotification(input) {
         ? PERSONAS[sourcePersonaId]
         : null;
     if (input.type === "rewind_chat_message") {
-        const requiresPro = input.data?.requiresPro === true;
         return {
             data: sourcePersona
-                ? { ...input.data, notificationSender: sourcePersona }
-                : input.data,
-            message: input.message,
-            title: requiresPro
-                ? `${sourcePersona?.name ?? input.title} · Vybaa Pro`
-                : (sourcePersona?.name ?? input.title),
+                ? {
+                    ...removeLegacyRewindChatUpsellMetadata(input.data),
+                    notificationSender: sourcePersona,
+                }
+                : removeLegacyRewindChatUpsellMetadata(input.data),
+            message: removeLegacyRewindChatUpsellCopy(input.message),
+            title: sourcePersona?.name ?? input.title,
         };
     }
     if (!isNotificationPersonaId(input.selectedPersonaId)) {
