@@ -11,6 +11,9 @@ const winston_1 = __importDefault(require("winston"));
 const logDir = "logs";
 (0, fs_1.mkdirSync)(logDir, { recursive: true });
 const logFormat = winston_1.default.format.combine(winston_1.default.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston_1.default.format.errors({ stack: true }), winston_1.default.format.splat(), winston_1.default.format.json());
+const logLevel = (process.env.LOG_LEVEL ??
+    (process.env.NODE_ENV === "production" ? "info" : "debug")).toLowerCase();
+const verboseConsoleOutput = ["debug", "silly", "verbose"].includes(logLevel);
 const consoleFormat = winston_1.default.format.combine(winston_1.default.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }), winston_1.default.format.errors({ stack: true }), winston_1.default.format.splat(), winston_1.default.format.printf((info) => {
     const level = String(info.level ?? "info");
     const context = {};
@@ -49,18 +52,16 @@ const consoleFormat = winston_1.default.format.combine(winston_1.default.format.
     const message = typeof info.message === "string"
         ? info.message
         : serializeLogValue(info.message);
-    const contextSuffix = Object.keys(context).length
+    const contextSuffix = verboseConsoleOutput && Object.keys(context).length
         ? ` ${chalk_1.default.dim(`context=${serializeLogValue(context)}`)}`
         : "";
     const stackSuffix = errorStack &&
-        (process.env.LOG_STACKS === "true" ||
-            (process.env.NODE_ENV !== "production" && level === "error"))
+        verboseConsoleOutput &&
+        (process.env.LOG_STACKS === "true" || level === "error")
         ? `\n${chalk_1.default.dim(errorStack)}`
         : "";
-    return `${chalk_1.default.gray(String(info.timestamp ?? ""))} ${colorizeLevel(level)} ${message}${contextSuffix}${stackSuffix}`;
+    return `[${chalk_1.default.yellow(String(info.timestamp ?? ""))}][${colorizeLevel(level)}]: ${message}${contextSuffix}${stackSuffix}`;
 }));
-const logLevel = process.env.LOG_LEVEL ??
-    (process.env.NODE_ENV === "production" ? "info" : "debug");
 const logger = winston_1.default.createLogger({
     level: logLevel,
     format: logFormat,

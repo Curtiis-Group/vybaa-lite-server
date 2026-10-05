@@ -15,6 +15,12 @@ const logFormat = winston.format.combine(
   winston.format.json()
 );
 
+const logLevel = (
+  process.env.LOG_LEVEL ??
+  (process.env.NODE_ENV === "production" ? "info" : "debug")
+).toLowerCase();
+const verboseConsoleOutput = ["debug", "silly", "verbose"].includes(logLevel);
+
 const consoleFormat = winston.format.combine(
   winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
   winston.format.errors({ stack: true }),
@@ -66,25 +72,21 @@ const consoleFormat = winston.format.combine(
       typeof info.message === "string"
         ? info.message
         : serializeLogValue(info.message);
-    const contextSuffix = Object.keys(context).length
+    const contextSuffix = verboseConsoleOutput && Object.keys(context).length
       ? ` ${chalk.dim(`context=${serializeLogValue(context)}`)}`
       : "";
     const stackSuffix =
       errorStack &&
-      (process.env.LOG_STACKS === "true" ||
-        (process.env.NODE_ENV !== "production" && level === "error"))
+      verboseConsoleOutput &&
+      (process.env.LOG_STACKS === "true" || level === "error")
         ? `\n${chalk.dim(errorStack)}`
         : "";
 
-    return `${chalk.gray(String(info.timestamp ?? ""))} ${colorizeLevel(
+    return `[${chalk.yellow(String(info.timestamp ?? ""))}][${colorizeLevel(
       level,
-    )} ${message}${contextSuffix}${stackSuffix}`;
+    )}]: ${message}${contextSuffix}${stackSuffix}`;
   }),
 );
-
-const logLevel =
-  process.env.LOG_LEVEL ??
-  (process.env.NODE_ENV === "production" ? "info" : "debug");
 
 const logger = winston.createLogger({
   level: logLevel,
