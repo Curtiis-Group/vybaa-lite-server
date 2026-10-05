@@ -53,3 +53,29 @@ test("quick goal setup preserves reminder times when an edit response omits them
     },
   );
 });
+
+test("quick goal setup repairs a mixed draft and question response", () => {
+  assert.deepEqual(
+    normalizeQuickGoalSetupResult(
+      {
+        kind: "DRAFT",
+        questions: [
+          {
+            question:
+              "Did you mean JavaScript, and how many minutes a day can you commit to learning it?",
+          },
+        ],
+      },
+      "2026-09-05",
+    ),
+    {
+      kind: "QUESTIONS",
+      questions: [
+        {
+          question:
+            "Did you mean JavaScript, and how many minutes a day can you commit to learning it?",
+        },
+      ],
+    },
+  );
+});

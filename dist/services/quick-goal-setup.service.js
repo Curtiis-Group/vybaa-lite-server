@@ -128,8 +128,25 @@ function getQuickGoalSetupPartner(personaId) {
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+function isQuickGoalSetupQuestions(value) {
+    if (!Array.isArray(value) || value.length < 1 || value.length > 2) {
+        return false;
+    }
+    return value.every((item) => isRecord(item) &&
+        typeof item.question === "string" &&
+        item.question.trim().length >= 3 &&
+        item.question.trim().length <= 240);
+}
 function normalizeQuickGoalSetupResult(value, today, fallbackReminderTimes = []) {
-    if (!isRecord(value) || value.kind !== "DRAFT" || !isRecord(value.draft)) {
+    if (!isRecord(value)) {
+        return value;
+    }
+    if (value.kind === "DRAFT" &&
+        !isRecord(value.draft) &&
+        isQuickGoalSetupQuestions(value.questions)) {
+        return { kind: "QUESTIONS", questions: value.questions };
+    }
+    if (value.kind !== "DRAFT" || !isRecord(value.draft)) {
         return value;
     }
     const { draft } = value;
@@ -179,8 +196,8 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
                 : "First decide whether a goal can be made well from the user's idea. Ask one or two QUESTIONS only when an answer would materially change the target or schedule. Do not ask for details you can reasonably infer. Otherwise return a DRAFT immediately. ") +
         "For a DRAFT, choose a clear short title, an optional one-sentence reason, a measurable target, " +
         "and a realistic schedule. Prefer CHECK_IN_COUNT with DAILY for habits unless the " +
-        "refrain from unnecessary questions" +
-        "user clearly asks for a quantity, weekday, weekly, or one-time goal. " +
+        "user clearly asks for a quantity, weekday, weekly, or one-time goal. Refrain from unnecessary questions. " +
+        "If you ask a question, return kind QUESTIONS with questions only. If you return a DRAFT, return draft only. Never mix the two response shapes. " +
         "Always return reminderTimes as an array of up to three unique HH:MM times in the user's local timezone. " +
         "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
         "If they do not ask for reminders, use an empty array. For edits, preserve the current reminderTimes " +
@@ -221,6 +238,12 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
     });
     const validated = goal_v2_validators_1.quickGoalSetupDecisionSchema.safeParse(normalized);
     if (!validated.success) {
+        logger_util_1.default.warn("Quick goal setup response rejected", {
+            issues: validated.error.issues,
+            returnedKind: isRecord(normalized) && typeof normalized.kind === "string"
+                ? normalized.kind
+                : "unknown",
+        });
         throw new QuickGoalSetupError("AI goal setup returned an invalid result");
     }
     return validated.data;
