@@ -10,14 +10,31 @@ type OpenRouterTextRequest = {
   feature: AiTextFeature;
   jsonSchema?: Record<string, unknown>;
   maxOutputTokens?: number;
+  onUsage?: (usage: OpenRouterUsage | undefined) => Promise<void>;
   prompt: string;
   reasoningEnabled?: boolean;
   systemInstruction?: string;
   temperature?: number;
 };
 
+export type OpenRouterUsage = {
+  completion_tokens?: number | null;
+  prompt_tokens?: number | null;
+  total_tokens?: number | null;
+};
+
 type OpenRouterRequest = Omit<
   OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+  "messages"
+> & {
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  reasoning?: {
+    enabled: boolean;
+  };
+};
+
+type OpenRouterStreamingRequest = Omit<
+  OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
   "messages"
 > & {
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
@@ -95,5 +112,68 @@ export async function generateOpenRouterText(
     );
   }
 
+  await request.onUsage?.(response.usage);
   return content;
+}
+
+export async function generateOpenRouterTextStream(
+  request: OpenRouterTextRequest & {
+    onDelta: (delta: string) => Promise<void>;
+  },
+): Promise<string> {
+  const providerConfig = getAiTextProviderConfig(request.feature);
+
+  if (providerConfig.provider !== AI_TEXT_PROVIDER.OPENROUTER) {
+    throw new Error(
+      `OpenRouter was requested for ${request.feature}, but its configured provider is ${providerConfig.provider}`,
+    );
+  }
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+  if (request.systemInstruction) {
+    messages.push({ content: request.systemInstruction, role: "system" });
+  }
+  messages.push({ content: request.prompt, role: "user" });
+
+  const openRouterRequest: OpenRouterStreamingRequest = {
+    max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    messages,
+    model: providerConfig.model,
+    stream: true,
+    temperature: request.temperature ?? 0.2,
+  };
+
+  if (request.reasoningEnabled ?? providerConfig.reasoningEnabled) {
+    openRouterRequest.reasoning = { enabled: true };
+  }
+  if (request.jsonSchema) {
+    openRouterRequest.response_format = {
+      json_schema: {
+        name: `${request.feature.toLowerCase()}_response`,
+        schema: request.jsonSchema,
+        strict: true,
+      },
+      type: "json_schema",
+    };
+  }
+
+  const response = await createOpenRouterClient().chat.completions.create(
+    openRouterRequest,
+  );
+  let content = "";
+  for await (const chunk of response) {
+    const delta = chunk.choices[0]?.delta.content ?? "";
+    if (!delta) continue;
+    content += delta;
+    await request.onDelta(delta);
+  }
+
+  const normalizedContent = content.trim();
+  if (!normalizedContent) {
+    throw new Error(
+      `OpenRouter returned no visible text for ${request.feature}`,
+    );
+  }
+
+  return normalizedContent;
 }

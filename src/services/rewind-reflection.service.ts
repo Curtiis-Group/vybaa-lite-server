@@ -1,13 +1,44 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { AI_TEXT_FEATURE } from "../config/ai-provider.config";
+import { generateOpenRouterText } from "./openrouter-text.service";
 
-import {
-  AI_TEXT_FEATURE,
-  getAiTextProviderConfig,
-} from "../config/ai-provider.config";
-import { Env } from "../utils/env.util";
-
-const REWIND_REFLECTION_MODEL =
-  getAiTextProviderConfig(AI_TEXT_FEATURE.REWIND_REFLECTION).model;
+const REWIND_REFLECTION_RESPONSE_SCHEMA: Record<string, unknown> = {
+  additionalProperties: false,
+  properties: {
+    summary: { type: "string" },
+    emotionalInsight: { type: "string" },
+    comparisonInsight: { type: ["string", "null"] },
+    journalDraft: { type: "string" },
+    currentMood: { type: ["string", "null"] },
+    emotionalTags: { items: { type: "string" }, type: "array" },
+    nextStepNote: { type: ["string", "null"] },
+    wellbeingSignals: {
+      additionalProperties: false,
+      properties: {
+        emotionalSteadiness: { type: "number" },
+        energy: { type: "number" },
+        clarity: { type: "number" },
+        connection: { type: "number" },
+        agency: { type: "number" },
+      },
+      required: [
+        "emotionalSteadiness",
+        "energy",
+        "clarity",
+        "connection",
+        "agency",
+      ],
+      type: "object",
+    },
+  },
+  required: [
+    "summary",
+    "emotionalInsight",
+    "journalDraft",
+    "emotionalTags",
+    "wellbeingSignals",
+  ],
+  type: "object",
+};
 
 export type RewindSignalKey =
   | "agency"
@@ -150,75 +181,21 @@ function formatPriorContext(context: RewindReflectionContext): string {
 export async function generateRewindReflection(
   context: RewindReflectionContext,
 ): Promise<RewindReflection> {
-  if (!Env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured");
-  }
+  const prompt =
+    "Create a substantial, grounded daily Rewind reflection from the completed transcript. Do not diagnose, invent events, or make medical claims. The partner can use only its own private memories and the user's explicit journals. Mention a prior pattern only when it genuinely clarifies today. The summary must contain four concise plain-text sections: What happened, What mattered emotionally, What became clearer, and A useful next check-in. Ground every point in the conversation. The journalDraft must be a first-person note the user can review and append without overwriting their writing. Wellbeing signals are non-clinical 0-100 reflective readings, not health scores.\n\n" +
+    (context.intent
+      ? `The user's stated Rewind intention is: ${context.intent}. Let it shape emphasis, but never force it where the transcript does not support it.\n\n`
+      : "") +
+    `Transcript:\n${formatTranscript(context.transcript)}\n\n` +
+    `${formatPriorContext(context)}`;
 
-  const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
-  const response = await client.models.generateContent({
-    model: REWIND_REFLECTION_MODEL,
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text:
-              "Create a substantial, grounded daily Rewind reflection from the completed transcript. Do not diagnose, invent events, or make medical claims. The partner can use only its own private memories and the user's explicit journals. Mention a prior pattern only when it genuinely clarifies today. The summary must contain four concise plain-text sections: What happened, What mattered emotionally, What became clearer, and A useful next check-in. Ground every point in the conversation. The journalDraft must be a first-person note the user can review and append without overwriting their writing. Wellbeing signals are non-clinical 0-100 reflective readings, not health scores.\n\n" +
-              (context.intent
-                ? `The user's stated Rewind intention is: ${context.intent}. Let it shape emphasis, but never force it where the transcript does not support it.\n\n`
-                : "") +
-              `Transcript:\n${formatTranscript(context.transcript)}\n\n` +
-              `${formatPriorContext(context)}`,
-          },
-        ],
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          summary: { type: Type.STRING },
-          emotionalInsight: { type: Type.STRING },
-          comparisonInsight: { type: Type.STRING, nullable: true },
-          journalDraft: { type: Type.STRING },
-          currentMood: { type: Type.STRING, nullable: true },
-          emotionalTags: { type: Type.ARRAY, items: { type: Type.STRING } },
-          nextStepNote: { type: Type.STRING, nullable: true },
-          wellbeingSignals: {
-            type: Type.OBJECT,
-            properties: {
-              emotionalSteadiness: { type: Type.NUMBER },
-              energy: { type: Type.NUMBER },
-              clarity: { type: Type.NUMBER },
-              connection: { type: Type.NUMBER },
-              agency: { type: Type.NUMBER },
-            },
-            required: [
-              "emotionalSteadiness",
-              "energy",
-              "clarity",
-              "connection",
-              "agency",
-            ],
-          },
-        },
-        required: [
-          "summary",
-          "emotionalInsight",
-          "journalDraft",
-          "emotionalTags",
-          "wellbeingSignals",
-        ],
-      },
-      temperature: 0.35,
-    },
+  const text = await generateOpenRouterText({
+    feature: AI_TEXT_FEATURE.REWIND_REFLECTION,
+    jsonSchema: REWIND_REFLECTION_RESPONSE_SCHEMA,
+    maxOutputTokens: 1_024,
+    prompt,
+    temperature: 0.35,
   });
-
-  const text = response.text;
-  if (!text) {
-    throw new Error("Rewind reflection response was empty");
-  }
 
   return parseRewindReflection(JSON.parse(text));
 }

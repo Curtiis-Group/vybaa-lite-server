@@ -38,7 +38,13 @@ export const AI_TEXT_CONFIG: Readonly<
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
-  // These summaries are isolated from Rewind and can use OpenRouter.
+  // All text generation uses OpenRouter. Gemini is reserved for the live
+  // Rewind session below, where the partner actually speaks.
+  DAILY_OBSERVATION: {
+    model: "qwen/qwen3.8-27b:free",
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
+    reasoningEnabled: true,
+  },
   EMOTION_SUMMARY: {
     model: "qwen/qwen3.8-27b:free",
     provider: AI_TEXT_PROVIDER.OPENROUTER,
@@ -49,30 +55,24 @@ export const AI_TEXT_CONFIG: Readonly<
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
-  // Rewind and its related analysis remain on Gemini.
-  DAILY_OBSERVATION: {
-    model: "gemini-3.6-flash",
-    provider: AI_TEXT_PROVIDER.GEMINI,
-    reasoningEnabled: true,
-  },
   QUICK_GOAL_SETUP: {
-    model: "gemini-3.6-flash",
-    provider: AI_TEXT_PROVIDER.GEMINI,
+    model: "qwen/qwen3.8-27b:free",
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   REWIND_CHAT: {
-    model: "gemini-3.6-flash",
-    provider: AI_TEXT_PROVIDER.GEMINI,
+    model: "qwen/qwen3.8-27b:free",
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   REWIND_CHAT_V2: {
-    model: "gemini-3.6-flash",
-    provider: AI_TEXT_PROVIDER.GEMINI,
+    model: "qwen/qwen3.8-27b:free",
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
   REWIND_REFLECTION: {
-    model: "gemini-3.6-flash",
-    provider: AI_TEXT_PROVIDER.GEMINI,
+    model: "qwen/qwen3.8-27b:free",
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
 };

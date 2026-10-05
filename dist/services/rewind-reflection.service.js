@@ -2,10 +2,46 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseRewindReflection = parseRewindReflection;
 exports.generateRewindReflection = generateRewindReflection;
-const genai_1 = require("@google/genai");
 const ai_provider_config_1 = require("../config/ai-provider.config");
-const env_util_1 = require("../utils/env.util");
-const REWIND_REFLECTION_MODEL = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.REWIND_REFLECTION).model;
+const openrouter_text_service_1 = require("./openrouter-text.service");
+const REWIND_REFLECTION_RESPONSE_SCHEMA = {
+    additionalProperties: false,
+    properties: {
+        summary: { type: "string" },
+        emotionalInsight: { type: "string" },
+        comparisonInsight: { type: ["string", "null"] },
+        journalDraft: { type: "string" },
+        currentMood: { type: ["string", "null"] },
+        emotionalTags: { items: { type: "string" }, type: "array" },
+        nextStepNote: { type: ["string", "null"] },
+        wellbeingSignals: {
+            additionalProperties: false,
+            properties: {
+                emotionalSteadiness: { type: "number" },
+                energy: { type: "number" },
+                clarity: { type: "number" },
+                connection: { type: "number" },
+                agency: { type: "number" },
+            },
+            required: [
+                "emotionalSteadiness",
+                "energy",
+                "clarity",
+                "connection",
+                "agency",
+            ],
+            type: "object",
+        },
+    },
+    required: [
+        "summary",
+        "emotionalInsight",
+        "journalDraft",
+        "emotionalTags",
+        "wellbeingSignals",
+    ],
+    type: "object",
+};
 const REFLECTION_SIGNAL_KEYS = [
     "emotionalSteadiness",
     "energy",
@@ -98,71 +134,18 @@ function formatPriorContext(context) {
         .join("\n\n");
 }
 async function generateRewindReflection(context) {
-    if (!env_util_1.Env.GEMINI_API_KEY) {
-        throw new Error("GEMINI_API_KEY is not configured");
-    }
-    const client = new genai_1.GoogleGenAI({ apiKey: env_util_1.Env.GEMINI_API_KEY });
-    const response = await client.models.generateContent({
-        model: REWIND_REFLECTION_MODEL,
-        contents: [
-            {
-                role: "user",
-                parts: [
-                    {
-                        text: "Create a substantial, grounded daily Rewind reflection from the completed transcript. Do not diagnose, invent events, or make medical claims. The partner can use only its own private memories and the user's explicit journals. Mention a prior pattern only when it genuinely clarifies today. The summary must contain four concise plain-text sections: What happened, What mattered emotionally, What became clearer, and A useful next check-in. Ground every point in the conversation. The journalDraft must be a first-person note the user can review and append without overwriting their writing. Wellbeing signals are non-clinical 0-100 reflective readings, not health scores.\n\n" +
-                            (context.intent
-                                ? `The user's stated Rewind intention is: ${context.intent}. Let it shape emphasis, but never force it where the transcript does not support it.\n\n`
-                                : "") +
-                            `Transcript:\n${formatTranscript(context.transcript)}\n\n` +
-                            `${formatPriorContext(context)}`,
-                    },
-                ],
-            },
-        ],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: genai_1.Type.OBJECT,
-                properties: {
-                    summary: { type: genai_1.Type.STRING },
-                    emotionalInsight: { type: genai_1.Type.STRING },
-                    comparisonInsight: { type: genai_1.Type.STRING, nullable: true },
-                    journalDraft: { type: genai_1.Type.STRING },
-                    currentMood: { type: genai_1.Type.STRING, nullable: true },
-                    emotionalTags: { type: genai_1.Type.ARRAY, items: { type: genai_1.Type.STRING } },
-                    nextStepNote: { type: genai_1.Type.STRING, nullable: true },
-                    wellbeingSignals: {
-                        type: genai_1.Type.OBJECT,
-                        properties: {
-                            emotionalSteadiness: { type: genai_1.Type.NUMBER },
-                            energy: { type: genai_1.Type.NUMBER },
-                            clarity: { type: genai_1.Type.NUMBER },
-                            connection: { type: genai_1.Type.NUMBER },
-                            agency: { type: genai_1.Type.NUMBER },
-                        },
-                        required: [
-                            "emotionalSteadiness",
-                            "energy",
-                            "clarity",
-                            "connection",
-                            "agency",
-                        ],
-                    },
-                },
-                required: [
-                    "summary",
-                    "emotionalInsight",
-                    "journalDraft",
-                    "emotionalTags",
-                    "wellbeingSignals",
-                ],
-            },
-            temperature: 0.35,
-        },
+    const prompt = "Create a substantial, grounded daily Rewind reflection from the completed transcript. Do not diagnose, invent events, or make medical claims. The partner can use only its own private memories and the user's explicit journals. Mention a prior pattern only when it genuinely clarifies today. The summary must contain four concise plain-text sections: What happened, What mattered emotionally, What became clearer, and A useful next check-in. Ground every point in the conversation. The journalDraft must be a first-person note the user can review and append without overwriting their writing. Wellbeing signals are non-clinical 0-100 reflective readings, not health scores.\n\n" +
+        (context.intent
+            ? `The user's stated Rewind intention is: ${context.intent}. Let it shape emphasis, but never force it where the transcript does not support it.\n\n`
+            : "") +
+        `Transcript:\n${formatTranscript(context.transcript)}\n\n` +
+        `${formatPriorContext(context)}`;
+    const text = await (0, openrouter_text_service_1.generateOpenRouterText)({
+        feature: ai_provider_config_1.AI_TEXT_FEATURE.REWIND_REFLECTION,
+        jsonSchema: REWIND_REFLECTION_RESPONSE_SCHEMA,
+        maxOutputTokens: 1024,
+        prompt,
+        temperature: 0.35,
     });
-    const text = response.text;
-    if (!text) {
-        throw new Error("Rewind reflection response was empty");
-    }
     return parseRewindReflection(JSON.parse(text));
 }

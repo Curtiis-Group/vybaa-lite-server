@@ -13,6 +13,12 @@ export type GeminiUsageMetadata = {
   totalTokenCount?: number;
 };
 
+export type OpenRouterUsageMetadata = {
+  completion_tokens?: number | null;
+  prompt_tokens?: number | null;
+  total_tokens?: number | null;
+};
+
 function positiveInteger(value: number | undefined): number {
   return Number.isFinite(value) && value && value > 0 ? Math.floor(value) : 0;
 }
@@ -75,6 +81,59 @@ export async function recordGeminiUsage(params: {
     });
   } catch (error: unknown) {
     logger.error("Unable to persist AI usage ledger entry", {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorStack: error instanceof Error ? error.stack : undefined,
+      idempotencyKey: params.idempotencyKey,
+      model: params.model,
+      operation: params.operation,
+      runId: params.runId,
+      turnId: params.turnId,
+      userId: params.userId,
+    });
+  }
+}
+
+export async function recordOpenRouterUsage(params: {
+  metadata: OpenRouterUsageMetadata | undefined;
+  model: string;
+  operation: AiUsageOperation;
+  runId?: string;
+  turnId?: string;
+  userId: string;
+  idempotencyKey: string;
+}): Promise<void> {
+  const inputTokens = positiveInteger(params.metadata?.prompt_tokens ?? undefined);
+  const outputTokens = positiveInteger(
+    params.metadata?.completion_tokens ?? undefined,
+  );
+  const totalTokens =
+    positiveInteger(params.metadata?.total_tokens ?? undefined) ||
+    inputTokens + outputTokens;
+
+  try {
+    await prisma.aiUsageLedger.upsert({
+      create: {
+        estimatedCostUsd: 0,
+        idempotencyKey: params.idempotencyKey,
+        inputRateUsdPerMillion: 0,
+        inputTokens,
+        metadata: params.metadata ?? undefined,
+        model: params.model,
+        operation: params.operation,
+        ...(params.runId ? { runId: params.runId } : {}),
+        ...(params.turnId ? { turnId: params.turnId } : {}),
+        outputRateUsdPerMillion: 0,
+        outputTokens,
+        provider: "OPENROUTER",
+        totalTokens,
+        userId: params.userId,
+      },
+      update: {},
+      where: { idempotencyKey: params.idempotencyKey },
+    });
+  } catch (error) {
+    logger.error("Unable to persist OpenRouter usage ledger entry", {
       errorMessage: error instanceof Error ? error.message : String(error),
       errorName: error instanceof Error ? error.name : "UnknownError",
       errorStack: error instanceof Error ? error.stack : undefined,

@@ -1,4 +1,3 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import type { RewindChat, RewindChatMessage } from "@prisma/client";
 import {
   ActivitySignalSourceType,
@@ -7,15 +6,15 @@ import {
 } from "@prisma/client";
 import { DateTime } from "luxon";
 
-import {
-  AI_TEXT_FEATURE,
-  getAiTextProviderConfig,
-} from "../config/ai-provider.config";
+import { AI_TEXT_FEATURE } from "../config/ai-provider.config";
 import { prisma } from "../config/db.config";
-import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
 import { recordActivitySignal } from "./activity-signal.service";
 import { getRecentObservationContext } from "./daily-observation.service";
+import {
+  generateOpenRouterText,
+  generateOpenRouterTextStream,
+} from "./openrouter-text.service";
 import {
   formatRewindPersonalContext,
   loadRewindPersonalContext,
@@ -36,8 +35,15 @@ const REWIND_PERSONAS: RewindPersonaId[] = [
   "tobi",
   "neeja",
 ];
-const REWIND_CHAT_MODEL =
-  getAiTextProviderConfig(AI_TEXT_FEATURE.REWIND_CHAT).model;
+const REWIND_CHAT_RESPONSE_SCHEMA: Record<string, unknown> = {
+  additionalProperties: false,
+  properties: {
+    personaId: { enum: REWIND_PERSONAS, type: "string" },
+    reply: { type: "string" },
+  },
+  required: ["personaId", "reply"],
+  type: "object",
+};
 const PERSONA_NAMES: Record<RewindPersonaId, string> = {
   ariel: "Ariel",
   ella: "Ella",
@@ -348,8 +354,6 @@ async function generateChatReply(params: {
   timezone: string;
   userId: string;
 }): Promise<GeneratedChatReply> {
-  if (!Env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
-
   const fixedPersona = isPersonaId(params.chat.personaId)
     ? params.chat.personaId
     : params.mentions[0];
@@ -402,47 +406,29 @@ async function generateChatReply(params: {
   const personaDescriptions = REWIND_PERSONAS.map(
     (personaId) => `${PERSONA_NAMES[personaId]}: ${PERSONA_PROMPTS[personaId]}`,
   ).join("\n");
-  const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
-  const response = await client.models.generateContent({
-    contents: [
-      {
-        parts: [
-          {
-            text:
-              `You are responding in Vybaa Rewind text chat. ${partnerDirection} ` +
-              `${INDEPENDENT_PARTNER_PROMPT} ` +
-              `Be natural, concise, emotionally perceptive, and grounded. Respond like a trusted friend, not a clinician. ` +
-              `Do not diagnose, invent facts, expose hidden context, or claim an action was completed. Use the local moment and message timestamps quietly: notice real gaps and relative dates, but do not force a clock reference or time-of-day greeting. Ask at most one useful question.\n\n` +
-              `Partners:\n${personaDescriptions}\n\n` +
-              `User name: ${user?.firstName ?? user?.username ?? "there"}\n` +
-              `${temporalContext}\n\n` +
-              (observationContext
-                ? `Recent grounded observations:\n${observationContext}\n\n`
-                : "") +
-              (personalContext ? `${personalContext}\n\n` : "") +
-              `Recent chat:\n${formatRecentMessages([...messages].reverse(), params.timezone, contextNow)}\n\n` +
-              `Latest message:\n${params.content}`,
-          },
-        ],
-        role: "user",
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        properties: {
-          personaId: { enum: REWIND_PERSONAS, type: Type.STRING },
-          reply: { type: Type.STRING },
-        },
-        required: ["personaId", "reply"],
-        type: Type.OBJECT,
-      },
-      temperature: 0.55,
-    },
-    model: REWIND_CHAT_MODEL,
+  const prompt =
+    `You are responding in Vybaa Rewind text chat. ${partnerDirection} ` +
+    `${INDEPENDENT_PARTNER_PROMPT} ` +
+    `Be natural, concise, emotionally perceptive, and grounded. Respond like a trusted friend, not a clinician. ` +
+    `Do not diagnose, invent facts, expose hidden context, or claim an action was completed. Use the local moment and message timestamps quietly: notice real gaps and relative dates, but do not force a clock reference or time-of-day greeting. Ask at most one useful question.\n\n` +
+    `Partners:\n${personaDescriptions}\n\n` +
+    `User name: ${user?.firstName ?? user?.username ?? "there"}\n` +
+    `${temporalContext}\n\n` +
+    (observationContext
+      ? `Recent grounded observations:\n${observationContext}\n\n`
+      : "") +
+    (personalContext ? `${personalContext}\n\n` : "") +
+    `Recent chat:\n${formatRecentMessages([...messages].reverse(), params.timezone, contextNow)}\n\n` +
+    `Latest message:\n${params.content}`;
+  const text = await generateOpenRouterText({
+    feature: AI_TEXT_FEATURE.REWIND_CHAT,
+    jsonSchema: REWIND_CHAT_RESPONSE_SCHEMA,
+    maxOutputTokens: 512,
+    prompt,
+    temperature: 0.55,
   });
-  if (!response.text) throw new Error("Rewind chat response was empty");
-  const generated = parseGeneratedReply(JSON.parse(response.text));
+  const generated = parseGeneratedReply(JSON.parse(text));
+
   return fixedPersona ? { ...generated, personaId: fixedPersona } : generated;
 }
 
@@ -516,59 +502,42 @@ async function generateStreamingPartnerTurn(params: {
   previousTurns: PartnerTurn[];
   timezone: string;
 }): Promise<string> {
-  if (!Env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
-
   const previousTurnText = params.previousTurns.length
     ? params.previousTurns
         .map((turn) => `${PERSONA_NAMES[turn.personaId]}: ${turn.content}`)
         .join("\n")
     : "None yet.";
-  const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
-  const response = await client.models.generateContentStream({
-    contents: [
-      {
-        parts: [
-          {
-            text:
-              `You are ${PERSONA_NAMES[params.personaId]} in a fluid group conversation inside Vybaa Rewind. ` +
-              `${PERSONA_PROMPTS[params.personaId]} ` +
-              `${INDEPENDENT_PARTNER_PROMPT} ` +
-              `Reply directly and naturally, like a trusted friend texting in real time. Keep it to one short sentence or two brief clauses, usually under 180 characters. Add one or two fitting emojis only when they genuinely add tone; never use emoji as filler. ` +
-              `You may agree or disagree with another partner, and may address them with @Name when it adds something useful. ` +
-              `Do not repeat another partner, diagnose, invent facts, expose hidden context, or narrate your role. ` +
-              `Use the local moment and message timestamps quietly. Notice whether a message is fresh or old, but do not announce the time or force a time-of-day greeting. ` +
-              `Ask at most one short question, and only when a question genuinely moves the conversation forward.\n\n` +
-              `User name: ${params.context.userName}\n` +
-              `${params.context.temporalContext}\n\n` +
-              (params.context.observationContext
-                ? `Recent grounded observations:\n${params.context.observationContext}\n\n`
-                : "") +
-              (params.context.personalContext
-                ? `${params.context.personalContext}\n\n`
-                : "") +
-              `Recent chat:\n${params.context.recentChat}\n\n` +
-              `User's latest message:\n${params.latestMessage}\n\n` +
-              `Partner replies already made during this turn:\n${previousTurnText}\n\n` +
-              `Write only ${PERSONA_NAMES[params.personaId]}'s message, without a name prefix.`,
-          },
-        ],
-        role: "user",
-      },
-    ],
-    config: {
-      maxOutputTokens: 300,
-      temperature: 0.72,
-    },
-    model: REWIND_CHAT_MODEL,
-  });
+  const prompt =
+    `You are ${PERSONA_NAMES[params.personaId]} in a fluid group conversation inside Vybaa Rewind. ` +
+    `${PERSONA_PROMPTS[params.personaId]} ` +
+    `${INDEPENDENT_PARTNER_PROMPT} ` +
+    `Reply directly and naturally, like a trusted friend texting in real time. Keep it to one short sentence or two brief clauses, usually under 180 characters. Add one or two fitting emojis only when they genuinely add tone; never use emoji as filler. ` +
+    `You may agree or disagree with another partner, and may address them with @Name when it adds something useful. ` +
+    `Do not repeat another partner, diagnose, invent facts, expose hidden context, or narrate your role. ` +
+    `Use the local moment and message timestamps quietly. Notice whether a message is fresh or old, but do not announce the time or force a time-of-day greeting. ` +
+    `Ask at most one short question, and only when a question genuinely moves the conversation forward.\n\n` +
+    `User name: ${params.context.userName}\n` +
+    `${params.context.temporalContext}\n\n` +
+    (params.context.observationContext
+      ? `Recent grounded observations:\n${params.context.observationContext}\n\n`
+      : "") +
+    (params.context.personalContext
+      ? `${params.context.personalContext}\n\n`
+      : "") +
+    `Recent chat:\n${params.context.recentChat}\n\n` +
+    `User's latest message:\n${params.latestMessage}\n\n` +
+    `Partner replies already made during this turn:\n${previousTurnText}\n\n` +
+    `Write only ${PERSONA_NAMES[params.personaId]}'s message, without a name prefix.`;
 
-  let reply = "";
-  for await (const chunk of response) {
-    const delta = chunk.text ?? "";
-    if (!delta) continue;
-    reply += delta;
-    await emitReadableStreamFragments(delta, params.onDelta);
-  }
+  const reply = await generateOpenRouterTextStream({
+    feature: AI_TEXT_FEATURE.REWIND_CHAT,
+    maxOutputTokens: 300,
+    onDelta: async (delta) => {
+      await emitReadableStreamFragments(delta, params.onDelta);
+    },
+    prompt,
+    temperature: 0.72,
+  });
   const normalized = normalizeContent(reply);
   if (!normalized) throw new Error("Rewind streaming reply was empty");
   return normalized;

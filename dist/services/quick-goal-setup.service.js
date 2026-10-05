@@ -3,13 +3,79 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.QuickGoalSetupError = void 0;
 exports.normalizeQuickGoalSetupResult = normalizeQuickGoalSetupResult;
 exports.generateQuickGoalSetup = generateQuickGoalSetup;
-const genai_1 = require("@google/genai");
 const luxon_1 = require("luxon");
 const ai_provider_config_1 = require("../config/ai-provider.config");
-const env_util_1 = require("../utils/env.util");
 const goal_v2_validators_1 = require("../validators/goal-v2.validators");
 const rewind_temporal_context_service_1 = require("./rewind-temporal-context.service");
-const QUICK_GOAL_SETUP_MODEL = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.QUICK_GOAL_SETUP).model;
+const openrouter_text_service_1 = require("./openrouter-text.service");
+const QUICK_GOAL_SETUP_RESPONSE_SCHEMA = {
+    additionalProperties: false,
+    properties: {
+        draft: {
+            additionalProperties: false,
+            properties: {
+                description: { type: "string" },
+                schedule: {
+                    additionalProperties: false,
+                    properties: {
+                        date: { type: "string" },
+                        endDate: { type: "string" },
+                        startDate: { type: "string" },
+                        type: {
+                            enum: ["DAILY", "ONE_TIME", "SELECTED_WEEKDAYS", "WEEKLY"],
+                            type: "string",
+                        },
+                        weekday: { type: "number" },
+                        weekdays: { items: { type: "number" }, type: "array" },
+                    },
+                    required: ["type"],
+                    type: "object",
+                },
+                target: {
+                    additionalProperties: false,
+                    properties: {
+                        amount: { type: "number" },
+                        count: { type: "number" },
+                        endDate: { type: "string" },
+                        type: {
+                            enum: ["CHECK_IN_COUNT", "QUANTITY", "UNTIL_DATE"],
+                            type: "string",
+                        },
+                        unit: { type: "string" },
+                    },
+                    required: ["type"],
+                    type: "object",
+                },
+                reminderTimes: {
+                    items: {
+                        pattern: "^([01]\\d|2[0-3]):[0-5]\\d$",
+                        type: "string",
+                    },
+                    maxItems: 3,
+                    type: "array",
+                },
+                remarks: { type: "string" },
+                title: { type: "string" },
+            },
+            required: ["reminderTimes", "schedule", "target", "title", "remarks"],
+            type: "object",
+        },
+        kind: { enum: ["DRAFT", "QUESTIONS"], type: "string" },
+        questions: {
+            items: {
+                additionalProperties: false,
+                properties: { question: { type: "string" } },
+                required: ["question"],
+                type: "object",
+            },
+            maxItems: 2,
+            minItems: 1,
+            type: "array",
+        },
+    },
+    required: ["kind"],
+    type: "object",
+};
 const QUICK_GOAL_SETUP_PARTNERS = {
     ariel: {
         name: "Ariel",
@@ -90,144 +156,54 @@ function normalizeQuickGoalSetupResult(value, today, fallbackReminderTimes = [])
     };
 }
 async function generateQuickGoalSetup(timezone, input, personaId) {
-    if (!env_util_1.Env.GEMINI_API_KEY) {
-        throw new QuickGoalSetupError("AI goal setup is not configured");
-    }
     const today = luxon_1.DateTime.now().setZone(timezone).toISODate();
     if (!today)
         throw new QuickGoalSetupError("Could not resolve today's date");
     const temporalContext = (0, rewind_temporal_context_service_1.formatRewindTemporalContext)(timezone);
-    const client = new genai_1.GoogleGenAI({ apiKey: env_util_1.Env.GEMINI_API_KEY });
     const partner = getQuickGoalSetupPartner(personaId);
     const hasAnswers = Boolean(input.answers?.length);
     const isEdit = Boolean(input.edit);
     const answeredQuestions = input.answers
         ?.map(({ answer, question }) => `Q: ${question}\nA: ${answer}`)
         .join("\n\n");
-    const response = await client.models.generateContent({
-        contents: [
-            {
-                parts: [
-                    {
-                        text: "Help the user make one practical, editable goal setup. " +
-                            "Return exactly one JSON object matching the schema. No markdown or prose. " +
-                            (isEdit
-                                ? "Revise the current draft using the user's change request. Preserve every detail they did not ask to change. Return a DRAFT now; do not ask questions. "
-                                : hasAnswers
-                                    ? "The user answered the planning questions below. Return a DRAFT now; do not ask more questions. "
-                                    : "First decide whether a goal can be made well from the user's idea. Ask one or two QUESTIONS only when an answer would materially change the target or schedule. Do not ask for details you can reasonably infer. Otherwise return a DRAFT immediately. ") +
-                            "For a DRAFT, choose a clear short title, an optional one-sentence reason, a measurable target, " +
-                            "and a realistic schedule. Prefer CHECK_IN_COUNT with DAILY for habits unless the " +
-                            "user clearly asks for a quantity, weekday, weekly, or one-time goal. " +
-                            "Always return reminderTimes as an array of up to three unique HH:MM times in the user's local timezone. " +
-                            "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
-                            "If they do not ask for reminders, use an empty array. For edits, preserve the current reminderTimes " +
-                            "unless the user asks to add, move, or remove reminders. " +
-                            `${temporalContext} Today is ${today}. Use YYYY-MM-DD dates on or after today. ` +
-                            "Interpret relative dates and phrases such as tonight, tomorrow morning, after work, or before bed in that local context. Never schedule a same-day reminder in the past. " +
-                            "For CHECK_IN_COUNT, count must be an integer from 1 to 365. " +
-                            "For QUANTITY, include a concise unit. For WEEKLY, weekday is 1 for Monday through 7 for Sunday. " +
-                            "Do not invent deadlines the user did not imply; use a sensible short horizon when needed.\n\n" +
-                            (partner
-                                ? `${partner.name} is the user's selected Rewind partner and owns this setup. ${partner.setupDirection}\n\n`
-                                : "Keep the setup neutral and practical.\n\n") +
-                            `User idea: ${input.prompt.trim()}` +
-                            (answeredQuestions
-                                ? `\n\nPlanning answers:\n${answeredQuestions}`
-                                : "") +
-                            (input.edit
-                                ? `\n\nCurrent draft:\n${JSON.stringify(input.edit.draft)}\n\nRequested changes:\n${input.edit.instruction.trim()}`
-                                : "") +
-                            "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user",
-                    },
-                ],
-                role: "user",
-            },
-        ],
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                properties: {
-                    draft: {
-                        properties: {
-                            description: { type: genai_1.Type.STRING },
-                            schedule: {
-                                properties: {
-                                    date: { type: genai_1.Type.STRING },
-                                    endDate: { type: genai_1.Type.STRING },
-                                    startDate: { type: genai_1.Type.STRING },
-                                    type: {
-                                        enum: ["DAILY", "ONE_TIME", "SELECTED_WEEKDAYS", "WEEKLY"],
-                                        type: genai_1.Type.STRING,
-                                    },
-                                    weekday: { type: genai_1.Type.NUMBER },
-                                    weekdays: { items: { type: genai_1.Type.NUMBER }, type: genai_1.Type.ARRAY },
-                                },
-                                required: ["type"],
-                                type: genai_1.Type.OBJECT,
-                            },
-                            target: {
-                                properties: {
-                                    amount: { type: genai_1.Type.NUMBER },
-                                    count: { type: genai_1.Type.NUMBER },
-                                    endDate: { type: genai_1.Type.STRING },
-                                    type: {
-                                        enum: ["CHECK_IN_COUNT", "QUANTITY", "UNTIL_DATE"],
-                                        type: genai_1.Type.STRING,
-                                    },
-                                    unit: { type: genai_1.Type.STRING },
-                                },
-                                required: ["type"],
-                                type: genai_1.Type.OBJECT,
-                            },
-                            reminderTimes: {
-                                items: {
-                                    pattern: "^([01]\\d|2[0-3]):[0-5]\\d$",
-                                    type: genai_1.Type.STRING,
-                                },
-                                maxItems: 3,
-                                type: genai_1.Type.ARRAY,
-                            },
-                            title: { type: genai_1.Type.STRING },
-                            remarks: { type: genai_1.Type.STRING },
-                        },
-                        required: [
-                            "reminderTimes",
-                            "schedule",
-                            "target",
-                            "title",
-                            "remarks",
-                        ],
-                        type: genai_1.Type.OBJECT,
-                    },
-                    kind: {
-                        enum: ["DRAFT", "QUESTIONS"],
-                        type: genai_1.Type.STRING,
-                    },
-                    questions: {
-                        items: {
-                            properties: { question: { type: genai_1.Type.STRING } },
-                            required: ["question"],
-                            type: genai_1.Type.OBJECT,
-                        },
-                        maxItems: 2,
-                        minItems: 1,
-                        type: genai_1.Type.ARRAY,
-                    },
-                },
-                required: ["kind"],
-                type: genai_1.Type.OBJECT,
-            },
-            temperature: 0.25,
-        },
-        model: QUICK_GOAL_SETUP_MODEL,
+    const prompt = "Help the user make one practical, editable goal setup. " +
+        "Return exactly one JSON object matching the schema. No markdown or prose. " +
+        (isEdit
+            ? "Revise the current draft using the user's change request. Preserve every detail they did not ask to change. Return a DRAFT now; do not ask questions. "
+            : hasAnswers
+                ? "The user answered the planning questions below. Return a DRAFT now; do not ask more questions. "
+                : "First decide whether a goal can be made well from the user's idea. Ask one or two QUESTIONS only when an answer would materially change the target or schedule. Do not ask for details you can reasonably infer. Otherwise return a DRAFT immediately. ") +
+        "For a DRAFT, choose a clear short title, an optional one-sentence reason, a measurable target, " +
+        "and a realistic schedule. Prefer CHECK_IN_COUNT with DAILY for habits unless the " +
+        "user clearly asks for a quantity, weekday, weekly, or one-time goal. " +
+        "Always return reminderTimes as an array of up to three unique HH:MM times in the user's local timezone. " +
+        "If the user mentions a reminder or a time such as after dinner, infer a sensible local reminder time. " +
+        "If they do not ask for reminders, use an empty array. For edits, preserve the current reminderTimes " +
+        "unless the user asks to add, move, or remove reminders. " +
+        `${temporalContext} Today is ${today}. Use YYYY-MM-DD dates on or after today. ` +
+        "Interpret relative dates and phrases such as tonight, tomorrow morning, after work, or before bed in that local context. Never schedule a same-day reminder in the past. " +
+        "For CHECK_IN_COUNT, count must be an integer from 1 to 365. " +
+        "For QUANTITY, include a concise unit. For WEEKLY, weekday is 1 for Monday through 7 for Sunday. " +
+        "Do not invent deadlines the user did not imply; use a sensible short horizon when needed.\n\n" +
+        (partner
+            ? `${partner.name} is the user's selected Rewind partner and owns this setup. ${partner.setupDirection}\n\n`
+            : "Keep the setup neutral and practical.\n\n") +
+        `User idea: ${input.prompt.trim()}` +
+        (answeredQuestions ? `\n\nPlanning answers:\n${answeredQuestions}` : "") +
+        (input.edit
+            ? `\n\nCurrent draft:\n${JSON.stringify(input.edit.draft)}\n\nRequested changes:\n${input.edit.instruction.trim()}`
+            : "") +
+        "lastly, drop remarks in the rewind partner's tone of what they did and why they did what they did, keep it as concise as possible, and personal as possible, maybe because they noticed a pattern or something with the user";
+    const responseText = await (0, openrouter_text_service_1.generateOpenRouterText)({
+        feature: ai_provider_config_1.AI_TEXT_FEATURE.QUICK_GOAL_SETUP,
+        jsonSchema: QUICK_GOAL_SETUP_RESPONSE_SCHEMA,
+        maxOutputTokens: 1024,
+        prompt,
+        temperature: 0.25,
     });
-    if (!response.text) {
-        throw new QuickGoalSetupError("AI goal setup returned no result");
-    }
     let parsed;
     try {
-        parsed = JSON.parse(response.text.trim());
+        parsed = JSON.parse(responseText.trim());
     }
     catch {
         throw new QuickGoalSetupError("AI goal setup returned invalid JSON");

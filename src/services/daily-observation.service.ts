@@ -1,4 +1,3 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import {
   type ActivitySignal,
   type DailyObservation,
@@ -8,22 +7,37 @@ import {
 } from "@prisma/client";
 import { DateTime } from "luxon";
 
-import {
-  AI_TEXT_FEATURE,
-  getAiTextProviderConfig,
-} from "../config/ai-provider.config";
+import { AI_TEXT_FEATURE } from "../config/ai-provider.config";
 import { prisma } from "../config/db.config";
-import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
 import { syncDerivedActivitySignals } from "./activity-signal.service";
 import { notificationService } from "./notification.service";
+import { generateOpenRouterText } from "./openrouter-text.service";
 import { publishRewindChatEvent } from "./rewind-chat-realtime.service";
 
 const OBSERVATION_GENERATION_VERSION = 2;
 const MAX_OBSERVATION_SIGNALS = 40;
 const MAX_EVIDENCE_ITEMS = 8;
-const DAILY_OBSERVATION_MODEL =
-  getAiTextProviderConfig(AI_TEXT_FEATURE.DAILY_OBSERVATION).model;
+const DAILY_OBSERVATION_RESPONSE_SCHEMA: Record<string, unknown> = {
+  additionalProperties: false,
+  properties: {
+    confidence: { type: "number" },
+    description: { type: "string" },
+    homeGreeting: { type: "string" },
+    journalDraft: { type: "string" },
+    observations: { items: { type: "string" }, type: "array" },
+    reflection: { type: "string" },
+  },
+  required: [
+    "confidence",
+    "description",
+    "homeGreeting",
+    "journalDraft",
+    "observations",
+    "reflection",
+  ],
+  type: "object",
+};
 
 type RewindPersonaId = "ariel" | "ella" | "jake" | "lyra" | "tobi" | "neeja";
 
@@ -182,62 +196,27 @@ async function generateDailyObservation(
   userDisplayName: string,
   personaId: RewindPersonaId | null,
 ): Promise<GeneratedDailyObservation> {
-  if (!Env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured");
-  }
-  const client = new GoogleGenAI({ apiKey: Env.GEMINI_API_KEY });
-  const response = await client.models.generateContent({
-    contents: [
-      {
-        parts: [
-          {
-            text:
-              `Create a grounded emotional observation for ${localDateKey} from the activity evidence below. ` +
-              `Infer carefully: use tentative language such as “seemed”, “may”, or “suggests”. ` +
-              `Do not diagnose, label personality, invent events, or make medical claims. ` +
-              `The description should sound like a perceptive friend and be at most two sentences. ` +
-              `The homeGreeting must address ${userDisplayName} by first name, sound like a real friend, and fit in two short visual lines (maximum 100 characters). ` +
-              `${personaId ? `${REWIND_GREETING_VOICES[personaId]} Write the homeGreeting in that voice because it will be sent as their chat message. ` : ""}` +
-              `Use plain language in the spirit of “${userDisplayName}, hope today feels a little better” or “${userDisplayName}, I liked how you spoke yesterday”, but ground it in the evidence and do not copy those examples mechanically. ` +
-              `Observations must each point to a real pattern in the evidence. ` +
-              `When using a partner-attributed signal, credit that partner naturally. ` +
-              `The reflection should summarize what the day may have meant. ` +
-              `The journalDraft must be first-person, editable, and must not claim certainty beyond the evidence.\n\n` +
-              `Activity evidence:\n${formatSignals(signals)}`,
-          },
-        ],
-        role: "user",
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        properties: {
-          confidence: { type: Type.NUMBER },
-          description: { type: Type.STRING },
-          homeGreeting: { type: Type.STRING },
-          journalDraft: { type: Type.STRING },
-          observations: { items: { type: Type.STRING }, type: Type.ARRAY },
-          reflection: { type: Type.STRING },
-        },
-        required: [
-          "confidence",
-          "description",
-          "homeGreeting",
-          "journalDraft",
-          "observations",
-          "reflection",
-        ],
-        type: Type.OBJECT,
-      },
-      temperature: 0.25,
-    },
-    model: DAILY_OBSERVATION_MODEL,
+  const prompt =
+    `Create a grounded emotional observation for ${localDateKey} from the activity evidence below. ` +
+    `Infer carefully: use tentative language such as “seemed”, “may”, or “suggests”. ` +
+    `Do not diagnose, label personality, invent events, or make medical claims. ` +
+    `The description should sound like a perceptive friend and be at most two sentences. ` +
+    `The homeGreeting must address ${userDisplayName} by first name, sound like a real friend, and fit in two short visual lines (maximum 100 characters). ` +
+    `${personaId ? `${REWIND_GREETING_VOICES[personaId]} Write the homeGreeting in that voice because it will be sent as their chat message. ` : ""}` +
+    `Use plain language in the spirit of “${userDisplayName}, hope today feels a little better” or “${userDisplayName}, I liked how you spoke yesterday”, but ground it in the evidence and do not copy those examples mechanically. ` +
+    `Observations must each point to a real pattern in the evidence. ` +
+    `When using a partner-attributed signal, credit that partner naturally. ` +
+    `The reflection should summarize what the day may have meant. ` +
+    `The journalDraft must be first-person, editable, and must not claim certainty beyond the evidence.\n\n` +
+    `Activity evidence:\n${formatSignals(signals)}`;
+  const text = await generateOpenRouterText({
+    feature: AI_TEXT_FEATURE.DAILY_OBSERVATION,
+    jsonSchema: DAILY_OBSERVATION_RESPONSE_SCHEMA,
+    maxOutputTokens: 1_024,
+    prompt,
+    temperature: 0.25,
   });
-  if (!response.text) {
-    throw new Error("Daily observation response was empty");
-  }
-  return parseGeneratedDailyObservation(JSON.parse(response.text));
+  return parseGeneratedDailyObservation(JSON.parse(text));
 }
 
 function getEvidenceInput(signals: ActivitySignal[]): Prisma.InputJsonArray {

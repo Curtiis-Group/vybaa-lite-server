@@ -14,15 +14,24 @@ test("text AI routing is defined centrally", () => {
   assert.equal(config.reasoningEnabled, true);
 });
 
-test("Rewind stays on Gemini", () => {
+test("Rewind text stays on OpenRouter", () => {
   assert.equal(
     getAiTextProviderConfig(AI_TEXT_FEATURE.REWIND_CHAT).provider,
-    AI_TEXT_PROVIDER.GEMINI,
+    AI_TEXT_PROVIDER.OPENROUTER,
   );
   assert.equal(
     getAiTextProviderConfig(AI_TEXT_FEATURE.REWIND_CHAT).model,
-    "gemini-3.6-flash",
+    "qwen/qwen3.8-27b:free",
   );
+});
+
+test("every text feature uses OpenRouter", () => {
+  for (const feature of Object.values(AI_TEXT_FEATURE)) {
+    assert.equal(
+      getAiTextProviderConfig(feature).provider,
+      AI_TEXT_PROVIDER.OPENROUTER,
+    );
+  }
 });
 
 test("uses the structured-output OpenRouter model for chill suggestions", () => {
