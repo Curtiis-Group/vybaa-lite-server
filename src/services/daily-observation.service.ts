@@ -60,7 +60,7 @@ const REWIND_GREETING_VOICES: Record<RewindPersonaId, string> = {
   tobi: "Tobi is playful, socially sharp, and warm. He uses light banter and casual Nigerian phrasing when natural, while still being honest.",
 };
 
-interface GeneratedDailyObservation {
+export interface GeneratedDailyObservation {
   confidence: number;
   description: string;
   homeGreeting: string;
@@ -138,6 +138,109 @@ function normalizeTextList(value: unknown): string[] {
   return values;
 }
 
+function cleanMarkdownFieldValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith("`") && trimmed.endsWith("`"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function parseMarkdownObservationList(value: string): string[] {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (entry): entry is string => typeof entry === "string",
+        );
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+  }
+  return trimmed
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s+/u, "").trim())
+    .filter(Boolean)
+    .map(cleanMarkdownFieldValue);
+}
+
+function parseMarkdownObservationResponse(
+  text: string,
+): Record<string, unknown> | null {
+  const fieldPattern =
+    /\*\*(confidence|description|homeGreeting|journalDraft|observations|reflection)\*\*\s*:?\s*/gu;
+  const matches = Array.from(text.matchAll(fieldPattern));
+  if (!matches.length) return null;
+  const fields = new Map<string, string>();
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const fieldName = match?.[1];
+    const start = match?.index;
+    if (!fieldName || typeof start !== "number") continue;
+    const valueStart = start + match[0].length;
+    const nextStart = matches[index + 1]?.index ?? text.length;
+    fields.set(fieldName, text.slice(valueStart, nextStart).trim());
+  }
+  const requiredFields = [
+    "confidence",
+    "description",
+    "homeGreeting",
+    "journalDraft",
+    "observations",
+    "reflection",
+  ];
+  if (requiredFields.some((fieldName) => !fields.has(fieldName))) {
+    return null;
+  }
+  const confidenceText = cleanMarkdownFieldValue(
+    fields.get("confidence") ?? "",
+  );
+  const confidence = Number(confidenceText);
+  if (!Number.isFinite(confidence)) return null;
+  return {
+    confidence,
+    description: cleanMarkdownFieldValue(fields.get("description") ?? ""),
+    homeGreeting: cleanMarkdownFieldValue(fields.get("homeGreeting") ?? ""),
+    journalDraft: cleanMarkdownFieldValue(fields.get("journalDraft") ?? ""),
+    observations: parseMarkdownObservationList(
+      fields.get("observations") ?? "",
+    ),
+    reflection: cleanMarkdownFieldValue(fields.get("reflection") ?? ""),
+  };
+}
+
+export function parseGeneratedDailyObservationResponse(
+  text: string,
+): GeneratedDailyObservation {
+  const trimmed = text.trim();
+  const candidates: string[] = [trimmed];
+  const fencedMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/iu.exec(trimmed);
+  if (fencedMatch?.[1]) candidates.push(fencedMatch[1].trim());
+  const objectStart = trimmed.indexOf("{");
+  const objectEnd = trimmed.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    candidates.push(trimmed.slice(objectStart, objectEnd + 1));
+  }
+  for (const candidate of candidates) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      return parseGeneratedDailyObservation(parsed);
+    } catch (error: unknown) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+  }
+  const markdownResponse = parseMarkdownObservationResponse(trimmed);
+  if (markdownResponse) return parseGeneratedDailyObservation(markdownResponse);
+  throw new Error("Daily observation response was not valid JSON");
+}
+
 export function parseGeneratedDailyObservation(
   value: unknown,
 ): GeneratedDailyObservation {
@@ -207,7 +310,8 @@ async function generateDailyObservation(
     `Observations must each point to a real pattern in the evidence. ` +
     `When using a partner-attributed signal, credit that partner naturally. ` +
     `The reflection should summarize what the day may have meant. ` +
-    `The journalDraft must be first-person, editable, and must not claim certainty beyond the evidence.\n\n` +
+    `The journalDraft must be first-person, editable, and must not claim certainty beyond the evidence. ` +
+    `Return exactly one JSON object matching the schema. Do not use Markdown, bold field names, code fences, or prose before or after the object.\n\n` +
     `Activity evidence:\n${formatSignals(signals)}`;
   const text = await generateOpenRouterText({
     feature: AI_TEXT_FEATURE.DAILY_OBSERVATION,
@@ -216,7 +320,7 @@ async function generateDailyObservation(
     prompt,
     temperature: 0.25,
   });
-  return parseGeneratedDailyObservation(JSON.parse(text));
+  return parseGeneratedDailyObservationResponse(text);
 }
 
 function getEvidenceInput(signals: ActivitySignal[]): Prisma.InputJsonArray {
