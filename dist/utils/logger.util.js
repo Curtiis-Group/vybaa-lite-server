@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.redactRequestPath = redactRequestPath;
 const fs_1 = require("fs");
 const path_1 = __importDefault(require("path"));
 const chalk_1 = __importDefault(require("chalk"));
@@ -148,11 +149,34 @@ function serializeLogValue(value) {
         return "[Unserializable]";
     }
 }
+function redactRequestPath(requestPath) {
+    const queryStart = requestPath.indexOf("?");
+    if (queryStart < 0)
+        return requestPath;
+    const pathName = requestPath.slice(0, queryStart);
+    const query = requestPath.slice(queryStart + 1);
+    if (!query)
+        return requestPath;
+    const params = new URLSearchParams(query);
+    let redacted = false;
+    for (const key of [...params.keys()]) {
+        if (!isSensitiveRequestParameter(key))
+            continue;
+        params.set(key, "REDACTED");
+        redacted = true;
+    }
+    return redacted ? `${pathName}?${params.toString()}` : requestPath;
+}
+function isSensitiveRequestParameter(key) {
+    return isSensitiveLogKey(key) || /^(code|signature|sig)$/i.test(key);
+}
 function formatHttpConsoleContext(message, context) {
     if (!message.startsWith("HTTP request"))
         return "";
     const method = typeof context.method === "string" ? context.method : null;
-    const requestPath = typeof context.path === "string" ? context.path : null;
+    const requestPath = typeof context.path === "string"
+        ? redactRequestPath(context.path)
+        : null;
     const requestLabel = [method, requestPath].filter((value) => Boolean(value)).join(" ");
     if (!requestLabel)
         return "";

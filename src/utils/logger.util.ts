@@ -181,13 +181,37 @@ function serializeLogValue(value: unknown): string {
   }
 }
 
+export function redactRequestPath(requestPath: string): string {
+  const queryStart = requestPath.indexOf("?");
+  if (queryStart < 0) return requestPath;
+  const pathName = requestPath.slice(0, queryStart);
+  const query = requestPath.slice(queryStart + 1);
+  if (!query) return requestPath;
+
+  const params = new URLSearchParams(query);
+  let redacted = false;
+  for (const key of [...params.keys()]) {
+    if (!isSensitiveRequestParameter(key)) continue;
+    params.set(key, "REDACTED");
+    redacted = true;
+  }
+  return redacted ? `${pathName}?${params.toString()}` : requestPath;
+}
+
+function isSensitiveRequestParameter(key: string): boolean {
+  return isSensitiveLogKey(key) || /^(code|signature|sig)$/i.test(key);
+}
+
 function formatHttpConsoleContext(
   message: string,
   context: Record<string, unknown>,
 ): string {
   if (!message.startsWith("HTTP request")) return "";
   const method = typeof context.method === "string" ? context.method : null;
-  const requestPath = typeof context.path === "string" ? context.path : null;
+  const requestPath =
+    typeof context.path === "string"
+      ? redactRequestPath(context.path)
+      : null;
   const requestLabel = [method, requestPath].filter(
     (value): value is string => Boolean(value),
   ).join(" ");

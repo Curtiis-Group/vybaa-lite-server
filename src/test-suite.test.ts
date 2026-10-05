@@ -20,6 +20,7 @@ import "./services/rewind-voice-provider.service.test";
 import "./services/rewind-session-finalization.service.test";
 import "./services/rewind-temporal-context.service.test";
 import "./utils/notification-dedupe.util.test";
+import "./utils/logger.util.test";
 import "./utils/rewind-notification-personalization.util.test";
 import "./utils/goal-reminder.util.test";
 import "./utils/content-moderation.util.test";

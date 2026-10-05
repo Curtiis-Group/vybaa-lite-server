@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import type { NextFunction, Request, Response } from "express";
 import { metricsService } from "../services/metrics.service";
-import logger from "../utils/logger.util";
+import logger, { redactRequestPath } from "../utils/logger.util";
 
 export function requestLogger(
   req: Request,
@@ -10,7 +10,7 @@ export function requestLogger(
 ): void {
   const start = Date.now();
   const requestId = getRequestId(req);
-  const requestPath = req.originalUrl ?? req.path;
+  const requestPath = redactRequestPath(req.originalUrl ?? req.path);
   let responseLogged = false;
 
   res.setHeader("x-request-id", requestId);
