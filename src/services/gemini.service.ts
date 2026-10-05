@@ -1,4 +1,10 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  AI_TEXT_FEATURE,
+  AI_TEXT_PROVIDER,
+  getAiTextProviderConfig,
+} from "../config/ai-provider.config";
+import { generateOpenRouterText } from "./openrouter-text.service";
 import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
 
@@ -11,12 +17,84 @@ export interface ChillResponse {
   suggestedTimes: ChillSuggestion[];
 }
 
+const CHILL_RESPONSE_SCHEMA: Record<string, unknown> = {
+  additionalProperties: false,
+  properties: {
+    suggestedTimes: {
+      items: {
+        additionalProperties: false,
+        properties: {
+          affirms: {
+            items: { type: "string" },
+            type: "array",
+          },
+          duration: { type: "number" },
+        },
+        required: ["duration", "affirms"],
+        type: "object",
+      },
+      minItems: 3,
+      type: "array",
+    },
+  },
+  required: ["suggestedTimes"],
+  type: "object",
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseChillResponse(value: unknown): ChillResponse | null {
+  if (!isRecord(value) || !Array.isArray(value.suggestedTimes)) {
+    return null;
+  }
+
+  const suggestedTimes: ChillSuggestion[] = [];
+  for (const suggestion of value.suggestedTimes) {
+    if (!isRecord(suggestion)) {
+      return null;
+    }
+
+    const duration = suggestion.duration;
+    const affirmations = suggestion.affirms;
+    if (
+      typeof duration !== "number" ||
+      !Array.isArray(affirmations) ||
+      affirmations.some((affirmation) => typeof affirmation !== "string")
+    ) {
+      return null;
+    }
+
+    suggestedTimes.push({
+      affirms: affirmations,
+      duration,
+    });
+  }
+
+  return suggestedTimes.length ? { suggestedTimes } : null;
+}
+
+function parseChillResponseText(text: string): ChillResponse | null {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(jsonMatch[0]);
+    return parseChillResponse(parsed);
+  } catch {
+    return null;
+  }
+}
+
 class GeminiService {
   private genAI: GoogleGenerativeAI | null = null;
 
   private getClient(): GoogleGenerativeAI {
     if (!this.genAI) {
-      const apiKey =Env.GEMINI_API_KEY;
+      const apiKey = Env.GEMINI_API_KEY;
       if (!apiKey) {
         throw new Error("GEMINI_API_KEY is not configured");
       }
@@ -30,9 +108,6 @@ class GeminiService {
    */
   async generateChillSuggestions(emotion: string): Promise<ChillResponse> {
     try {
-      const genAI = this.getClient();
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
       const prompt = `You are a compassionate therapist helping someone who is feeling: "${emotion}".
 
 Please suggest 3 calming breathing session durations with appropriate affirmations for each:
@@ -68,26 +143,37 @@ Return ONLY valid JSON in this exact format:
   ]
 }`;
 
+      const aiConfig = getAiTextProviderConfig(
+        AI_TEXT_FEATURE.CHILL_SUGGESTIONS,
+      );
+      if (aiConfig.provider === AI_TEXT_PROVIDER.OPENROUTER) {
+        const text = await generateOpenRouterText({
+          feature: AI_TEXT_FEATURE.CHILL_SUGGESTIONS,
+          jsonSchema: CHILL_RESPONSE_SCHEMA,
+          maxOutputTokens: 1_024,
+          prompt,
+          temperature: 0.2,
+        });
+        const parsedResponse = parseChillResponseText(text);
+        if (!parsedResponse) {
+          logger.error("Invalid OpenRouter chill suggestions response");
+          return this.getFallbackSuggestions();
+        }
+
+        logger.info("OpenRouter chill suggestions generated successfully");
+        return parsedResponse;
+      }
+
+      const genAI = this.getClient();
+      const model = genAI.getGenerativeModel({ model: aiConfig.model });
+
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const text = response.text();
 
-      // Extract JSON from response (remove markdown code blocks if present)
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      const parsedResponse = parseChillResponseText(text);
+      if (!parsedResponse) {
         logger.error("No JSON found in Gemini response:", text);
-        return this.getFallbackSuggestions();
-      }
-
-      const parsedResponse = JSON.parse(jsonMatch[0]) as ChillResponse;
-
-      // Validate response structure
-      if (
-        !parsedResponse.suggestedTimes ||
-        !Array.isArray(parsedResponse.suggestedTimes) ||
-        parsedResponse.suggestedTimes.length === 0
-      ) {
-        logger.error("Invalid response structure from Gemini");
         return this.getFallbackSuggestions();
       }
 
@@ -165,9 +251,6 @@ Return ONLY valid JSON in this exact format:
         return "You haven't completed any chill sessions yet. Start your first session to see insights about your emotional journey.";
       }
 
-      const genAI = this.getClient();
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
       // Format sessions for prompt
       const sessionsText = sessions
         .slice(0, 20) // Limit to last 20 for context
@@ -190,6 +273,21 @@ Please provide a very short, concise, and warm summary (2-4 sentences maximum) t
 Keep it brief, supportive, and non-judgmental. Write in second person ("You have been...").
 
 Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concise sentences.`;
+
+      const aiConfig = getAiTextProviderConfig(AI_TEXT_FEATURE.EMOTION_SUMMARY);
+      if (aiConfig.provider === AI_TEXT_PROVIDER.OPENROUTER) {
+        const text = await generateOpenRouterText({
+          feature: AI_TEXT_FEATURE.EMOTION_SUMMARY,
+          maxOutputTokens: 1_024,
+          prompt,
+          temperature: 0.2,
+        });
+        logger.info("OpenRouter emotion summary generated successfully");
+        return text;
+      }
+
+      const genAI = this.getClient();
+      const model = genAI.getGenerativeModel({ model: aiConfig.model });
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
@@ -230,9 +328,6 @@ Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concis
         return "You haven't written any journal entries yet. Start journaling to reflect on your thoughts and see insights about your journey.";
       }
 
-      const genAI = this.getClient();
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
       // Format entries for prompt
       const entriesText = entries
         .slice(0, 20) // Limit to last 20 for context
@@ -256,6 +351,21 @@ Please provide a very short, concise summary (2-4 sentences maximum) that:
 Keep it brief, supportive, and insightful. Write in second person ("You have been...").
 
 Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concise sentences.`;
+
+      const aiConfig = getAiTextProviderConfig(AI_TEXT_FEATURE.JOURNAL_SUMMARY);
+      if (aiConfig.provider === AI_TEXT_PROVIDER.OPENROUTER) {
+        const text = await generateOpenRouterText({
+          feature: AI_TEXT_FEATURE.JOURNAL_SUMMARY,
+          maxOutputTokens: 1_024,
+          prompt,
+          temperature: 0.2,
+        });
+        logger.info("OpenRouter journal summary generated successfully");
+        return text;
+      }
+
+      const genAI = this.getClient();
+      const model = genAI.getGenerativeModel({ model: aiConfig.model });
 
       const result = await model.generateContent(prompt);
       const response = await result.response;

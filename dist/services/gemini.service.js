@@ -5,8 +5,72 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.geminiService = void 0;
 const generative_ai_1 = require("@google/generative-ai");
+const ai_provider_config_1 = require("../config/ai-provider.config");
+const openrouter_text_service_1 = require("./openrouter-text.service");
 const env_util_1 = require("../utils/env.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const CHILL_RESPONSE_SCHEMA = {
+    additionalProperties: false,
+    properties: {
+        suggestedTimes: {
+            items: {
+                additionalProperties: false,
+                properties: {
+                    affirms: {
+                        items: { type: "string" },
+                        type: "array",
+                    },
+                    duration: { type: "number" },
+                },
+                required: ["duration", "affirms"],
+                type: "object",
+            },
+            minItems: 3,
+            type: "array",
+        },
+    },
+    required: ["suggestedTimes"],
+    type: "object",
+};
+function isRecord(value) {
+    return typeof value === "object" && value !== null;
+}
+function parseChillResponse(value) {
+    if (!isRecord(value) || !Array.isArray(value.suggestedTimes)) {
+        return null;
+    }
+    const suggestedTimes = [];
+    for (const suggestion of value.suggestedTimes) {
+        if (!isRecord(suggestion)) {
+            return null;
+        }
+        const duration = suggestion.duration;
+        const affirmations = suggestion.affirms;
+        if (typeof duration !== "number" ||
+            !Array.isArray(affirmations) ||
+            affirmations.some((affirmation) => typeof affirmation !== "string")) {
+            return null;
+        }
+        suggestedTimes.push({
+            affirms: affirmations,
+            duration,
+        });
+    }
+    return suggestedTimes.length ? { suggestedTimes } : null;
+}
+function parseChillResponseText(text) {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return parseChillResponse(parsed);
+    }
+    catch {
+        return null;
+    }
+}
 class GeminiService {
     constructor() {
         this.genAI = null;
@@ -26,8 +90,6 @@ class GeminiService {
      */
     async generateChillSuggestions(emotion) {
         try {
-            const genAI = this.getClient();
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
             const prompt = `You are a compassionate therapist helping someone who is feeling: "${emotion}".
 
 Please suggest 3 calming breathing session durations with appropriate affirmations for each:
@@ -62,21 +124,31 @@ Return ONLY valid JSON in this exact format:
     }
   ]
 }`;
+            const aiConfig = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.CHILL_SUGGESTIONS);
+            if (aiConfig.provider === ai_provider_config_1.AI_TEXT_PROVIDER.OPENROUTER) {
+                const text = await (0, openrouter_text_service_1.generateOpenRouterText)({
+                    feature: ai_provider_config_1.AI_TEXT_FEATURE.CHILL_SUGGESTIONS,
+                    jsonSchema: CHILL_RESPONSE_SCHEMA,
+                    maxOutputTokens: 1024,
+                    prompt,
+                    temperature: 0.2,
+                });
+                const parsedResponse = parseChillResponseText(text);
+                if (!parsedResponse) {
+                    logger_util_1.default.error("Invalid OpenRouter chill suggestions response");
+                    return this.getFallbackSuggestions();
+                }
+                logger_util_1.default.info("OpenRouter chill suggestions generated successfully");
+                return parsedResponse;
+            }
+            const genAI = this.getClient();
+            const model = genAI.getGenerativeModel({ model: aiConfig.model });
             const result = await model.generateContent(prompt);
             const response = await result.response;
             const text = response.text();
-            // Extract JSON from response (remove markdown code blocks if present)
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
+            const parsedResponse = parseChillResponseText(text);
+            if (!parsedResponse) {
                 logger_util_1.default.error("No JSON found in Gemini response:", text);
-                return this.getFallbackSuggestions();
-            }
-            const parsedResponse = JSON.parse(jsonMatch[0]);
-            // Validate response structure
-            if (!parsedResponse.suggestedTimes ||
-                !Array.isArray(parsedResponse.suggestedTimes) ||
-                parsedResponse.suggestedTimes.length === 0) {
-                logger_util_1.default.error("Invalid response structure from Gemini");
                 return this.getFallbackSuggestions();
             }
             logger_util_1.default.info("Gemini chill suggestions generated successfully");
@@ -149,8 +221,6 @@ Return ONLY valid JSON in this exact format:
             if (sessions.length === 0) {
                 return "You haven't completed any chill sessions yet. Start your first session to see insights about your emotional journey.";
             }
-            const genAI = this.getClient();
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
             // Format sessions for prompt
             const sessionsText = sessions
                 .slice(0, 20) // Limit to last 20 for context
@@ -172,6 +242,19 @@ Please provide a very short, concise, and warm summary (2-4 sentences maximum) t
 Keep it brief, supportive, and non-judgmental. Write in second person ("You have been...").
 
 Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concise sentences.`;
+            const aiConfig = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.EMOTION_SUMMARY);
+            if (aiConfig.provider === ai_provider_config_1.AI_TEXT_PROVIDER.OPENROUTER) {
+                const text = await (0, openrouter_text_service_1.generateOpenRouterText)({
+                    feature: ai_provider_config_1.AI_TEXT_FEATURE.EMOTION_SUMMARY,
+                    maxOutputTokens: 1024,
+                    prompt,
+                    temperature: 0.2,
+                });
+                logger_util_1.default.info("OpenRouter emotion summary generated successfully");
+                return text;
+            }
+            const genAI = this.getClient();
+            const model = genAI.getGenerativeModel({ model: aiConfig.model });
             const result = await model.generateContent(prompt);
             const response = await result.response;
             const text = response.text().trim();
@@ -202,8 +285,6 @@ Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concis
             if (entries.length === 0) {
                 return "You haven't written any journal entries yet. Start journaling to reflect on your thoughts and see insights about your journey.";
             }
-            const genAI = this.getClient();
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
             // Format entries for prompt
             const entriesText = entries
                 .slice(0, 20) // Limit to last 20 for context
@@ -226,6 +307,19 @@ Please provide a very short, concise summary (2-4 sentences maximum) that:
 Keep it brief, supportive, and insightful. Write in second person ("You have been...").
 
 Return ONLY the summary text, no markdown formatting, no titles, just 2-4 concise sentences.`;
+            const aiConfig = (0, ai_provider_config_1.getAiTextProviderConfig)(ai_provider_config_1.AI_TEXT_FEATURE.JOURNAL_SUMMARY);
+            if (aiConfig.provider === ai_provider_config_1.AI_TEXT_PROVIDER.OPENROUTER) {
+                const text = await (0, openrouter_text_service_1.generateOpenRouterText)({
+                    feature: ai_provider_config_1.AI_TEXT_FEATURE.JOURNAL_SUMMARY,
+                    maxOutputTokens: 1024,
+                    prompt,
+                    temperature: 0.2,
+                });
+                logger_util_1.default.info("OpenRouter journal summary generated successfully");
+                return text;
+            }
+            const genAI = this.getClient();
+            const model = genAI.getGenerativeModel({ model: aiConfig.model });
             const result = await model.generateContent(prompt);
             const response = await result.response;
             const text = response.text().trim();
