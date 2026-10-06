@@ -1,4 +1,5 @@
 import {
+  ClientApp as PrismaClientApp,
   Prisma,
   RevenueCatWebhookStatus,
   type RevenueCatWebhookEvent,
@@ -13,17 +14,38 @@ import {
 } from "../types/client-app.type";
 import { Env } from "../utils/env.util";
 import logger from "../utils/logger.util";
-import { getRevenueCatSubscriptionStatus } from "./revenuecat.service";
+import {
+  getRevenueCatConfig,
+  getRevenueCatSubscriptionStatus,
+  matchesRevenueCatEntitlementIdentifier,
+} from "./revenuecat.service";
+import { downgradeRewindRoutineToFreeTier } from "./subscription-downgrade.service";
 
 const WEBHOOK_SIGNATURE_TOLERANCE_SECONDS = 300;
 const WEBHOOK_BATCH_SIZE = 25;
 const WEBHOOK_PROCESSING_TIMEOUT_MS = 5 * 60 * 1000;
 const WEBHOOK_MAX_RETRY_DELAY_MS = 60 * 60 * 1000;
+const IMMEDIATE_ACCESS_EVENT_TYPES = new Set([
+  "INITIAL_PURCHASE",
+  "NON_RENEWING_PURCHASE",
+  "PRODUCT_CHANGE",
+  "REFUND_REVERSED",
+  "RENEWAL",
+  "SUBSCRIPTION_EXTENDED",
+  "TEMPORARY_ENTITLEMENT_GRANT",
+  "UNCANCELLATION",
+]);
+const IMMEDIATE_REVOCATION_EVENT_TYPES = new Set(["EXPIRATION", "REFUND"]);
 
 type RevenueCatEventPayload = {
   aliases: string[];
   appUserId: string | null;
+  entitlementIds: string[];
+  environment: string | null;
+  expirationAtMs: number | null;
   id: string;
+  periodType: string | null;
+  productId: string | null;
   transferredFrom: string[];
   transferredTo: string[];
   type: string;
@@ -38,6 +60,17 @@ export type RevenueCatWebhookRegistration = {
   eventId: string;
 };
 
+export interface RevenueCatWebhookSubscriptionUpdate {
+  entitlementId: string;
+  environment: string | null;
+  expiresAt: Date | null;
+  isPro: boolean;
+  managementUrl: string | null;
+  periodType: string | null;
+  productIdentifier: string | null;
+  verifiedAt: Date;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -47,12 +80,21 @@ function getStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function getFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function getOptionalString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 function getWebhookSecret(clientApp: ClientApp): string {
   return (
-    clientApp === "mycove"
+    (clientApp === "mycove"
       ? Env.MYCOVE_REVENUECAT_WEBHOOK_SECRET
       : Env.REVENUECAT_WEBHOOK_SECRET
-  )?.trim() ?? "";
+    )?.trim() ?? ""
+  );
 }
 
 export function isRevenueCatWebhookConfigured(clientApp: ClientApp): boolean {
@@ -93,12 +135,26 @@ export function parseRevenueCatWebhook(
     return null;
   }
 
+  const entitlementIds = getStringArray(event.entitlement_ids);
+  const deprecatedEntitlementId = getOptionalString(event.entitlement_id);
+  if (
+    deprecatedEntitlementId &&
+    !entitlementIds.includes(deprecatedEntitlementId)
+  ) {
+    entitlementIds.push(deprecatedEntitlementId);
+  }
+
   return {
     event: {
       aliases: getStringArray(event.aliases),
       appUserId:
         typeof event.app_user_id === "string" ? event.app_user_id : null,
+      entitlementIds,
+      environment: getOptionalString(event.environment),
+      expirationAtMs: getFiniteNumber(event.expiration_at_ms),
       id: event.id,
+      periodType: getOptionalString(event.period_type),
+      productId: getOptionalString(event.product_id),
       transferredFrom: getStringArray(event.transferred_from),
       transferredTo: getStringArray(event.transferred_to),
       type: event.type,
@@ -120,6 +176,47 @@ export function getRevenueCatWebhookUserCandidates(
   );
 
   return [...new Set(candidates)];
+}
+
+function getExpirationDate(expirationAtMs: number | null): Date | null {
+  if (expirationAtMs === null) return null;
+  const expirationDate = new Date(expirationAtMs);
+  return Number.isNaN(expirationDate.getTime()) ? null : expirationDate;
+}
+
+export function getRevenueCatWebhookSubscriptionUpdate(
+  clientApp: ClientApp,
+  event: RevenueCatEventPayload,
+  now: Date = new Date(),
+): RevenueCatWebhookSubscriptionUpdate | null {
+  const eventType = event.type.trim().toUpperCase();
+  const isAccessEvent = IMMEDIATE_ACCESS_EVENT_TYPES.has(eventType);
+  const isRevocationEvent = IMMEDIATE_REVOCATION_EVENT_TYPES.has(eventType);
+
+  // Cancellation, billing issues, and pauses do not necessarily end access
+  // immediately. Let the entitlement API determine the eventual end date.
+  // Transfers also need both the source and destination customer reconciled.
+  if (!isAccessEvent && !isRevocationEvent) return null;
+
+  const configuredEntitlementId = getRevenueCatConfig(clientApp).entitlementId;
+  const includesConfiguredEntitlement = event.entitlementIds.some((id) =>
+    matchesRevenueCatEntitlementIdentifier(
+      { id, lookup_key: id },
+      configuredEntitlementId,
+    ),
+  );
+  if (!includesConfiguredEntitlement) return null;
+
+  return {
+    entitlementId: configuredEntitlementId,
+    environment: event.environment?.trim().toUpperCase() ?? null,
+    expiresAt: getExpirationDate(event.expirationAtMs),
+    isPro: isAccessEvent,
+    managementUrl: null,
+    periodType: event.periodType,
+    productIdentifier: event.productId,
+    verifiedAt: now,
+  };
 }
 
 export function verifyRevenueCatWebhookSignature(params: {
@@ -147,7 +244,9 @@ export function verifyRevenueCatWebhookSignature(params: {
     .update(params.rawBody)
     .digest();
   const received = Buffer.from(signatureParts.value, "hex");
-  return expected.length === received.length && timingSafeEqual(expected, received);
+  return (
+    expected.length === received.length && timingSafeEqual(expected, received)
+  );
 }
 
 export async function registerRevenueCatWebhook(params: {
@@ -204,6 +303,75 @@ async function findWebhookUserId(
   return user?.id ?? null;
 }
 
+async function applyWebhookSubscriptionUpdate(
+  webhookEvent: RevenueCatWebhookEvent,
+  now: Date,
+): Promise<boolean> {
+  const envelope = parseRevenueCatWebhook(webhookEvent.rawPayload);
+  if (!envelope) return false;
+
+  const userId = await findWebhookUserId(webhookEvent);
+  if (!userId) return false;
+
+  const update = getRevenueCatWebhookSubscriptionUpdate(
+    fromPrismaClientApp(webhookEvent.clientApp),
+    envelope.event,
+    now,
+  );
+  if (!update) return false;
+
+  const previousSnapshot = await prisma.subscriptionSnapshot.findUnique({
+    where: {
+      userId_clientApp: {
+        clientApp: webhookEvent.clientApp,
+        userId,
+      },
+    },
+    select: { isPro: true },
+  });
+
+  await prisma.subscriptionSnapshot.upsert({
+    where: {
+      userId_clientApp: {
+        clientApp: webhookEvent.clientApp,
+        userId,
+      },
+    },
+    create: {
+      clientApp: webhookEvent.clientApp,
+      entitlementId: update.entitlementId,
+      environment: update.environment,
+      expiresAt: update.expiresAt,
+      isPro: update.isPro,
+      managementUrl: update.managementUrl,
+      periodType: update.periodType,
+      productIdentifier: update.productIdentifier,
+      userId,
+      verifiedAt: update.verifiedAt,
+    },
+    update: {
+      entitlementId: update.entitlementId,
+      environment: update.environment,
+      expiresAt: update.expiresAt,
+      isPro: update.isPro,
+      managementUrl: update.managementUrl,
+      periodType: update.periodType,
+      productIdentifier: update.productIdentifier,
+      verifiedAt: update.verifiedAt,
+    },
+  });
+
+  if (
+    webhookEvent.clientApp === PrismaClientApp.VYBAA &&
+    previousSnapshot?.isPro &&
+    !update.isPro
+  ) {
+    await downgradeRewindRoutineToFreeTier(userId);
+  }
+
+  return true;
+}
+
 function getRetryTime(attemptCount: number, now: Date): Date {
   const delay = Math.min(
     2 ** Math.max(0, attemptCount - 1) * 60_000,
@@ -220,10 +388,7 @@ export async function processRevenueCatWebhookEvent(
     where: {
       id: eventId,
       status: {
-        in: [
-          RevenueCatWebhookStatus.RECEIVED,
-          RevenueCatWebhookStatus.FAILED,
-        ],
+        in: [RevenueCatWebhookStatus.RECEIVED, RevenueCatWebhookStatus.FAILED],
       },
       OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
     },
@@ -240,13 +405,19 @@ export async function processRevenueCatWebhookEvent(
   });
 
   try {
-    const userId = await findWebhookUserId(webhookEvent);
-    if (userId) {
-      await getRevenueCatSubscriptionStatus(
-        userId,
-        fromPrismaClientApp(webhookEvent.clientApp),
-        { forceRefresh: true, now },
-      );
+    const appliedImmediately = await applyWebhookSubscriptionUpdate(
+      webhookEvent,
+      now,
+    );
+    if (!appliedImmediately) {
+      const userId = await findWebhookUserId(webhookEvent);
+      if (userId) {
+        await getRevenueCatSubscriptionStatus(
+          userId,
+          fromPrismaClientApp(webhookEvent.clientApp),
+          { forceRefresh: true, now },
+        );
+      }
     }
 
     await prisma.revenueCatWebhookEvent.update({
@@ -295,10 +466,7 @@ export async function processPendingRevenueCatWebhooks(
   const pending = await prisma.revenueCatWebhookEvent.findMany({
     where: {
       status: {
-        in: [
-          RevenueCatWebhookStatus.RECEIVED,
-          RevenueCatWebhookStatus.FAILED,
-        ],
+        in: [RevenueCatWebhookStatus.RECEIVED, RevenueCatWebhookStatus.FAILED],
       },
       OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
     },

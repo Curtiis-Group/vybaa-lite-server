@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { Env } from "../utils/env.util";
 import {
+  getRevenueCatWebhookSubscriptionUpdate,
   getRevenueCatWebhookUserCandidates,
   parseRevenueCatWebhook,
   verifyRevenueCatWebhookSignature,
@@ -96,4 +97,70 @@ test("parses webhook identity without accepting anonymous aliases", () => {
     "seed-user-lyra",
   ]);
   assert.equal(parseRevenueCatWebhook("invalid"), null);
+});
+
+test("applies RevenueCat entitlement events without waiting for the customer API", () => {
+  const now = new Date("2026-10-06T12:00:00.000Z");
+  const expiresAt = new Date("2026-11-06T12:00:00.000Z");
+  const purchase = parseRevenueCatWebhook(
+    JSON.stringify({
+      event: {
+        aliases: [],
+        app_user_id: "user-who-just-purchased",
+        entitlement_ids: ["vybaa_pro"],
+        environment: "PRODUCTION",
+        expiration_at_ms: expiresAt.getTime(),
+        id: "evt_purchase",
+        period_type: "NORMAL",
+        product_id: "com.vybaa.pro.monthly",
+        type: "INITIAL_PURCHASE",
+      },
+    }),
+  );
+
+  assert.ok(purchase);
+  assert.deepEqual(
+    getRevenueCatWebhookSubscriptionUpdate("vybaa", purchase.event, now),
+    {
+      entitlementId: "vybaa_pro",
+      environment: "PRODUCTION",
+      expiresAt,
+      isPro: true,
+      managementUrl: null,
+      periodType: "NORMAL",
+      productIdentifier: "com.vybaa.pro.monthly",
+      verifiedAt: now,
+    },
+  );
+
+  const cancellation = parseRevenueCatWebhook(
+    JSON.stringify({
+      event: {
+        entitlement_ids: ["vybaa_pro"],
+        id: "evt_cancellation",
+        type: "CANCELLATION",
+      },
+    }),
+  );
+  assert.ok(cancellation);
+  assert.equal(
+    getRevenueCatWebhookSubscriptionUpdate("vybaa", cancellation.event, now),
+    null,
+  );
+
+  const expiration = parseRevenueCatWebhook(
+    JSON.stringify({
+      event: {
+        entitlement_ids: ["vybaa_pro"],
+        id: "evt_expiration",
+        type: "EXPIRATION",
+      },
+    }),
+  );
+  assert.ok(expiration);
+  assert.equal(
+    getRevenueCatWebhookSubscriptionUpdate("vybaa", expiration.event, now)
+      ?.isPro,
+    false,
+  );
 });
