@@ -21,9 +21,10 @@ RUN npm run build
 # Expose port (change if needed)
 EXPOSE 8000
 
-# Temporary launch override. Set to true in the deployment environment to
-# restore RevenueCat-backed Vybaa Pro enforcement without another code change.
-ENV VYBAA_PRO_CHECKS_ENABLED=false
+# Keep RevenueCat-backed Vybaa Pro enforcement enabled in every deployed image.
+# An explicit deployment environment override can still be used for local
+# troubleshooting, but production images must not grant Pro to every user.
+ENV VYBAA_PRO_CHECKS_ENABLED=true
 
 # Start the app
 CMD ["node", "dist/server.js"]
