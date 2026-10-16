@@ -44,6 +44,9 @@ async function generateOpenRouterText(request) {
     if (request.reasoningEnabled ?? providerConfig.reasoningEnabled) {
         openRouterRequest.reasoning = { enabled: true };
     }
+    if (request.privacyMode) {
+        openRouterRequest.provider = { data_collection: "deny", zdr: true };
+    }
     if (request.jsonSchema) {
         openRouterRequest.response_format = {
             json_schema: {
@@ -107,6 +110,9 @@ async function generateOpenRouterTextStream(request) {
     };
     if (request.reasoningEnabled ?? providerConfig.reasoningEnabled) {
         openRouterRequest.reasoning = { enabled: true };
+    }
+    if (request.privacyMode) {
+        openRouterRequest.provider = { data_collection: "deny", zdr: true };
     }
     if (request.jsonSchema) {
         openRouterRequest.response_format = {

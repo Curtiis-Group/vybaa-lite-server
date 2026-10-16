@@ -13,6 +13,7 @@ type OpenRouterTextRequest = {
   maxOutputTokens?: number;
   onUsage?: (usage: OpenRouterUsage | undefined) => Promise<void>;
   prompt: string;
+  privacyMode?: boolean;
   reasoningEnabled?: boolean;
   systemInstruction?: string;
   temperature?: number;
@@ -32,6 +33,10 @@ type OpenRouterRequest = Omit<
   reasoning?: {
     enabled: boolean;
   };
+  provider?: {
+    data_collection?: "deny";
+    zdr?: boolean;
+  };
 };
 
 type OpenRouterStreamingRequest = Omit<
@@ -41,6 +46,10 @@ type OpenRouterStreamingRequest = Omit<
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
   reasoning?: {
     enabled: boolean;
+  };
+  provider?: {
+    data_collection?: "deny";
+    zdr?: boolean;
   };
 };
 
@@ -91,6 +100,9 @@ export async function generateOpenRouterText(
   if (request.reasoningEnabled ?? providerConfig.reasoningEnabled) {
     openRouterRequest.reasoning = { enabled: true };
   }
+  if (request.privacyMode) {
+    openRouterRequest.provider = { data_collection: "deny", zdr: true };
+  }
   if (request.jsonSchema) {
     openRouterRequest.response_format = {
       json_schema: {
@@ -111,9 +123,8 @@ export async function generateOpenRouterText(
   );
 
   try {
-    const response = await createOpenRouterClient().chat.completions.create(
-      openRouterRequest,
-    );
+    const response =
+      await createOpenRouterClient().chat.completions.create(openRouterRequest);
     const content = response.choices[0]?.message.content?.trim();
 
     if (!content) {
@@ -178,6 +189,9 @@ export async function generateOpenRouterTextStream(
   if (request.reasoningEnabled ?? providerConfig.reasoningEnabled) {
     openRouterRequest.reasoning = { enabled: true };
   }
+  if (request.privacyMode) {
+    openRouterRequest.provider = { data_collection: "deny", zdr: true };
+  }
   if (request.jsonSchema) {
     openRouterRequest.response_format = {
       json_schema: {
@@ -198,9 +212,8 @@ export async function generateOpenRouterTextStream(
   );
 
   try {
-    const response = await createOpenRouterClient().chat.completions.create(
-      openRouterRequest,
-    );
+    const response =
+      await createOpenRouterClient().chat.completions.create(openRouterRequest);
     let content = "";
     for await (const chunk of response) {
       const delta = chunk.choices[0]?.delta.content ?? "";

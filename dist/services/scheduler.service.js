@@ -13,6 +13,7 @@ const daily_observation_service_1 = require("./daily-observation.service");
 const rewind_chat_v2_service_1 = require("./rewind-chat-v2.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const env_util_1 = require("../utils/env.util");
+const social_studio_service_1 = require("./social-studio.service");
 class SchedulerService {
     constructor() {
         this.intervalId = null;
@@ -44,11 +45,15 @@ class SchedulerService {
         this.processRevenueCatWebhooks();
         this.processGoalV2Lifecycle();
         this.processRewindChatJobs();
+        this.processSocialMentionRetention();
+        this.processSocialDraftSuggestions();
         this.intervalId = setInterval(() => {
             this.processPendingNotifications();
             this.processRevenueCatWebhooks();
             this.processGoalV2Lifecycle();
             this.processRewindChatJobs();
+            this.processSocialMentionRetention();
+            this.processSocialDraftSuggestions();
         }, 60 * 1000); // Every minute
         // Rewind slots are account-local, so their lifecycle must be evaluated
         // every minute instead of against a server-wide UTC day.
@@ -191,6 +196,34 @@ class SchedulerService {
         }
         catch (error) {
             logger_util_1.default.error("Error processing Rewind v2 chat jobs", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+        }
+    }
+    async processSocialDraftSuggestions() {
+        try {
+            const generatedCount = await (0, social_studio_service_1.processDueSocialDraftSuggestions)();
+            if (generatedCount) {
+                logger_util_1.default.info("Generated scheduled social drafts", { generatedCount });
+            }
+        }
+        catch (error) {
+            logger_util_1.default.error("Error processing scheduled social drafts", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+        }
+    }
+    async processSocialMentionRetention() {
+        try {
+            const deletedCount = await (0, social_studio_service_1.purgeExpiredSocialMentions)();
+            if (deletedCount) {
+                logger_util_1.default.info("Expired stored X mentions and related reply drafts", {
+                    deletedCount,
+                });
+            }
+        }
+        catch (error) {
+            logger_util_1.default.error("Error expiring stored X mentions", {
                 errorName: error instanceof Error ? error.name : "UnknownError",
             });
         }

@@ -143,7 +143,14 @@ async function buildMoodSignalSnapshot(userId: string): Promise<MoodSignalSnapsh
     }
 
     if (session.responses && typeof session.responses === "object" && !Array.isArray(session.responses)) {
-      rewindResponseCount += Object.keys(session.responses as Record<string, unknown>).length;
+      if (
+        session.responses.kind === "questionnaire" &&
+        Array.isArray(session.responses.answers)
+      ) {
+        rewindResponseCount += session.responses.answers.length;
+      } else {
+        rewindResponseCount += Object.keys(session.responses).length;
+      }
     }
   }
 

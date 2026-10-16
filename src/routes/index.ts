@@ -17,6 +17,7 @@ import rewindChatV2Routes from "./rewind-chat-v2.routes";
 import realtimeRoutes from "./realtime.routes";
 import subscriptionRoutes from "./subscription.routes";
 import moderationRoutes from "./moderation.routes";
+import socialStudioRoutes from "./social-studio.routes";
 import logger from "../utils/logger.util";
 
 const router: Router = Router();
@@ -78,6 +79,7 @@ router.use("/v1/admin", adminRoutes);
 router.use("/v1/rewind", rewindRoutes);
 router.use("/v2/rewind", rewindChatV2Routes);
 router.use("/v2/realtime", realtimeRoutes);
+router.use("/v2/social", socialStudioRoutes);
 
 // Mount subscription routes at /api/v1/subscriptions
 router.use("/v1/subscriptions", subscriptionRoutes);

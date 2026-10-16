@@ -22,6 +22,7 @@ const rewind_chat_v2_routes_1 = __importDefault(require("./rewind-chat-v2.routes
 const realtime_routes_1 = __importDefault(require("./realtime.routes"));
 const subscription_routes_1 = __importDefault(require("./subscription.routes"));
 const moderation_routes_1 = __importDefault(require("./moderation.routes"));
+const social_studio_routes_1 = __importDefault(require("./social-studio.routes"));
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const router = (0, express_1.Router)();
 // Health check endpoint
@@ -67,6 +68,7 @@ router.use("/v1/admin", admin_routes_1.default);
 router.use("/v1/rewind", rewind_routes_1.default);
 router.use("/v2/rewind", rewind_chat_v2_routes_1.default);
 router.use("/v2/realtime", realtime_routes_1.default);
+router.use("/v2/social", social_studio_routes_1.default);
 // Mount subscription routes at /api/v1/subscriptions
 router.use("/v1/subscriptions", subscription_routes_1.default);
 router.use("/v1/moderation", moderation_routes_1.default);

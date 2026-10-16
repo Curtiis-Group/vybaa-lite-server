@@ -254,6 +254,7 @@ export async function finalizeRewindSession(params: {
       id: true,
       isTestSession: true,
       personaId: true,
+      responses: true,
       sessionDateKey: true,
       status: true,
       summary: true,
@@ -330,7 +331,19 @@ export async function finalizeRewindSession(params: {
       userId: session.userId,
     });
 
-    if (!hasSubstantiveUserTurn(context.turns)) {
+    const isQuestionnaire = Boolean(
+      session.responses &&
+      typeof session.responses === "object" &&
+      !Array.isArray(session.responses) &&
+      session.responses.kind === "questionnaire",
+    );
+    const hasQuestionnaireAnswer =
+      isQuestionnaire &&
+      context.turns.some(
+        (turn) =>
+          turn.role === RewindTurnRole.USER && Boolean(turn.content.trim()),
+      );
+    if (!hasSubstantiveUserTurn(context.turns) && !hasQuestionnaireAnswer) {
       return markMissed(session.id);
     }
 
@@ -383,8 +396,8 @@ export async function finalizeRewindSession(params: {
 
     if (!session.isTestSession) {
       await recordActivitySignal({
-        dedupeKey: `rewind-voice:${session.id}:completed`,
-        description: `Completed a voice Rewind with ${getPersonaName(session.personaId)}: ${reflection.emotionalInsight}`,
+        dedupeKey: `rewind-${isQuestionnaire ? "questionnaire" : "voice"}:${session.id}:completed`,
+        description: `Completed a ${isQuestionnaire ? "daily questionnaire" : "voice Rewind"} with ${getPersonaName(session.personaId)}: ${reflection.emotionalInsight}`,
         eventType: "REWIND_COMPLETED",
         happenedAt: completedAt,
         localDateKey:
@@ -393,7 +406,9 @@ export async function finalizeRewindSession(params: {
         metadata: { emotionalTags: reflection.emotionalTags },
         personaId: session.personaId,
         sourceId: session.id,
-        sourceType: ActivitySignalSourceType.REWIND_VOICE,
+        sourceType: isQuestionnaire
+          ? ActivitySignalSourceType.REWIND_ROUTINE
+          : ActivitySignalSourceType.REWIND_VOICE,
         timezone: session.timezone ?? "UTC",
         userId: session.userId,
       });

@@ -10,7 +10,7 @@ exports.OPENROUTER_MODELS = {
     qwen: "qwen/qwen3.8-27b",
     laguna: "poolside/laguna-s-2.1",
     gemini: "google/gemini-3.5-flash-lite",
-    luna: "openai/gpt-5.6-luna"
+    luna: "openai/gpt-5.6-luna",
 };
 exports.AI_TEXT_FEATURE = {
     CHILL_SUGGESTIONS: "CHILL_SUGGESTIONS",
@@ -21,6 +21,7 @@ exports.AI_TEXT_FEATURE = {
     REWIND_CHAT: "REWIND_CHAT",
     REWIND_CHAT_V2: "REWIND_CHAT_V2",
     REWIND_REFLECTION: "REWIND_REFLECTION",
+    SOCIAL_CONTENT_DRAFT: "SOCIAL_CONTENT_DRAFT",
 };
 exports.AI_TEXT_CONFIG = {
     // Structured chill responses use a model that reliably follows JSON output.
@@ -49,7 +50,7 @@ exports.AI_TEXT_CONFIG = {
         reasoningEnabled: true,
     },
     QUICK_GOAL_SETUP: {
-        model: exports.OPENROUTER_MODELS.luna,
+        model: exports.OPENROUTER_MODELS.gemini,
         provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
         reasoningEnabled: true,
     },
@@ -67,6 +68,11 @@ exports.AI_TEXT_CONFIG = {
         model: exports.OPENROUTER_MODELS.luna,
         provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
         reasoningEnabled: true,
+    },
+    SOCIAL_CONTENT_DRAFT: {
+        model: exports.OPENROUTER_MODELS.luna,
+        provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
+        reasoningEnabled: false,
     },
 };
 function getAiTextProviderConfig(feature) {

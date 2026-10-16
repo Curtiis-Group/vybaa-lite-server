@@ -1,4 +1,9 @@
 import { Router } from "express";
+import * as questionnaireController from "../controllers/rewind-questionnaire.controller";
+import {
+  questionnaireAnswerInputSchema,
+  questionnaireSessionParamsSchema,
+} from "../services/rewind-questionnaire.service";
 import * as rewindIntelligenceController from "../controllers/rewind-intelligence.controller";
 import * as rewindController from "../controllers/rewind.controller";
 import * as rewindRoutineController from "../controllers/rewind-routine.controller";
@@ -15,6 +20,25 @@ import {
 } from "../validators/rewind.validators";
 
 const router = Router();
+
+router.post(
+  "/questionnaire",
+  authMiddleware,
+  questionnaireController.startQuestionnaire,
+);
+router.post(
+  "/questionnaire/:sessionId/answers",
+  authMiddleware,
+  validate(questionnaireSessionParamsSchema, "params"),
+  validate(questionnaireAnswerInputSchema),
+  questionnaireController.answerQuestionnaire,
+);
+router.post(
+  "/questionnaire/:sessionId/finish",
+  authMiddleware,
+  validate(questionnaireSessionParamsSchema, "params"),
+  questionnaireController.finishQuestionnaire,
+);
 
 router.get(
   "/routine",

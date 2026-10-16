@@ -11,6 +11,10 @@ import {
 } from "./rewind-chat-v2.service";
 import logger from "../utils/logger.util";
 import { Env } from "../utils/env.util";
+import {
+  processDueSocialDraftSuggestions,
+  purgeExpiredSocialMentions,
+} from "./social-studio.service";
 
 class SchedulerService {
   private intervalId: NodeJS.Timeout | null = null;
@@ -48,11 +52,15 @@ class SchedulerService {
     this.processRevenueCatWebhooks();
     this.processGoalV2Lifecycle();
     this.processRewindChatJobs();
+    this.processSocialMentionRetention();
+    this.processSocialDraftSuggestions();
     this.intervalId = setInterval(() => {
       this.processPendingNotifications();
       this.processRevenueCatWebhooks();
       this.processGoalV2Lifecycle();
       this.processRewindChatJobs();
+      this.processSocialMentionRetention();
+      this.processSocialDraftSuggestions();
     }, 60 * 1000); // Every minute
 
     // Rewind slots are account-local, so their lifecycle must be evaluated
@@ -204,6 +212,34 @@ class SchedulerService {
       ]);
     } catch (error: unknown) {
       logger.error("Error processing Rewind v2 chat jobs", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+
+  private async processSocialDraftSuggestions(): Promise<void> {
+    try {
+      const generatedCount = await processDueSocialDraftSuggestions();
+      if (generatedCount) {
+        logger.info("Generated scheduled social drafts", { generatedCount });
+      }
+    } catch (error: unknown) {
+      logger.error("Error processing scheduled social drafts", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+
+  private async processSocialMentionRetention(): Promise<void> {
+    try {
+      const deletedCount = await purgeExpiredSocialMentions();
+      if (deletedCount) {
+        logger.info("Expired stored X mentions and related reply drafts", {
+          deletedCount,
+        });
+      }
+    } catch (error: unknown) {
+      logger.error("Error expiring stored X mentions", {
         errorName: error instanceof Error ? error.name : "UnknownError",
       });
     }

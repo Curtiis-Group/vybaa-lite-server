@@ -96,6 +96,11 @@ model User {
   activitySignals            ActivitySignal[]
   dailyObservations          DailyObservation[]
   subscriptionSnapshots      SubscriptionSnapshot[]
+  socialAccount              SocialAccount?
+  socialPreference           SocialPreference?
+  socialOAuthStates          SocialOAuthState[]
+  socialMentions             SocialMention[]
+  socialDrafts               SocialDraft[]
 
   // Summary caching
   lastEmotionSummaryAt DateTime? @map("last_emotion_summary_at") // Last time AI summary was generated
@@ -629,6 +634,140 @@ enum AiUsageOperation {
   REWIND_CONTEXT_COMPACTION
   REWIND_DIRECTOR
   REWIND_PARTNER_TURN
+  SOCIAL_CONTENT_DRAFT
+}
+
+enum SocialScheduleFrequency {
+  DAILY
+  WEEKLY
+}
+
+enum SocialDraftType {
+  POST
+  THREAD
+  REPLY
+}
+
+enum SocialDraftStatus {
+  DRAFT
+  PUBLISHING
+  PUBLISHED
+  PARTIALLY_PUBLISHED
+  PUBLISH_FAILED
+  DISCARDED
+}
+
+model SocialAccount {
+  id String @id @default(cuid())
+
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  xUserId               String    @unique @map("x_user_id")
+  username              String
+  displayName           String    @map("display_name")
+  profileImageUrl       String?   @map("profile_image_url")
+  accessTokenEncrypted  String    @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted String?   @map("refresh_token_encrypted") @db.Text
+  tokenExpiresAt        DateTime? @map("token_expires_at")
+  scopes                String[]  @default([])
+  lastMentionId         String?   @map("last_mention_id")
+  connectedAt           DateTime  @default(now()) @map("connected_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("social_accounts")
+}
+
+model SocialPreference {
+  id String @id @default(cuid())
+
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tone                        String?                 @db.Text
+  voiceNotes                  String?                 @map("voice_notes") @db.Text
+  audience                    String?                 @db.Text
+  topics                      String[]                @default([])
+  avoidTopics                 String[]                @default([]) @map("avoid_topics")
+  aiDraftingConsentAt         DateTime?               @map("ai_drafting_consent_at")
+  activitySuggestionConsentAt DateTime?               @map("activity_suggestion_consent_at")
+  scheduleEnabled             Boolean                 @default(false) @map("schedule_enabled")
+  scheduleFrequency           SocialScheduleFrequency @default(WEEKLY) @map("schedule_frequency")
+  scheduleTime                String                  @default("09:00") @map("schedule_time")
+  scheduleDayOfWeek           Int                     @default(1) @map("schedule_day_of_week")
+  scheduleTimezone            String                  @default("UTC") @map("schedule_timezone")
+  nextSuggestionAt            DateTime?               @map("next_suggestion_at")
+  lastSuggestionAt            DateTime?               @map("last_suggestion_at")
+  lastInferredSuggestionAt    DateTime?               @map("last_inferred_suggestion_at")
+  createdAt                   DateTime                @default(now()) @map("created_at")
+  updatedAt                   DateTime                @updatedAt @map("updated_at")
+
+  @@index([scheduleEnabled, nextSuggestionAt])
+  @@map("social_preferences")
+}
+
+model SocialOAuthState {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stateHash             String   @unique @map("state_hash")
+  codeVerifierEncrypted String   @map("code_verifier_encrypted") @db.Text
+  returnUrl             String   @map("return_url") @db.Text
+  expiresAt             DateTime @map("expires_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@index([userId, createdAt])
+  @@map("social_oauth_states")
+}
+
+model SocialMention {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  xTweetId           String   @map("x_tweet_id")
+  authorXUserId      String?  @map("author_x_user_id")
+  authorUsername     String   @map("author_username")
+  authorDisplayName  String?  @map("author_display_name")
+  text               String   @db.Text
+  referencedTweetIds String[] @default([]) @map("referenced_tweet_ids")
+  postedAt           DateTime @map("posted_at")
+  syncedAt           DateTime @default(now()) @map("synced_at")
+
+  drafts SocialDraft[]
+
+  @@unique([userId, xTweetId])
+  @@index([userId, postedAt])
+  @@index([syncedAt])
+  @@map("social_mentions")
+}
+
+model SocialDraft {
+  id String @id @default(cuid())
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sourceMentionId   String?           @map("source_mention_id")
+  sourceMention     SocialMention?    @relation(fields: [sourceMentionId], references: [id], onDelete: SetNull)
+  type              SocialDraftType
+  status            SocialDraftStatus @default(DRAFT)
+  segments          String[]          @default([])
+  suggestionKey     String?           @unique @map("suggestion_key")
+  sourceLabel       String?           @map("source_label")
+  sourceReason      String?           @map("source_reason") @db.Text
+  publishedTweetIds String[]          @default([]) @map("published_tweet_ids")
+  publishedAt       DateTime?         @map("published_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  @@index([userId, status, createdAt])
+  @@index([sourceMentionId])
+  @@map("social_drafts")
 }
 
 model AiUsageLedger {

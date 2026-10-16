@@ -7,8 +7,8 @@ export const OPENROUTER_MODELS = {
   qwen: "qwen/qwen3.8-27b",
   laguna: "poolside/laguna-s-2.1",
   gemini: "google/gemini-3.5-flash-lite",
-  luna: "openai/gpt-5.6-luna"
-}
+  luna: "openai/gpt-5.6-luna",
+};
 
 export type AiTextProvider =
   (typeof AI_TEXT_PROVIDER)[keyof typeof AI_TEXT_PROVIDER];
@@ -22,6 +22,8 @@ export const AI_TEXT_FEATURE = {
   REWIND_CHAT: "REWIND_CHAT",
   REWIND_CHAT_V2: "REWIND_CHAT_V2",
   REWIND_REFLECTION: "REWIND_REFLECTION",
+  REWIND_QUESTIONNAIRE: "REWIND_QUESTIONNAIRE",
+  SOCIAL_CONTENT_DRAFT: "SOCIAL_CONTENT_DRAFT",
 } as const;
 
 export type AiTextFeature =
@@ -84,6 +86,16 @@ export const AI_TEXT_CONFIG: Readonly<
     provider: AI_TEXT_PROVIDER.OPENROUTER,
     reasoningEnabled: true,
   },
+  REWIND_QUESTIONNAIRE: {
+    model: OPENROUTER_MODELS.gemini,
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
+    reasoningEnabled: false,
+  },
+  SOCIAL_CONTENT_DRAFT: {
+    model: OPENROUTER_MODELS.luna,
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
+    reasoningEnabled: false,
+  },
 };
 
 export function getAiTextProviderConfig(
@@ -95,5 +107,4 @@ export function getAiTextProviderConfig(
   };
 }
 
-export const GEMINI_LIVE_REWIND_MODEL =
-  "models/gemini-3.1-flash-live-preview";
+export const GEMINI_LIVE_REWIND_MODEL = "models/gemini-3.1-flash-live-preview";

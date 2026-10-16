@@ -8,8 +8,8 @@ exports.normalizeQuickGoalSetupResult = normalizeQuickGoalSetupResult;
 exports.generateQuickGoalSetup = generateQuickGoalSetup;
 const luxon_1 = require("luxon");
 const ai_provider_config_1 = require("../config/ai-provider.config");
-const goal_v2_validators_1 = require("../validators/goal-v2.validators");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
+const goal_v2_validators_1 = require("../validators/goal-v2.validators");
 const openrouter_text_service_1 = require("./openrouter-text.service");
 const rewind_temporal_context_service_1 = require("./rewind-temporal-context.service");
 const QUICK_GOAL_SETUP_RESPONSE_SCHEMA = {
@@ -223,6 +223,7 @@ async function generateQuickGoalSetup(timezone, input, personaId) {
         prompt,
         temperature: 0.25,
     });
+    console.log(responseText);
     let parsed;
     try {
         parsed = JSON.parse(responseText.trim());
