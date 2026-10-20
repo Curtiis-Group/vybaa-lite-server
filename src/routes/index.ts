@@ -18,6 +18,7 @@ import realtimeRoutes from "./realtime.routes";
 import subscriptionRoutes from "./subscription.routes";
 import moderationRoutes from "./moderation.routes";
 import socialStudioRoutes from "./social-studio.routes";
+import flexxRoutes from "./flexx.routes";
 import logger from "../utils/logger.util";
 
 const router: Router = Router();
@@ -62,6 +63,7 @@ router.use("/v1/notifications", notificationRoutes);
 
 // Mount achievement routes at /api/v1/achievements
 router.use("/v1/achievements", achievementRoutes);
+router.use("/v1/flexx", flexxRoutes);
 
 // Mount chill routes at /api/v1/chill
 router.use("/v1/chill", chillRoutes);

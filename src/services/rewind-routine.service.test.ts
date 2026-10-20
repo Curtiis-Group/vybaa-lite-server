@@ -31,6 +31,24 @@ test("preset Rewind routines use the fixed local defaults", () => {
   );
 });
 
+test("Flexible ignores leftover times and creates no scheduled occurrences", () => {
+  const validated = validateRewindRoutineInput({
+    frequency: RewindFrequency.FLEXIBLE,
+    intent: RewindIntent.SPOT_PATTERNS,
+    times: ["08:00", "20:00"],
+    timezone: "Africa/Lagos",
+  });
+  assert.deepEqual(validated.times, []);
+  assert.deepEqual(
+    getRoutineOccurrenceStarts({
+      now: new Date("2026-10-18T12:00:00Z"),
+      times: validated.times,
+      timezone: "Africa/Lagos",
+    }),
+    [],
+  );
+});
+
 test("custom Rewind routines require eight hours between both windows", () => {
   const valid = validateRewindRoutineInput({
     frequency: RewindFrequency.CUSTOM,

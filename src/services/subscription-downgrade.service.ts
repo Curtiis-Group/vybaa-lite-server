@@ -3,9 +3,7 @@ import { RewindFrequency } from "@prisma/client";
 import { prisma } from "../config/db.config";
 import { saveRewindRoutine } from "./rewind-routine.service";
 
-export function getFreeTierRoutineFrequency(
-  times: string[],
-): RewindFrequency {
+export function getFreeTierRoutineFrequency(times: string[]): RewindFrequency {
   const hasEveningTime = times.some((time) => Number(time.split(":")[0]) >= 12);
   return hasEveningTime
     ? RewindFrequency.JUST_EVENINGS
@@ -26,6 +24,7 @@ export async function downgradeRewindRoutineToFreeTier(
   if (
     !user ||
     !routine ||
+    routine.frequency === RewindFrequency.FLEXIBLE ||
     routine.frequency === RewindFrequency.JUST_EVENINGS ||
     routine.frequency === RewindFrequency.JUST_MORNINGS
   ) {

@@ -17,6 +17,7 @@ export const AI_TEXT_FEATURE = {
   CHILL_SUGGESTIONS: "CHILL_SUGGESTIONS",
   DAILY_OBSERVATION: "DAILY_OBSERVATION",
   EMOTION_SUMMARY: "EMOTION_SUMMARY",
+  FLEXX_DESIGNS: "FLEXX_DESIGNS",
   JOURNAL_SUMMARY: "JOURNAL_SUMMARY",
   QUICK_GOAL_SETUP: "QUICK_GOAL_SETUP",
   REWIND_CHAT: "REWIND_CHAT",
@@ -41,6 +42,11 @@ type StaticAiTextProviderConfig = Omit<AiTextProviderConfig, "feature">;
 export const AI_TEXT_CONFIG: Readonly<
   Record<AiTextFeature, StaticAiTextProviderConfig>
 > = {
+  FLEXX_DESIGNS: {
+    model: OPENROUTER_MODELS.gemini,
+    provider: AI_TEXT_PROVIDER.OPENROUTER,
+    reasoningEnabled: false,
+  },
   // Structured chill responses use a model that reliably follows JSON output.
   CHILL_SUGGESTIONS: {
     model: OPENROUTER_MODELS.laguna,

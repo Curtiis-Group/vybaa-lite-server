@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ActivitySignalSourceType,
   RewindCompletionSource,
@@ -29,7 +30,10 @@ export type RewindRoutineInput = {
 export class RewindRoutineAvailabilityError extends Error {
   constructor(
     public readonly reason:
-      "expired" | "no_active_occurrence" | "not_configured" | "not_resumable",
+      | "expired"
+      | "no_active_occurrence"
+      | "not_configured"
+      | "not_resumable",
   ) {
     super(reason);
     this.name = "RewindRoutineAvailabilityError";
@@ -80,6 +84,8 @@ export function getRoutineTimes(input: {
   times?: string[];
 }): string[] {
   switch (input.frequency) {
+    case RewindFrequency.FLEXIBLE:
+      return [];
     case RewindFrequency.MORNINGS_AND_EVENINGS:
       return [MORNING_REWIND_TIME, EVENING_REWIND_TIME];
     case RewindFrequency.JUST_MORNINGS:
@@ -279,7 +285,8 @@ export async function materializeRewindOccurrences(params: {
   const routine = await prisma.rewindRoutine.findUnique({
     where: { userId: params.user.id },
   });
-  if (!routine?.enabled) return;
+  if (!routine?.enabled || routine.frequency === RewindFrequency.FLEXIBLE)
+    return;
 
   const now = params.now ?? new Date();
   const timezone = normalizeRewindTimezone(params.user.timezone);
@@ -333,9 +340,45 @@ export async function getRewindRoutineOverview(params: {
   await materializeRewindOccurrences({ now: params.now, user });
   const now = params.now ?? new Date();
   await markExpiredRewindOccurrencesMissed({ now, userId: params.userId });
+  const savedRoutine = await prisma.rewindRoutine.findUnique({
+    where: { userId: params.userId },
+  });
+  if (savedRoutine?.frequency === RewindFrequency.FLEXIBLE) {
+    const [currentSession, latestSession] = await Promise.all([
+      savedRoutine.enabled
+        ? prisma.rewindSession.findFirst({
+            where: {
+              userId: params.userId,
+              isTestSession: false,
+              scheduledFor: null,
+              windowEndsAt: null,
+              status: RewindSessionStatus.IN_PROGRESS,
+            },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          })
+        : null,
+      prisma.rewindSession.findFirst({
+        where: {
+          userId: params.userId,
+          isTestSession: false,
+          status: {
+            in: [RewindSessionStatus.COMPLETED, RewindSessionStatus.MISSED],
+          },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+    ]);
+    return {
+      currentSession,
+      latestSession,
+      nextSession: null,
+      routine: savedRoutine,
+      timezone: normalizeRewindTimezone(user.timezone),
+    };
+  }
   const [routine, currentSession, nextSession, latestSession] =
     await Promise.all([
-      prisma.rewindRoutine.findUnique({ where: { userId: params.userId } }),
+      savedRoutine,
       prisma.rewindSession.findFirst({
         where: {
           isTestSession: false,
@@ -382,6 +425,67 @@ export async function getRewindRoutineOverview(params: {
   };
 }
 
+/** Serialize on the user row so simultaneous requests resume one session,
+ * including across API processes. Flexible sessions have no scheduled window. */
+async function startOrResumeFlexibleRewind(params: {
+  now: Date;
+  requestedSessionId?: string;
+  userId: string;
+}) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$queryRaw`
+      SELECT id FROM "User" WHERE id = ${params.userId} FOR UPDATE
+    `;
+    const user = await transaction.user.findUnique({
+      where: { id: params.userId },
+      select: { id: true, rewindPersona: true, timezone: true },
+    });
+    const routine = await transaction.rewindRoutine.findUnique({
+      where: { userId: params.userId },
+    });
+    if (
+      !user ||
+      !routine?.enabled ||
+      routine.frequency !== RewindFrequency.FLEXIBLE
+    ) {
+      throw new RewindRoutineAvailabilityError("not_configured");
+    }
+    const timezone = normalizeRewindTimezone(user.timezone);
+    const existing = await transaction.rewindSession.findFirst({
+      where: {
+        ...(params.requestedSessionId ? { id: params.requestedSessionId } : {}),
+        userId: params.userId,
+        isTestSession: false,
+        scheduledFor: null,
+        windowEndsAt: null,
+        status: RewindSessionStatus.IN_PROGRESS,
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+    if (params.requestedSessionId && !existing) {
+      throw new RewindRoutineAvailabilityError("not_resumable");
+    }
+    const occurrence =
+      existing ??
+      (await transaction.rewindSession.create({
+        data: {
+          id: `rewind_${randomUUID()}`,
+          userId: user.id,
+          personaId: getPersonaId(user),
+          sessionDateKey: toLocalDayKey(
+            DateTime.fromJSDate(params.now, { zone: timezone }),
+          ),
+          timezone,
+          scheduledFor: null,
+          windowEndsAt: null,
+          startedAt: params.now,
+          status: RewindSessionStatus.IN_PROGRESS,
+        },
+      }));
+    return { occurrence, routine, timezone };
+  });
+}
+
 export async function startOrResumeRewindOccurrence(params: {
   now?: Date;
   requestedSessionId?: string;
@@ -392,8 +496,11 @@ export async function startOrResumeRewindOccurrence(params: {
     now,
     userId: params.userId,
   });
-  if (!overview?.routine) {
+  if (!overview?.routine?.enabled) {
     throw new RewindRoutineAvailabilityError("not_configured");
+  }
+  if (overview.routine.frequency === RewindFrequency.FLEXIBLE) {
+    return startOrResumeFlexibleRewind({ ...params, now });
   }
 
   const occurrence = params.requestedSessionId
@@ -615,10 +722,29 @@ export async function saveRewindRoutine(params: {
     await transaction.rewindSession.deleteMany({
       where: {
         userId: params.userId,
-        scheduledFor: { gt: now },
+        ...(params.input.frequency === RewindFrequency.FLEXIBLE
+          ? {
+              OR: [
+                { scheduledFor: { gt: now } },
+                { windowEndsAt: { gt: now } },
+              ],
+            }
+          : { scheduledFor: { gt: now } }),
         status: RewindSessionStatus.SCHEDULED,
       },
     });
+    if (params.input.frequency === RewindFrequency.FLEXIBLE) {
+      // Preserve an unfinished scheduled questionnaire when switching to Flexible.
+      await transaction.rewindSession.updateMany({
+        where: {
+          userId: params.userId,
+          isTestSession: false,
+          status: RewindSessionStatus.IN_PROGRESS,
+          windowEndsAt: { gt: now },
+        },
+        data: { scheduledFor: null, windowEndsAt: null },
+      });
+    }
     const savedRoutine = await transaction.rewindRoutine.upsert({
       where: { userId: params.userId },
       update: {

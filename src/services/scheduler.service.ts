@@ -4,6 +4,7 @@ import { runRewindRoutineLifecycle } from "./rewind-routine.service";
 import { processGoalV2Lifecycle } from "./goal-v2.service";
 import { scheduleGoalV2Reminders } from "./goal-v2-reminder.service";
 import { refreshPendingDailyObservations } from "./daily-observation.service";
+import { refreshScheduledFlexxDesigns } from "./flexx-generation.service";
 import {
   processDueRewindPartnerMinds,
   processQueuedRewindChatRuns,
@@ -38,11 +39,13 @@ class SchedulerService {
     this.scheduleGoalReminders();
     this.scheduleEngagementNotifications();
     this.refreshDailyObservations();
+    this.refreshFlexxDesigns();
     this.schedulingIntervalId = setInterval(
       () => {
         this.scheduleGoalReminders();
         this.scheduleEngagementNotifications();
         this.refreshDailyObservations();
+        this.refreshFlexxDesigns();
       },
       60 * 60 * 1000,
     ); // Every hour
@@ -133,6 +136,21 @@ class SchedulerService {
       logger.error("Error refreshing Rewind daily observations", {
         errorName: error instanceof Error ? error.name : "UnknownError",
       });
+    }
+  }
+
+  private async refreshFlexxDesigns(): Promise<void> {
+    try {
+      const result = await refreshScheduledFlexxDesigns();
+      if (result.generated)
+        logger.info("Published scheduled Flexx collection", result);
+    } catch (error: unknown) {
+      logger.error(
+        "Scheduled Flexx generation failed; keeping published feed",
+        {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        },
+      );
     }
   }
 

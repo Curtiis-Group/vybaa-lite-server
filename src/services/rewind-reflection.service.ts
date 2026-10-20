@@ -33,8 +33,11 @@ const REWIND_REFLECTION_RESPONSE_SCHEMA: Record<string, unknown> = {
   required: [
     "summary",
     "emotionalInsight",
+    "comparisonInsight",
     "journalDraft",
+    "currentMood",
     "emotionalTags",
+    "nextStepNote",
     "wellbeingSignals",
   ],
   type: "object",

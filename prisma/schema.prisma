@@ -301,6 +301,7 @@ model RewindRoutine {
 }
 
 enum RewindFrequency {
+  FLEXIBLE
   MORNINGS_AND_EVENINGS
   JUST_MORNINGS
   JUST_EVENINGS
@@ -1601,4 +1602,20 @@ model SystemConfig {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("system_configs")
+}
+
+// Global abstract poster maps only; never contains user metrics or journals.
+model FlexxDesignCollection {
+  id          String    @id
+  status      String    @default("GENERATING")
+  model       String
+  designs     Json?
+  leaseToken  String?   @map("lease_token")
+  leaseUntil  DateTime? @map("lease_until")
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([status, publishedAt, id])
+  @@map("flexx_design_collections")
 }
