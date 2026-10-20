@@ -182,6 +182,7 @@ export async function list(req: AuthRequest, res: Response): Promise<void> {
               "ACTIVE" | "ARCHIVED" | "DUE" | "ENDED" | "OVERDUE" | "PAUSED")
           : "ACTIVE",
       limit: Number(req.query.limit ?? 20),
+      query: typeof req.query.query === "string" ? req.query.query : undefined,
       timezone,
       userId,
     });

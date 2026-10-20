@@ -34,5 +34,7 @@ import "./utils/goal-reminder.util.test";
 import "./utils/content-moderation.util.test";
 import "./utils/security-config.util.test";
 import "./validators/goal-v2.validators.test";
+import "./validators/goal-subtask.validators.test";
+import "./services/goal-subtask.integration.test";
 import "./validators/rewind.validators.test";
 import "./validators/ugc-safety.validators.test";

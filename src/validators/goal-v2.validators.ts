@@ -106,7 +106,7 @@ export const quickGoalSetupResponseSchema = z.object({
   schedule: goalScheduleSchema,
   target: goalTargetSchema,
   title: z.string().trim().min(1).max(500),
-  remarks: z.string().trim().min(1).max(500)
+  remarks: z.string().trim().min(1).max(500),
 });
 
 export const quickGoalSetupSchema = z
@@ -200,6 +200,7 @@ export const conclusionReviewSchema = z.object({
 
 export const listGoalsV2QuerySchema = z.object({
   cursor: z.string().max(512).optional(),
+  query: z.string().trim().max(200).optional(),
   filter: z
     .enum(["ACTIVE", "ARCHIVED", "DUE", "ENDED", "OVERDUE", "PAUSED"])
     .default("ACTIVE"),

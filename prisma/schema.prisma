@@ -1005,6 +1005,7 @@ model GoalV2 {
   reopenedGoals  GoalV2[] @relation("GoalV2Reopens")
 
   occurrences          GoalOccurrence[]
+  subtasks             GoalSubtask[]
   rewardPlan           GoalRewardPlan?
   conclusion           GoalConclusion?
   pauses               GoalPause[]
@@ -1023,6 +1024,21 @@ model GoalV2 {
   @@index([communityId])
   @@index([templateId])
   @@map("goals_v2")
+}
+
+model GoalSubtask {
+  id          String    @id
+  goalId      String    @map("goal_id")
+  goal        GoalV2    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  title       String    @db.VarChar(500)
+  completedAt DateTime? @map("completed_at")
+  deletedAt   DateTime? @map("deleted_at")
+  revision    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([goalId, deletedAt, createdAt, id])
+  @@map("goal_subtasks")
 }
 
 model GoalOccurrence {

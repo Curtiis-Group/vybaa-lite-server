@@ -3,6 +3,7 @@ import { Router } from "express";
 import * as goalController from "../controllers/goal-v2.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validation.middleware";
+import subtaskRoutes from "./goal-subtask.routes";
 import {
   conclusionReviewSchema,
   createGoalV2Schema,
@@ -21,6 +22,7 @@ import {
 const router: Router = Router();
 
 router.use(authMiddleware);
+router.use("/:goalId/subtasks", subtaskRoutes);
 router.get("/", validate(listGoalsV2QuerySchema, "query"), goalController.list);
 router.post(
   "/quick-setup",

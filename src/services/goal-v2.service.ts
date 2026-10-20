@@ -72,6 +72,7 @@ interface OccurrenceCursor {
 
 interface GoalListOptions {
   cursor?: string;
+  query?: string;
   filter: "ACTIVE" | "ARCHIVED" | "DUE" | "ENDED" | "OVERDUE" | "PAUSED";
   limit: number;
   timezone: string;
@@ -451,6 +452,14 @@ function getListWhere(options: GoalListOptions): Prisma.GoalV2WhereInput {
   const base: Prisma.GoalV2WhereInput = {
     archivedAt: options.filter === "ARCHIVED" ? { not: null } : null,
     userId: options.userId,
+    ...(options.query?.trim()
+      ? {
+          title: {
+            contains: options.query.trim(),
+            mode: "insensitive" as const,
+          },
+        }
+      : {}),
   };
   if (options.filter === "PAUSED")
     return { ...base, status: GoalV2Status.PAUSED };
