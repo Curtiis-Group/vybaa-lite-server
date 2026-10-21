@@ -4,7 +4,10 @@ import { runRewindRoutineLifecycle } from "./rewind-routine.service";
 import { processGoalV2Lifecycle } from "./goal-v2.service";
 import { scheduleGoalV2Reminders } from "./goal-v2-reminder.service";
 import { refreshPendingDailyObservations } from "./daily-observation.service";
-import { refreshScheduledFlexxDesigns } from "./flexx-generation.service";
+import {
+  describeFlexxGenerationError,
+  refreshScheduledFlexxDesigns,
+} from "./flexx-generation.service";
 import {
   processDueRewindPartnerMinds,
   processQueuedRewindChatRuns,
@@ -149,6 +152,7 @@ class SchedulerService {
         "Scheduled Flexx generation failed; keeping published feed",
         {
           errorName: error instanceof Error ? error.name : "UnknownError",
+          ...describeFlexxGenerationError(error),
         },
       );
     }

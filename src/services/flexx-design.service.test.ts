@@ -336,6 +336,42 @@ test("scheduled generation persists one batch per cycle despite concurrent worke
   assert.ok(JSON.stringify(publish).includes('"leaseToken"'));
 });
 
+test("scheduled generation corrects one batch that fails Flexx schema validation", async (context) => {
+  await setup(context);
+  mockCollectionMethod(context, "create", async () => ({}));
+  mockCollectionMethod(
+    context,
+    "updateMany",
+    async (input: Prisma.FlexxDesignCollectionUpdateManyArgs) => ({
+      count: input.data.status === "READY" ? 1 : 0,
+    }),
+  );
+  const invalidDesigns = generatedDesigns().map((design, index) =>
+    index === 0 ? { ...design, headline: "100 tasks completed" } : design,
+  );
+  let calls = 0;
+  const fetch = context.mock.method(globalThis, "fetch", async () => {
+    calls += 1;
+    return calls === 1
+      ? Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ designs: invalidDesigns }),
+              },
+            },
+          ],
+        })
+      : completion();
+  });
+
+  const result = await refreshScheduledFlexxDesigns(new Date());
+
+  assert.equal(result.generated, 10);
+  assert.equal(calls, 2);
+  assert.equal(fetch.mock.callCount(), 2);
+});
+
 test("scheduled failures do not publish partial content and delay retries", async (context) => {
   await setup(context);
   mockCollectionMethod(context, "create", async () => ({}));

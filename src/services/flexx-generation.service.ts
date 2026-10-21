@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ZodError } from "zod";
 
 import {
   AI_TEXT_FEATURE,
@@ -6,9 +7,58 @@ import {
 } from "../config/ai-provider.config";
 import { prisma } from "../config/db.config";
 import { FLEXX_DESIGN_CONFIG } from "../config/flexx-design.config";
+import logger from "../utils/logger.util";
 import { FLEXX_RESPONSE_SCHEMA } from "../validators/flexx-design.validators";
 import { parseFlexxDesignBatch } from "./flexx-design.service";
 import { generateOpenRouterText } from "./openrouter-text.service";
+import type { FlexxDesign } from "../validators/flexx-design.validators";
+
+type FlexxValidationIssue = {
+  code: string;
+  path: string;
+  message: string;
+};
+
+function getValidationIssues(error: unknown): FlexxValidationIssue[] | null {
+  if (error instanceof ZodError) {
+    return error.issues.slice(0, 20).map((issue) => ({
+      code: issue.code,
+      path: issue.path.map(String).join("."),
+      message: issue.message.slice(0, 180),
+    }));
+  }
+  if (error instanceof SyntaxError) {
+    return [
+      {
+        code: "invalid_json",
+        path: "$",
+        message: "Model output was not complete valid JSON",
+      },
+    ];
+  }
+  return null;
+}
+
+export function describeFlexxGenerationError(
+  error: unknown,
+): Record<string, unknown> {
+  const issues = getValidationIssues(error);
+  if (!issues) return {};
+  return {
+    validationIssueCount: error instanceof ZodError ? error.issues.length : 1,
+    validationIssues: issues,
+  };
+}
+
+function parseFlexxCandidate(text: string): FlexxDesign[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new SyntaxError("Flexx model output was not valid JSON");
+  }
+  return parseFlexxDesignBatch(value, "all");
+}
 
 function isUniqueConflict(error: unknown): boolean {
   return error instanceof Error && Reflect.get(error, "code") === "P2002";
@@ -42,15 +92,36 @@ export async function refreshScheduledFlexxDesigns(
     if (!claimed.count) return { generated: 0 };
   }
   try {
-    const text = await generateOpenRouterText({
+    const generationRequest = {
       feature: AI_TEXT_FEATURE.FLEXX_DESIGNS,
       jsonSchema: FLEXX_RESPONSE_SCHEMA,
       maxOutputTokens: FLEXX_DESIGN_CONFIG.maxOutputTokens,
       timeoutMs: FLEXX_DESIGN_CONFIG.timeoutMs,
       temperature: 0.95,
       prompt: `Design ${FLEXX_DESIGN_CONFIG.batchSize} distinct vertical editorial posters for Vybaa. Scheduled collection seed: ${cycle}. Return schema JSON only. Include all five categories, at least three palettes and three layouts. No personal facts are supplied: never invent user achievements, stats, dates, memories or progress claims. Headlines: two to five words, max 48 characters, no digits, HTML, CSS, code or URLs. Palettes: ink dark, rose pink, mint green, amber gold, slate dark blue-grey, plum deep pink. NEVER use white/off-white surfaces. Stat layouts: billboard, split, ledger, statement, ring. Each stats design has one hero metric and zero to three supporting blocks, unique slots and metrics. Allowed metrics by category: daily totalCheckIns,totalGoals,currentStreak,completionRate; weekly averageProgress,totalCheckIns,totalGoals,currentStreak,completionRate; streak currentStreak,longestStreak,totalCheckIns,completionRate; rewind rewindSessions,rewindConsistency. Achievement uses emblem, no blocks. Ring hero must be completionRate,averageProgress or rewindConsistency. Include exactly TWO questionnaire posters: category rewind, layout questionnaire, no metric blocks, questionnaire:{question,options}. Each asks one thoughtful, non-judgmental question about today with three distinct short first-person answers; custom text is handled by the UI, do not include Other. Questions should invite feelings, a meaningful moment or a gentle next step. No diagnoses, assumptions or medical claims. All other posters have questionnaire:null. Author is {partnerIds:[...]}, one to three distinct Vybaa AI partners ONLY: ella,lyra,jake,ariel,tobi,neeja. The user is NEVER an author. Include solo and partner-group authors. likedBy is an array of zero to six distinct known partner IDs representing in-world AI partner reactions; vary between none, one and multiple. Do NOT output popularity numbers or simulatedLikes. The client binds real owner metrics separately. No duplicate maps.`,
-    });
-    const designs = parseFlexxDesignBatch(JSON.parse(text), "all");
+    } as const;
+    const text = await generateOpenRouterText(generationRequest);
+    let designs: FlexxDesign[];
+    try {
+      designs = parseFlexxCandidate(text);
+    } catch (error: unknown) {
+      const issues = getValidationIssues(error);
+      if (!issues) throw error;
+      logger.warn(
+        "Scheduled Flexx output failed validation; requesting one correction",
+        {
+          validationIssueCount:
+            error instanceof ZodError ? error.issues.length : issues.length,
+          validationIssues: issues,
+        },
+      );
+      const correctedText = await generateOpenRouterText({
+        ...generationRequest,
+        temperature: 0.55,
+        prompt: `${generationRequest.prompt}\n\nThe previous complete response failed application validation. Return a corrected complete JSON response and fix every listed issue. Do not explain or omit any designs. Validation issues: ${JSON.stringify(issues)}\nPrevious response: ${text}`,
+      });
+      designs = parseFlexxCandidate(correctedText);
+    }
     if (
       designs.filter((design) => design.questionnaire).length !== 2 ||
       !designs.some((design) => design.author.partnerIds.length > 1) ||
