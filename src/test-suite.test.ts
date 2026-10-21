@@ -3,6 +3,8 @@ import "./controllers/rewind-history-order.test";
 import "./middleware/client-app.middleware.test";
 import "./services/milestone.service.test";
 import "./services/elevenlabs-rewind-live.service.test";
+import "./services/transcription.service.test";
+import "./routes/transcription.routes.test";
 import "./services/daily-observation.service.test";
 import "./services/quick-task-suggestion.service.test";
 import "./services/quick-task-suggestion.integration.test";
