@@ -221,6 +221,7 @@ export async function occurrences(
   try {
     const options = listGoalOccurrencesQuerySchema.parse(req.query);
     if (options.anchor === "today") {
+      res.setHeader("Cache-Control", "private, no-store");
       const result = await listGoalTimeline({
         ...options,
         limit: options.limit ?? 20,

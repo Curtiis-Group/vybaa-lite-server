@@ -236,5 +236,50 @@ test(
       await prisma.goalRewardAward.count({ where: { goalId: goal.id } }),
       0,
     );
+    const todayId = initial.data[0]?.id;
+    assert.ok(todayId);
+    async function progress(method: string, payload?: unknown) {
+      return fetch(`${base}/${goal.id}/occurrences/${todayId}/progress`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${generateAccessToken(owner.id)}`,
+          "Content-Type": "application/json",
+        },
+        body: payload === undefined ? undefined : JSON.stringify(payload),
+      });
+    }
+    const attachments = [
+      { type: "image", url: "https://example.test/photo.png" },
+      { type: "audio", url: "https://example.test/note.mp3" },
+    ];
+    assert.equal(
+      (await progress("POST", { notes: "First entry", attachments })).status,
+      201,
+    );
+    assert.equal(
+      (await progress("POST", { notes: "Repeated entry" })).status,
+      409,
+    );
+    assert.equal(
+      (await progress("PATCH", { notes: "Corrected entry" })).status,
+      200,
+    );
+    const saved = await prisma.goalProgressEntry.findUniqueOrThrow({
+      where: { occurrenceId: todayId },
+    });
+    assert.equal(saved.notes, "Corrected entry");
+    assert.deepEqual(saved.attachments, attachments);
+    assert.equal((await progress("DELETE")).status, 200);
+    assert.equal(
+      await prisma.goalProgressEntry.count({
+        where: { occurrenceId: todayId },
+      }),
+      0,
+    );
+    assert.equal(
+      (await prisma.goalV2.findUniqueOrThrow({ where: { id: goal.id } }))
+        .progressValue,
+      0,
+    );
   },
 );
