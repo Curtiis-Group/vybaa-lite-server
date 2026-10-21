@@ -9,6 +9,8 @@ import {
   updateGoalAlarmRegistration,
 } from "../services/goal-alarm.service";
 import { refreshGoalV2RemindersForUser } from "../services/goal-v2-reminder.service";
+import { listGoalTimeline } from "../services/goal-timeline.service";
+import { listGoalOccurrencesQuerySchema } from "../validators/goal-v2.validators";
 import {
   abandonGoalV2,
   archiveGoalV2,
@@ -179,7 +181,12 @@ export async function list(req: AuthRequest, res: Response): Promise<void> {
       filter:
         typeof req.query.filter === "string"
           ? (req.query.filter as
-              "ACTIVE" | "ARCHIVED" | "DUE" | "ENDED" | "OVERDUE" | "PAUSED")
+              | "ACTIVE"
+              | "ARCHIVED"
+              | "DUE"
+              | "ENDED"
+              | "OVERDUE"
+              | "PAUSED")
           : "ACTIVE",
       limit: Number(req.query.limit ?? 20),
       query: typeof req.query.query === "string" ? req.query.query : undefined,
@@ -212,6 +219,18 @@ export async function occurrences(
   res: Response,
 ): Promise<void> {
   try {
+    const options = listGoalOccurrencesQuerySchema.parse(req.query);
+    if (options.anchor === "today") {
+      const result = await listGoalTimeline({
+        ...options,
+        limit: options.limit ?? 20,
+        goalId: String(req.params.goalId),
+        userId: req.userId!,
+        timezone: await resolveTimezone(req, req.userId!),
+      });
+      res.json({ ...result, msg: "Task timeline retrieved successfully" });
+      return;
+    }
     const result = await listGoalOccurrences(
       String(req.params.goalId),
       req.userId!,

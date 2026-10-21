@@ -207,10 +207,19 @@ export const listGoalsV2QuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 
-export const listGoalOccurrencesQuerySchema = z.object({
-  cursor: z.string().max(512).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-});
+export const listGoalOccurrencesQuerySchema = z
+  .object({
+    anchor: z.literal("today").optional(),
+    anchorDate: dateSchema.optional(),
+    direction: z.enum(["after", "before"]).optional(),
+    cursor: z.string().max(512).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .refine(
+    (value) =>
+      value.anchor === "today" || (!value.anchorDate && !value.direction),
+    { message: "Timeline options require the today anchor" },
+  );
 
 export type CreateGoalV2Input = z.infer<typeof createGoalV2Schema>;
 export type QuickGoalSetupInput = z.infer<typeof quickGoalSetupSchema>;
