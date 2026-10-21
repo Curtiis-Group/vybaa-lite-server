@@ -4,6 +4,8 @@ import "./middleware/client-app.middleware.test";
 import "./services/milestone.service.test";
 import "./services/elevenlabs-rewind-live.service.test";
 import "./services/daily-observation.service.test";
+import "./services/quick-task-suggestion.service.test";
+import "./services/quick-task-suggestion.integration.test";
 import "./services/goal-alarm.service.test";
 import "./services/notification-realtime.service.test";
 import "./services/push-notification.service.test";

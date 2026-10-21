@@ -845,6 +845,7 @@ model DailyObservation {
   description       String    @db.Text
   observations      Json
   evidence          Json
+  taskSuggestions   Json      @default("[]") @map("task_suggestions")
   sourceTypes       String[]  @default([]) @map("source_types")
   confidence        Float
   personaId         String?   @map("persona_id")
