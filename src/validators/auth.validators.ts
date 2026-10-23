@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CURRENT_TERMS_VERSION } from "../constants/legal.constants";
 import { isAllowedUserContent } from "../utils/content-moderation.util";
+import { onboardingProfileInputSchema } from "./onboarding-profile.validators";
 
 const termsConsentSchema = {
   acceptedTerms: z.literal(true, {
@@ -117,12 +118,13 @@ export const changePasswordSchema = z
   });
 
 export const onboardingAnswerSchema = z.object({
-  question: z.string().min(1, "Question is required"),
-  answer: z.string().min(1, "Answer is required"),
+  question: z.string().trim().min(1, "Question is required").max(220),
+  answer: z.string().trim().min(1, "Answer is required").max(1000),
 });
 
 export const onboardingSchema = z.object({
-  answers: z.array(onboardingAnswerSchema).optional(),
+  answers: z.array(onboardingAnswerSchema).max(20).optional(),
+  profile: onboardingProfileInputSchema.optional(),
   username: usernameSchema.optional(),
 });
 

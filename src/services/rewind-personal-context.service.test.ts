@@ -54,10 +54,21 @@ test("personal context is empty when activity personalization is disabled", () =
   assert.equal(
     formatRewindPersonalContext({
       ...context,
+      onboardingPreferences: "Private onboarding preferences must not be sent",
       personalizationEnabled: false,
     }),
     "",
   );
+});
+
+test("user-stated preferences reach personalized context without becoming personality scores", () => {
+  const formatted = formatRewindPersonalContext({
+    ...context,
+    onboardingPreferences:
+      "User-stated support preference: listen before advice. Not a diagnosis.",
+  });
+  assert.match(formatted, /listen before advice/);
+  assert.match(formatted, /Not a diagnosis/);
 });
 
 test("personal context keeps one partner's private memory isolated", () => {

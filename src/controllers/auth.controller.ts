@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import type { User } from "@prisma/client";
 import type { Request, Response } from "express";
 import { CURRENT_TERMS_VERSION } from "../constants/legal.constants";
@@ -6,6 +7,12 @@ import { AuthRequest } from "../middleware/auth.middleware";
 import { emailService } from "../services/email.service";
 import { getRewindPartnerSwitchAvailability } from "../services/rewind-partner-switch.service";
 import { userMoodService } from "../services/user-mood.service";
+import {
+  getOnboardingProfile,
+  OnboardingProfileError,
+  saveOnboardingProfile,
+} from "../services/onboarding-profile.service";
+import { onboardingSchema } from "../validators/auth.validators";
 import {
   comparePassword,
   generateAccessToken,
@@ -138,8 +145,13 @@ export async function login(req: Request, res: Response) {
 
 export async function register(req: Request, res: Response) {
   try {
-    const { email, password, firstName, lastName, username: requestedUsername } =
-      req.body;
+    const {
+      email,
+      password,
+      firstName,
+      lastName,
+      username: requestedUsername,
+    } = req.body;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -829,18 +841,22 @@ export async function getSuggestions(req: AuthRequest, res: Response) {
 export async function completeOnboarding(req: AuthRequest, res: Response) {
   try {
     const userId = req.userId!;
-    const { username } = req.body;
-
-    const updateData: any = {
-      isFirstTime: false,
-    };
-
-    if (username !== undefined) updateData.username = username;
-
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: updateData,
-    });
+    const { username, profile, answers } = onboardingSchema.parse(req.body);
+    if (!profile && answers?.length) {
+      await prisma.user.updateMany({
+        where: { id: userId, onboardingProfile: { equals: Prisma.DbNull } },
+        data: { onboardingProfile: { legacyAnswers: answers } },
+      });
+    }
+    const user = profile
+      ? await saveOnboardingProfile(userId, profile, username)
+      : await prisma.user.update({
+          where: { id: userId },
+          data: {
+            isFirstTime: false,
+            ...(username === undefined ? {} : { username }),
+          },
+        });
 
     res.json({
       msg: "Onboarding completed",
@@ -848,11 +864,32 @@ export async function completeOnboarding(req: AuthRequest, res: Response) {
         user: formatUserResponse(user),
       },
     });
-  } catch (error: any) {
-    logger.error("Onboarding error:", { error, userId: req.userId });
-    if (error.code === "P2002") {
+  } catch (error: unknown) {
+    if (error instanceof OnboardingProfileError)
+      return res.status(error.statusCode).json({ msg: error.message });
+    logger.error("Onboarding error:", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      userId: req.userId,
+    });
+    if (error instanceof Error && Reflect.get(error, "code") === "P2002") {
       return res.status(400).json({ msg: "Username already taken" });
     }
     res.status(500).json({ msg: "Internal server error" });
+  }
+}
+
+export async function getOnboarding(req: AuthRequest, res: Response) {
+  try {
+    const data = await getOnboardingProfile(req.userId!);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json({ msg: "Your preferences", data });
+  } catch (error: unknown) {
+    logger.error("Onboarding read failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      userId: req.userId,
+    });
+    return res
+      .status(500)
+      .json({ msg: "Could not load your answers. Please try again." });
   }
 }

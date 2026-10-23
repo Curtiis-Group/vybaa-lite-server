@@ -34,11 +34,12 @@ model User {
   lastUsernameChangeAt           DateTime? @map("last_username_change_at") // Track username changes for cooldown
 
   // Auth fields
-  isConfirmed     Boolean   @default(false) @map("is_confirmed")
-  isFirstTime     Boolean   @default(true) @map("is_first_time")
-  suspendedAt     DateTime? @map("suspended_at")
-  termsAcceptedAt DateTime? @map("terms_accepted_at")
-  termsVersion    String?   @map("terms_version")
+  isConfirmed       Boolean   @default(false) @map("is_confirmed")
+  isFirstTime       Boolean   @default(true) @map("is_first_time")
+  onboardingProfile Json?     @map("onboarding_profile")
+  suspendedAt       DateTime? @map("suspended_at")
+  termsAcceptedAt   DateTime? @map("terms_accepted_at")
+  termsVersion      String?   @map("terms_version")
 
   // OAuth fields
   appleId  String? @unique @map("apple_id")
@@ -425,8 +426,8 @@ model RewindChat {
   lastReadAt                     DateTime?           @map("last_read_at")
   unreadCount                    Int                 @default(0) @map("unread_count")
   proactiveMuted                 Boolean             @default(false) @map("proactive_muted")
-  conversationMood               Json?               @map("conversation_mood")
   accentColor                    String              @default("rose") @map("accent_color")
+  conversationMood               Json?               @map("conversation_mood")
   contextRevision                Int                 @default(0) @map("context_revision")
   contextSummary                 String?             @map("context_summary") @db.Text
   contextSummaryThroughMessageId String?             @map("context_summary_through_message_id")

@@ -38,36 +38,85 @@ router.post("/apple", validate(appleAuthSchema), authController.appleAuth);
 router.post("/session", authMiddleware, authController.getSession);
 
 // POST /api/v1/auth/refresh-token
-router.post("/refresh-token", validate(refreshTokenSchema), authController.refreshToken);
+router.post(
+  "/refresh-token",
+  validate(refreshTokenSchema),
+  authController.refreshToken,
+);
 
 // POST /api/v1/auth/logout
-router.post("/logout", authMiddleware, validate(logoutSchema), authController.logout);
+router.post(
+  "/logout",
+  authMiddleware,
+  validate(logoutSchema),
+  authController.logout,
+);
 
 // POST /api/v1/auth/request-validation
-router.post("/request-validation", validate(requestPasswordResetSchema), authController.requestPasswordReset);
+router.post(
+  "/request-validation",
+  validate(requestPasswordResetSchema),
+  authController.requestPasswordReset,
+);
 
 // POST /api/v1/auth/verify-recovery-code
-router.post("/verify-recovery-code", validate(verifyOTPSchema), authController.verifyRecoveryCode);
+router.post(
+  "/verify-recovery-code",
+  validate(verifyOTPSchema),
+  authController.verifyRecoveryCode,
+);
 
 // POST /api/v1/auth/recover-account
-router.post("/recover-account", validate(resetPasswordSchema), authController.recoverAccount);
+router.post(
+  "/recover-account",
+  validate(resetPasswordSchema),
+  authController.recoverAccount,
+);
 
 // POST /api/v1/auth/request-confirmation
-router.post("/request-confirmation", validate(requestConfirmationSchema), authController.requestConfirmation);
+router.post(
+  "/request-confirmation",
+  validate(requestConfirmationSchema),
+  authController.requestConfirmation,
+);
 
 // POST /api/v1/auth/account-confirmation
-router.post("/account-confirmation", validate(accountConfirmationSchema), authController.accountConfirmation);
+router.post(
+  "/account-confirmation",
+  validate(accountConfirmationSchema),
+  authController.accountConfirmation,
+);
 
 // GET /api/v1/auth/email-check/:email
-router.get("/email-check/:email", validate(emailParamSchema, "params"), authController.checkEmail);
+router.get(
+  "/email-check/:email",
+  validate(emailParamSchema, "params"),
+  authController.checkEmail,
+);
 
 // POST /api/v1/auth/change-password
-router.post("/change-password", authMiddleware, validate(changePasswordSchema), authController.changePassword);
+router.post(
+  "/change-password",
+  authMiddleware,
+  validate(changePasswordSchema),
+  authController.changePassword,
+);
 
 // POST /api/v1/auth/suggestions
-router.post("/suggestions", authMiddleware, validate(suggestionsSchema), authController.getSuggestions);
+router.post(
+  "/suggestions",
+  authMiddleware,
+  validate(suggestionsSchema),
+  authController.getSuggestions,
+);
 
 // POST /api/v1/auth/onboarding
-router.post("/onboarding", authMiddleware, validate(onboardingSchema), authController.completeOnboarding);
+router.get("/onboarding", authMiddleware, authController.getOnboarding);
+router.post(
+  "/onboarding",
+  authMiddleware,
+  validate(onboardingSchema),
+  authController.completeOnboarding,
+);
 
 export default router;

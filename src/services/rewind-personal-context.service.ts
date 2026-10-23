@@ -2,8 +2,10 @@ import { GoalOccurrenceStatus, GoalV2Status } from "@prisma/client";
 import { DateTime } from "luxon";
 
 import { prisma } from "../config/db.config";
+import { formatOnboardingPreferences } from "./onboarding-profile.service";
 
 export interface RewindPersonalContext {
+  onboardingPreferences?: string;
   achievements: Array<{ earnedAt: string; title: string }>;
   balances: { playPoints: number; realPoints: number };
   goalConclusions: Array<{
@@ -217,6 +219,7 @@ export async function loadRewindPersonalContext(
     prisma.user.findUnique({
       select: {
         points: true,
+        onboardingProfile: true,
         realPointsBalance: true,
         rewindPersonalizationEnabled: true,
       },
@@ -298,6 +301,7 @@ export async function loadRewindPersonalContext(
   ]);
 
   return {
+    onboardingPreferences: formatOnboardingPreferences(user?.onboardingProfile),
     achievements: achievements.map((achievement) => ({
       earnedAt: achievement.earnedAt.toISOString(),
       title: achievement.title,
@@ -388,6 +392,9 @@ export function formatRewindPersonalContext(
         .join("\n")}\n`
     : "";
   return (
+    (context.onboardingPreferences
+      ? `${context.onboardingPreferences}\n`
+      : "") +
     partnerContinuityContext +
     memoryContext +
     `Account context (private, current, and never recited as a report):\n` +

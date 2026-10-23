@@ -18,6 +18,7 @@ import {
   startOrResumeRewindOccurrence,
 } from "./rewind-routine.service";
 import { assertCanSelectRewindPersona } from "./subscription-access.service";
+import { formatOnboardingPreferences } from "./onboarding-profile.service";
 
 const questionSchema = z.object({
   id: z.string().min(1).max(64),
@@ -189,7 +190,7 @@ async function generateQuestions(
 ): Promise<Question[]> {
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: session.userId },
-    select: { rewindPersonalizationEnabled: true },
+    select: { rewindPersonalizationEnabled: true, onboardingProfile: true },
   });
   const personalized = user.rewindPersonalizationEnabled;
   const [goals, memories, activities] = await Promise.all([
@@ -277,6 +278,9 @@ async function generateQuestions(
         localHour,
         date: session.sessionDateKey,
         intent: personalized ? intent : null,
+        userStatedPreferences: personalized
+          ? formatOnboardingPreferences(user.onboardingProfile)
+          : "",
         goals,
         memories: memories.map((memory) => ({
           date: memory.sessionDateKey,
