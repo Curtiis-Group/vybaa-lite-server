@@ -28,6 +28,7 @@ import "./validators/social.validators.test";
 import "./services/rewind-partner-switch.service.test";
 import "./services/rewind-routine.service.test";
 import "./services/rewind-flexible.service.test";
+import "./services/rewind-routine.integration.test";
 import "./services/rewind-voice-provider.service.test";
 import "./services/rewind-session-finalization.service.test";
 import "./services/rewind-temporal-context.service.test";
