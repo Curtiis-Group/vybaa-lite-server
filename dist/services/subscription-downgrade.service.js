@@ -22,6 +22,7 @@ async function downgradeRewindRoutineToFreeTier(userId) {
     const routine = user?.rewindRoutine;
     if (!user ||
         !routine ||
+        routine.frequency === client_1.RewindFrequency.FLEXIBLE ||
         routine.frequency === client_1.RewindFrequency.JUST_EVENINGS ||
         routine.frequency === client_1.RewindFrequency.JUST_MORNINGS) {
         return;

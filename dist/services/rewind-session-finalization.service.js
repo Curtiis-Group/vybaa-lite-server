@@ -193,6 +193,7 @@ async function finalizeRewindSession(params) {
             id: true,
             isTestSession: true,
             personaId: true,
+            responses: true,
             sessionDateKey: true,
             status: true,
             summary: true,
@@ -265,7 +266,13 @@ async function finalizeRewindSession(params) {
             timezone: session.timezone,
             userId: session.userId,
         });
-        if (!hasSubstantiveUserTurn(context.turns)) {
+        const isQuestionnaire = Boolean(session.responses &&
+            typeof session.responses === "object" &&
+            !Array.isArray(session.responses) &&
+            session.responses.kind === "questionnaire");
+        const hasQuestionnaireAnswer = isQuestionnaire &&
+            context.turns.some((turn) => turn.role === client_1.RewindTurnRole.USER && Boolean(turn.content.trim()));
+        if (!hasSubstantiveUserTurn(context.turns) && !hasQuestionnaireAnswer) {
             return markMissed(session.id);
         }
         params.onStage?.("noticing_patterns");
@@ -317,8 +324,8 @@ async function finalizeRewindSession(params) {
         }
         if (!session.isTestSession) {
             await (0, activity_signal_service_1.recordActivitySignal)({
-                dedupeKey: `rewind-voice:${session.id}:completed`,
-                description: `Completed a voice Rewind with ${getPersonaName(session.personaId)}: ${reflection.emotionalInsight}`,
+                dedupeKey: `rewind-${isQuestionnaire ? "questionnaire" : "voice"}:${session.id}:completed`,
+                description: `Completed a ${isQuestionnaire ? "daily questionnaire" : "voice Rewind"} with ${getPersonaName(session.personaId)}: ${reflection.emotionalInsight}`,
                 eventType: "REWIND_COMPLETED",
                 happenedAt: completedAt,
                 localDateKey: session.sessionDateKey ??
@@ -326,7 +333,9 @@ async function finalizeRewindSession(params) {
                 metadata: { emotionalTags: reflection.emotionalTags },
                 personaId: session.personaId,
                 sourceId: session.id,
-                sourceType: client_1.ActivitySignalSourceType.REWIND_VOICE,
+                sourceType: isQuestionnaire
+                    ? client_1.ActivitySignalSourceType.REWIND_ROUTINE
+                    : client_1.ActivitySignalSourceType.REWIND_VOICE,
                 timezone: session.timezone ?? "UTC",
                 userId: session.userId,
             });

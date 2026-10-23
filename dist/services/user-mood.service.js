@@ -108,7 +108,13 @@ async function buildMoodSignalSnapshot(userId) {
             rewindCompletedCount += 1;
         }
         if (session.responses && typeof session.responses === "object" && !Array.isArray(session.responses)) {
-            rewindResponseCount += Object.keys(session.responses).length;
+            if (session.responses.kind === "questionnaire" &&
+                Array.isArray(session.responses.answers)) {
+                rewindResponseCount += session.responses.answers.length;
+            }
+            else {
+                rewindResponseCount += Object.keys(session.responses).length;
+            }
         }
     }
     const recentActivityCount = recentCheckInCount +

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateSocialDraftSchema = exports.socialMentionIdParamSchema = exports.socialDraftIdParamSchema = exports.generateSocialPostDraftSchema = exports.updateSocialPreferencesSchema = exports.xOAuthStartSchema = void 0;
+exports.updateSocialDraftSchema = exports.socialMentionIdParamSchema = exports.socialDraftIdParamSchema = exports.generateSocialPostDraftSchema = exports.socialSuggestionRefreshSchema = exports.socialActivityConsentSchema = exports.updateSocialPreferencesSchema = exports.xOAuthStartSchema = void 0;
 const zod_1 = require("zod");
 const textListSchema = zod_1.z.array(zod_1.z.string().trim().min(1).max(100)).max(20);
 exports.xOAuthStartSchema = zod_1.z
@@ -21,6 +21,12 @@ exports.updateSocialPreferencesSchema = zod_1.z
     topics: textListSchema,
     voiceNotes: zod_1.z.string().trim().max(2000).nullable(),
 })
+    .strict();
+exports.socialActivityConsentSchema = zod_1.z
+    .object({ accepted: zod_1.z.boolean() })
+    .strict();
+exports.socialSuggestionRefreshSchema = zod_1.z
+    .object({ force: zod_1.z.boolean().default(false) })
     .strict();
 exports.generateSocialPostDraftSchema = zod_1.z
     .object({

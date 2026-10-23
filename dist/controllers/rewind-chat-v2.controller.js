@@ -267,6 +267,7 @@ async function updatePreferences(req, res) {
         });
         res.json({
             data: {
+                accentColor: updated.accentColor,
                 proactiveMuted: updated.proactiveMuted,
                 conversationMood: (0, rewind_chat_mood_1.resolveRewindConversationMood)(updated.conversationMood),
             },
@@ -286,6 +287,7 @@ async function getPreferences(req, res) {
                 title: chat.title,
                 type: chat.type,
                 personaId: chat.personaId,
+                accentColor: chat.accentColor,
                 proactiveMuted: chat.proactiveMuted,
                 conversationMood: (0, rewind_chat_mood_1.resolveRewindConversationMood)(chat.conversationMood),
             },

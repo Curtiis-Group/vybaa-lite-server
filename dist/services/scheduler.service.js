@@ -10,6 +10,7 @@ const rewind_routine_service_1 = require("./rewind-routine.service");
 const goal_v2_service_1 = require("./goal-v2.service");
 const goal_v2_reminder_service_1 = require("./goal-v2-reminder.service");
 const daily_observation_service_1 = require("./daily-observation.service");
+const flexx_generation_service_1 = require("./flexx-generation.service");
 const rewind_chat_v2_service_1 = require("./rewind-chat-v2.service");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const env_util_1 = require("../utils/env.util");
@@ -35,10 +36,12 @@ class SchedulerService {
         this.scheduleGoalReminders();
         this.scheduleEngagementNotifications();
         this.refreshDailyObservations();
+        this.refreshFlexxDesigns();
         this.schedulingIntervalId = setInterval(() => {
             this.scheduleGoalReminders();
             this.scheduleEngagementNotifications();
             this.refreshDailyObservations();
+            this.refreshFlexxDesigns();
         }, 60 * 60 * 1000); // Every hour
         // Process pending notifications every minute
         this.processPendingNotifications();
@@ -119,6 +122,19 @@ class SchedulerService {
         catch (error) {
             logger_util_1.default.error("Error refreshing Rewind daily observations", {
                 errorName: error instanceof Error ? error.name : "UnknownError",
+            });
+        }
+    }
+    async refreshFlexxDesigns() {
+        try {
+            const result = await (0, flexx_generation_service_1.refreshScheduledFlexxDesigns)();
+            if (result.generated)
+                logger_util_1.default.info("Published scheduled Flexx collection", result);
+        }
+        catch (error) {
+            logger_util_1.default.error("Scheduled Flexx generation failed; keeping published feed", {
+                errorName: error instanceof Error ? error.name : "UnknownError",
+                ...(0, flexx_generation_service_1.describeFlexxGenerationError)(error),
             });
         }
     }

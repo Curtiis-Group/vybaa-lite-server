@@ -16,14 +16,21 @@ exports.AI_TEXT_FEATURE = {
     CHILL_SUGGESTIONS: "CHILL_SUGGESTIONS",
     DAILY_OBSERVATION: "DAILY_OBSERVATION",
     EMOTION_SUMMARY: "EMOTION_SUMMARY",
+    FLEXX_DESIGNS: "FLEXX_DESIGNS",
     JOURNAL_SUMMARY: "JOURNAL_SUMMARY",
     QUICK_GOAL_SETUP: "QUICK_GOAL_SETUP",
     REWIND_CHAT: "REWIND_CHAT",
     REWIND_CHAT_V2: "REWIND_CHAT_V2",
     REWIND_REFLECTION: "REWIND_REFLECTION",
+    REWIND_QUESTIONNAIRE: "REWIND_QUESTIONNAIRE",
     SOCIAL_CONTENT_DRAFT: "SOCIAL_CONTENT_DRAFT",
 };
 exports.AI_TEXT_CONFIG = {
+    FLEXX_DESIGNS: {
+        model: exports.OPENROUTER_MODELS.gemini,
+        provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
+        reasoningEnabled: false,
+    },
     // Structured chill responses use a model that reliably follows JSON output.
     CHILL_SUGGESTIONS: {
         model: exports.OPENROUTER_MODELS.laguna,
@@ -68,6 +75,11 @@ exports.AI_TEXT_CONFIG = {
         model: exports.OPENROUTER_MODELS.luna,
         provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
         reasoningEnabled: true,
+    },
+    REWIND_QUESTIONNAIRE: {
+        model: exports.OPENROUTER_MODELS.gemini,
+        provider: exports.AI_TEXT_PROVIDER.OPENROUTER,
+        reasoningEnabled: false,
     },
     SOCIAL_CONTENT_DRAFT: {
         model: exports.OPENROUTER_MODELS.luna,

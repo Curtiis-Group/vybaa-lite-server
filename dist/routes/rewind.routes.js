@@ -34,6 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const questionnaireController = __importStar(require("../controllers/rewind-questionnaire.controller"));
+const rewind_questionnaire_service_1 = require("../services/rewind-questionnaire.service");
 const rewindIntelligenceController = __importStar(require("../controllers/rewind-intelligence.controller"));
 const rewindController = __importStar(require("../controllers/rewind.controller"));
 const rewindRoutineController = __importStar(require("../controllers/rewind-routine.controller"));
@@ -42,6 +44,9 @@ const subscription_access_middleware_1 = require("../middleware/subscription-acc
 const validation_middleware_1 = require("../middleware/validation.middleware");
 const rewind_validators_1 = require("../validators/rewind.validators");
 const router = (0, express_1.Router)();
+router.post("/questionnaire", auth_middleware_1.authMiddleware, questionnaireController.startQuestionnaire);
+router.post("/questionnaire/:sessionId/answers", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_questionnaire_service_1.questionnaireSessionParamsSchema, "params"), (0, validation_middleware_1.validate)(rewind_questionnaire_service_1.questionnaireAnswerInputSchema), questionnaireController.answerQuestionnaire);
+router.post("/questionnaire/:sessionId/finish", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(rewind_questionnaire_service_1.questionnaireSessionParamsSchema, "params"), questionnaireController.finishQuestionnaire);
 router.get("/routine", auth_middleware_1.authMiddleware, rewindRoutineController.getRewindRoutine);
 router.put("/routine", auth_middleware_1.authMiddleware, rewindRoutineController.updateRewindRoutine);
 router.get("/home-greeting", auth_middleware_1.authMiddleware, rewindIntelligenceController.getHomeGreeting);

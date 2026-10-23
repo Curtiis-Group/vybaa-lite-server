@@ -4,6 +4,7 @@ exports.emailParamSchema = exports.updateProfileSchema = exports.suggestionsSche
 const zod_1 = require("zod");
 const legal_constants_1 = require("../constants/legal.constants");
 const content_moderation_util_1 = require("../utils/content-moderation.util");
+const onboarding_profile_validators_1 = require("./onboarding-profile.validators");
 const termsConsentSchema = {
     acceptedTerms: zod_1.z.literal(true, {
         errorMap: () => ({ message: "You must accept the Terms of Use" }),
@@ -96,11 +97,12 @@ exports.changePasswordSchema = zod_1.z
     path: ["newPassword"],
 });
 exports.onboardingAnswerSchema = zod_1.z.object({
-    question: zod_1.z.string().min(1, "Question is required"),
-    answer: zod_1.z.string().min(1, "Answer is required"),
+    question: zod_1.z.string().trim().min(1, "Question is required").max(220),
+    answer: zod_1.z.string().trim().min(1, "Answer is required").max(1000),
 });
 exports.onboardingSchema = zod_1.z.object({
-    answers: zod_1.z.array(exports.onboardingAnswerSchema).optional(),
+    answers: zod_1.z.array(exports.onboardingAnswerSchema).max(20).optional(),
+    profile: onboarding_profile_validators_1.onboardingProfileInputSchema.optional(),
     username: exports.usernameSchema.optional(),
 });
 exports.suggestionsSchema = zod_1.z.object({

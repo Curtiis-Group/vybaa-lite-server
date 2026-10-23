@@ -32,6 +32,7 @@ function serializeRewindChatSummary(chat) {
     return {
         activeParticipants: chat.turns.map((turn) => turn.personaId),
         archivedAt: chat.archivedAt?.toISOString() ?? null,
+        accentColor: chat.accentColor,
         contextRevision: chat.contextRevision,
         conversationMood: (0, rewind_chat_mood_1.resolveRewindConversationMood)(chat.conversationMood),
         createdAt: chat.createdAt.toISOString(),

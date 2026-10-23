@@ -125,7 +125,12 @@ function recordRequestMetrics(req, res, durationMs, requestId) {
     });
 }
 function shouldLogBody(method, path) {
-    const sensitivePaths = ["/auth/login", "/auth/register", "/auth/google"];
+    const sensitivePaths = [
+        "/auth/login",
+        "/auth/register",
+        "/auth/google",
+        "/transcriptions",
+    ];
     if (sensitivePaths.some((sensitivePath) => path.includes(sensitivePath))) {
         return false;
     }

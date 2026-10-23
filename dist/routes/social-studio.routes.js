@@ -49,6 +49,8 @@ router.use((req, res, next) => {
     next();
 });
 router.get("/studio", socialController.getStudio);
+router.put("/studio/activity-consent", (0, validation_middleware_1.validate)(social_validators_1.socialActivityConsentSchema), socialController.updateActivityConsent);
+router.post("/studio/suggestions/refresh", (0, validation_middleware_1.validate)(social_validators_1.socialSuggestionRefreshSchema), socialController.refreshSuggestions);
 router.post("/oauth/start", (0, validation_middleware_1.validate)(social_validators_1.xOAuthStartSchema), socialController.startXOAuth);
 router.delete("/connection", socialController.disconnectX);
 router.put("/preferences", (0, validation_middleware_1.validate)(social_validators_1.updateSocialPreferencesSchema), socialController.updatePreferences);

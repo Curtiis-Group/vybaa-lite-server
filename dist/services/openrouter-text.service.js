@@ -11,7 +11,7 @@ const env_util_1 = require("../utils/env.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_MAX_OUTPUT_TOKENS = 600;
-function createOpenRouterClient() {
+function createOpenRouterClient(timeoutMs) {
     const apiKey = env_util_1.Env.OPENROUTER_API_KEY?.trim();
     if (!apiKey) {
         throw new Error("OPENROUTER_API_KEY is not configured");
@@ -19,6 +19,7 @@ function createOpenRouterClient() {
     return new openai_1.default({
         apiKey,
         baseURL: OPENROUTER_BASE_URL,
+        ...(timeoutMs ? { timeout: timeoutMs, maxRetries: 0 } : {}),
         defaultHeaders: {
             "HTTP-Referer": "https://vybaa.app",
             "X-OpenRouter-Title": "Vybaa",
@@ -60,7 +61,7 @@ async function generateOpenRouterText(request) {
     const startedAt = Date.now();
     logAiRequestStarted(request, providerConfig.model, request.reasoningEnabled ?? providerConfig.reasoningEnabled, false);
     try {
-        const response = await createOpenRouterClient().chat.completions.create(openRouterRequest);
+        const response = await createOpenRouterClient(request.timeoutMs).chat.completions.create(openRouterRequest);
         const content = response.choices[0]?.message.content?.trim();
         if (!content) {
             throw new Error(`OpenRouter returned no visible text for ${request.feature}`);
@@ -127,7 +128,7 @@ async function generateOpenRouterTextStream(request) {
     const startedAt = Date.now();
     logAiRequestStarted(request, providerConfig.model, request.reasoningEnabled ?? providerConfig.reasoningEnabled, true);
     try {
-        const response = await createOpenRouterClient().chat.completions.create(openRouterRequest);
+        const response = await createOpenRouterClient(request.timeoutMs).chat.completions.create(openRouterRequest);
         let content = "";
         for await (const chunk of response) {
             const delta = chunk.choices[0]?.delta.content ?? "";
@@ -177,7 +178,25 @@ function describeError(error) {
     if (error instanceof Error) {
         const status = getErrorProperty(error, "status");
         const code = getErrorProperty(error, "code");
+        const body = getErrorProperty(error, "error");
+        const metadata = isRecord(body) && isRecord(body.metadata) ? body.metadata : null;
+        const details = {};
+        if (metadata) {
+            if (typeof metadata.provider_name === "string") {
+                details.providerName = metadata.provider_name.slice(0, 80);
+            }
+            if (typeof metadata.provider_error_code === "string") {
+                details.providerErrorCode = metadata.provider_error_code.slice(0, 100);
+            }
+            // Never log raw provider bodies: they can echo private prompts or keys.
+            // Extract only schema diagnostics from an identifiable validation error.
+            if (typeof metadata.raw === "string") {
+                const validation = readSchemaValidationError(metadata.raw);
+                Object.assign(details, validation);
+            }
+        }
         return {
+            ...details,
             ...(typeof code === "string" ? { errorCode: code } : {}),
             errorMessage: error.message,
             errorName: error.name,
@@ -185,6 +204,37 @@ function describeError(error) {
         };
     }
     return { errorMessage: String(error) };
+}
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function readSchemaValidationError(raw) {
+    if (raw.length > 16000)
+        return {};
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    }
+    catch {
+        // Some providers return plain text rather than JSON. Do not log that body.
+        return {};
+    }
+    if (!isRecord(parsed) || !isRecord(parsed.error))
+        return {};
+    const validation = parsed.error;
+    if (validation.code !== "invalid_json_schema")
+        return {};
+    const missingField = typeof validation.message === "string"
+        ? /Missing '([A-Za-z_][A-Za-z0-9_]{0,79})'/.exec(validation.message)?.[1]
+        : undefined;
+    return {
+        providerErrorCode: "invalid_json_schema",
+        ...(validation.param === "text.format.schema" ||
+            validation.param === "response_format"
+            ? { providerParameter: validation.param }
+            : {}),
+        ...(missingField ? { schemaMissingField: missingField } : {}),
+    };
 }
 function getErrorProperty(error, property) {
     return Reflect.get(error, property);

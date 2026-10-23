@@ -70,5 +70,6 @@ router.post("/change-password", auth_middleware_1.authMiddleware, (0, validation
 // POST /api/v1/auth/suggestions
 router.post("/suggestions", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(auth_validators_1.suggestionsSchema), authController.getSuggestions);
 // POST /api/v1/auth/onboarding
+router.get("/onboarding", auth_middleware_1.authMiddleware, authController.getOnboarding);
 router.post("/onboarding", auth_middleware_1.authMiddleware, (0, validation_middleware_1.validate)(auth_validators_1.onboardingSchema), authController.completeOnboarding);
 exports.default = router;

@@ -30,6 +30,8 @@ const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
 const goal_alarm_service_1 = require("../services/goal-alarm.service");
 const goal_v2_reminder_service_1 = require("../services/goal-v2-reminder.service");
+const goal_timeline_service_1 = require("../services/goal-timeline.service");
+const goal_v2_validators_1 = require("../validators/goal-v2.validators");
 const goal_v2_service_1 = require("../services/goal-v2.service");
 const quick_goal_setup_service_1 = require("../services/quick-goal-setup.service");
 const subscription_access_service_1 = require("../services/subscription-access.service");
@@ -150,6 +152,7 @@ async function list(req, res) {
                 ? req.query.filter
                 : "ACTIVE",
             limit: Number(req.query.limit ?? 20),
+            query: typeof req.query.query === "string" ? req.query.query : undefined,
             timezone,
             userId,
         });
@@ -176,6 +179,19 @@ async function detail(req, res) {
 }
 async function occurrences(req, res) {
     try {
+        const options = goal_v2_validators_1.listGoalOccurrencesQuerySchema.parse(req.query);
+        if (options.anchor === "today") {
+            res.setHeader("Cache-Control", "private, no-store");
+            const result = await (0, goal_timeline_service_1.listGoalTimeline)({
+                ...options,
+                limit: options.limit ?? 20,
+                goalId: String(req.params.goalId),
+                userId: req.userId,
+                timezone: await resolveTimezone(req, req.userId),
+            });
+            res.json({ ...result, msg: "Task timeline retrieved successfully" });
+            return;
+        }
         const result = await (0, goal_v2_service_1.listGoalOccurrences)(String(req.params.goalId), req.userId, typeof req.query.cursor === "string" ? req.query.cursor : undefined, Number(req.query.limit ?? 20));
         res.json({ ...result, msg: "Goal occurrences retrieved successfully" });
     }

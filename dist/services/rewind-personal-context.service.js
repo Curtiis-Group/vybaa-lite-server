@@ -7,6 +7,7 @@ exports.formatRewindPersonalContext = formatRewindPersonalContext;
 const client_1 = require("@prisma/client");
 const luxon_1 = require("luxon");
 const db_config_1 = require("../config/db.config");
+const onboarding_profile_service_1 = require("./onboarding-profile.service");
 const PARTNER_NAMES = {
     ariel: "Ariel",
     ella: "Ella",
@@ -113,6 +114,7 @@ async function loadRewindPersonalContext(userId, timezone, sessionId, personaId)
         db_config_1.prisma.user.findUnique({
             select: {
                 points: true,
+                onboardingProfile: true,
                 realPointsBalance: true,
                 rewindPersonalizationEnabled: true,
             },
@@ -193,6 +195,7 @@ async function loadRewindPersonalContext(userId, timezone, sessionId, personaId)
             : Promise.resolve(null),
     ]);
     return {
+        onboardingPreferences: (0, onboarding_profile_service_1.formatOnboardingPreferences)(user?.onboardingProfile),
         achievements: achievements.map((achievement) => ({
             earnedAt: achievement.earnedAt.toISOString(),
             title: achievement.title,
@@ -276,7 +279,10 @@ function formatRewindPersonalContext(context) {
             .map((memory) => `- ${memory.partner}, ${memory.dateKey}: ${memory.summary}${memory.emotionalInsight ? ` Insight: ${memory.emotionalInsight}` : ""}${memory.comparisonInsight ? ` Pattern: ${memory.comparisonInsight}` : ""}`)
             .join("\n")}\n`
         : "";
-    return (partnerContinuityContext +
+    return ((context.onboardingPreferences
+        ? `${context.onboardingPreferences}\n`
+        : "") +
+        partnerContinuityContext +
         memoryContext +
         `Account context (private, current, and never recited as a report):\n` +
         `- Play Points: ${context.balances.playPoints.toFixed(2)}\n` +

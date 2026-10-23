@@ -307,6 +307,14 @@ function getListWhere(options) {
     const base = {
         archivedAt: options.filter === "ARCHIVED" ? { not: null } : null,
         userId: options.userId,
+        ...(options.query?.trim()
+            ? {
+                title: {
+                    contains: options.query.trim(),
+                    mode: "insensitive",
+                },
+            }
+            : {}),
     };
     if (options.filter === "PAUSED")
         return { ...base, status: client_1.GoalV2Status.PAUSED };

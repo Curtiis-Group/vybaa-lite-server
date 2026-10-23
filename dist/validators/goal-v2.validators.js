@@ -100,7 +100,7 @@ exports.quickGoalSetupResponseSchema = zod_1.z.object({
     schedule: exports.goalScheduleSchema,
     target: exports.goalTargetSchema,
     title: zod_1.z.string().trim().min(1).max(500),
-    remarks: zod_1.z.string().trim().min(1).max(500)
+    remarks: zod_1.z.string().trim().min(1).max(500),
 });
 exports.quickGoalSetupSchema = zod_1.z
     .object({
@@ -182,12 +182,18 @@ exports.conclusionReviewSchema = zod_1.z.object({
 });
 exports.listGoalsV2QuerySchema = zod_1.z.object({
     cursor: zod_1.z.string().max(512).optional(),
+    query: zod_1.z.string().trim().max(200).optional(),
     filter: zod_1.z
         .enum(["ACTIVE", "ARCHIVED", "DUE", "ENDED", "OVERDUE", "PAUSED"])
         .default("ACTIVE"),
     limit: zod_1.z.coerce.number().int().min(1).max(50).default(20),
 });
-exports.listGoalOccurrencesQuerySchema = zod_1.z.object({
+exports.listGoalOccurrencesQuerySchema = zod_1.z
+    .object({
+    anchor: zod_1.z.literal("today").optional(),
+    anchorDate: dateSchema.optional(),
+    direction: zod_1.z.enum(["after", "before"]).optional(),
     cursor: zod_1.z.string().max(512).optional(),
     limit: zod_1.z.coerce.number().int().min(1).max(50).default(20),
-});
+})
+    .refine((value) => value.anchor === "today" || (!value.anchorDate && !value.direction), { message: "Timeline options require the today anchor" });

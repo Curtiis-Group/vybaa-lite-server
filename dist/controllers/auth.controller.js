@@ -20,11 +20,15 @@ exports.checkEmail = checkEmail;
 exports.changePassword = changePassword;
 exports.getSuggestions = getSuggestions;
 exports.completeOnboarding = completeOnboarding;
+exports.getOnboarding = getOnboarding;
+const client_1 = require("@prisma/client");
 const legal_constants_1 = require("../constants/legal.constants");
 const db_config_1 = require("../config/db.config");
 const email_service_1 = require("../services/email.service");
 const rewind_partner_switch_service_1 = require("../services/rewind-partner-switch.service");
 const user_mood_service_1 = require("../services/user-mood.service");
+const onboarding_profile_service_1 = require("../services/onboarding-profile.service");
+const auth_validators_1 = require("../validators/auth.validators");
 const auth_util_1 = require("../utils/auth.util");
 const cloudinary_util_1 = require("../utils/cloudinary.util");
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
@@ -106,7 +110,7 @@ async function login(req, res) {
 }
 async function register(req, res) {
     try {
-        const { email, password, firstName, lastName, username: requestedUsername } = req.body;
+        const { email, password, firstName, lastName, username: requestedUsername, } = req.body;
         // Check if user already exists
         const existingUser = await db_config_1.prisma.user.findUnique({ where: { email } });
         if (existingUser) {
@@ -702,16 +706,22 @@ async function getSuggestions(req, res) {
 async function completeOnboarding(req, res) {
     try {
         const userId = req.userId;
-        const { username } = req.body;
-        const updateData = {
-            isFirstTime: false,
-        };
-        if (username !== undefined)
-            updateData.username = username;
-        const user = await db_config_1.prisma.user.update({
-            where: { id: userId },
-            data: updateData,
-        });
+        const { username, profile, answers } = auth_validators_1.onboardingSchema.parse(req.body);
+        if (!profile && answers?.length) {
+            await db_config_1.prisma.user.updateMany({
+                where: { id: userId, onboardingProfile: { equals: client_1.Prisma.DbNull } },
+                data: { onboardingProfile: { legacyAnswers: answers } },
+            });
+        }
+        const user = profile
+            ? await (0, onboarding_profile_service_1.saveOnboardingProfile)(userId, profile, username)
+            : await db_config_1.prisma.user.update({
+                where: { id: userId },
+                data: {
+                    isFirstTime: false,
+                    ...(username === undefined ? {} : { username }),
+                },
+            });
         res.json({
             msg: "Onboarding completed",
             data: {
@@ -720,10 +730,31 @@ async function completeOnboarding(req, res) {
         });
     }
     catch (error) {
-        logger_util_1.default.error("Onboarding error:", { error, userId: req.userId });
-        if (error.code === "P2002") {
+        if (error instanceof onboarding_profile_service_1.OnboardingProfileError)
+            return res.status(error.statusCode).json({ msg: error.message });
+        logger_util_1.default.error("Onboarding error:", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            userId: req.userId,
+        });
+        if (error instanceof Error && Reflect.get(error, "code") === "P2002") {
             return res.status(400).json({ msg: "Username already taken" });
         }
         res.status(500).json({ msg: "Internal server error" });
+    }
+}
+async function getOnboarding(req, res) {
+    try {
+        const data = await (0, onboarding_profile_service_1.getOnboardingProfile)(req.userId);
+        res.setHeader("Cache-Control", "private, no-store");
+        return res.json({ msg: "Your preferences", data });
+    }
+    catch (error) {
+        logger_util_1.default.error("Onboarding read failed", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            userId: req.userId,
+        });
+        return res
+            .status(500)
+            .json({ msg: "Could not load your answers. Please try again." });
     }
 }

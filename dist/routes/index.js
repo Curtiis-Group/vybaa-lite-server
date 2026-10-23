@@ -23,6 +23,8 @@ const realtime_routes_1 = __importDefault(require("./realtime.routes"));
 const subscription_routes_1 = __importDefault(require("./subscription.routes"));
 const moderation_routes_1 = __importDefault(require("./moderation.routes"));
 const social_studio_routes_1 = __importDefault(require("./social-studio.routes"));
+const flexx_routes_1 = __importDefault(require("./flexx.routes"));
+const transcription_routes_1 = __importDefault(require("./transcription.routes"));
 const logger_util_1 = __importDefault(require("../utils/logger.util"));
 const router = (0, express_1.Router)();
 // Health check endpoint
@@ -52,10 +54,12 @@ router.use("/v2/goals", goal_v2_routes_1.default);
 router.use("/v1/insights", insights_routes_1.default);
 // Mount upload routes at /api/v1/upload
 router.use("/v1/upload", upload_routes_1.default);
+router.use("/v1/transcriptions", transcription_routes_1.default);
 // Mount notification routes at /api/v1/notifications
 router.use("/v1/notifications", notification_routes_1.default);
 // Mount achievement routes at /api/v1/achievements
 router.use("/v1/achievements", achievement_routes_1.default);
+router.use("/v1/flexx", flexx_routes_1.default);
 // Mount chill routes at /api/v1/chill
 router.use("/v1/chill", chill_routes_1.default);
 // Mount journal routes at /api/v1/journals

@@ -499,7 +499,7 @@ async function getPaginatedRewindSessions(req, res) {
                     recommendations: { orderBy: { createdAt: "asc" } },
                 },
                 where,
-                orderBy: { updatedAt: "desc" },
+                orderBy: [{ createdAt: "desc" }, { id: "desc" }],
                 skip,
                 take: limit,
             }),

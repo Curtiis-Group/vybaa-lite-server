@@ -32,14 +32,21 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const goalController = __importStar(require("../controllers/goal-v2.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const validation_middleware_1 = require("../middleware/validation.middleware");
+const goal_subtask_routes_1 = __importDefault(require("./goal-subtask.routes"));
+const quick_task_suggestion_routes_1 = __importDefault(require("./quick-task-suggestion.routes"));
 const goal_v2_validators_1 = require("../validators/goal-v2.validators");
 const router = (0, express_1.Router)();
 router.use(auth_middleware_1.authMiddleware);
+router.use("/suggestions", quick_task_suggestion_routes_1.default);
+router.use("/:goalId/subtasks", goal_subtask_routes_1.default);
 router.get("/", (0, validation_middleware_1.validate)(goal_v2_validators_1.listGoalsV2QuerySchema, "query"), goalController.list);
 router.post("/quick-setup", (0, validation_middleware_1.validate)(goal_v2_validators_1.quickGoalSetupSchema), goalController.quickSetup);
 router.get("/alarm-manifest", goalController.alarmManifest);

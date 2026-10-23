@@ -30,12 +30,16 @@ exports.updateRewindChatSchema = zod_1.z.object({
 });
 exports.rewindV2ChatPreferencesSchema = zod_1.z
     .object({
+    accentColor: zod_1.z
+        .enum(["rose", "violet", "amber", "teal", "blue", "berry"])
+        .optional(),
     proactiveMuted: zod_1.z.boolean().optional(),
     conversationMood: rewind_chat_mood_1.rewindConversationMoodSchema.optional(),
 })
     .strict()
     .refine((value) => value.proactiveMuted !== undefined ||
-    value.conversationMood !== undefined, "Choose a preference to update");
+    value.conversationMood !== undefined ||
+    value.accentColor !== undefined, "Choose a preference to update");
 exports.rewindV2ChatTitleSchema = zod_1.z.object({
     title: zod_1.z.string().trim().min(1).max(60),
 });

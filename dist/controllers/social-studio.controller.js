@@ -7,6 +7,8 @@ exports.getStudio = getStudio;
 exports.startXOAuth = startXOAuth;
 exports.xOAuthCallback = xOAuthCallback;
 exports.updatePreferences = updatePreferences;
+exports.updateActivityConsent = updateActivityConsent;
+exports.refreshSuggestions = refreshSuggestions;
 exports.disconnectX = disconnectX;
 exports.syncMentions = syncMentions;
 exports.generatePostDraft = generatePostDraft;
@@ -89,6 +91,27 @@ async function updatePreferences(req, res) {
     }
     catch (error) {
         sendSocialError(error, req, res, "update preferences");
+    }
+}
+async function updateActivityConsent(req, res) {
+    try {
+        const preferences = await (0, social_studio_service_1.updateSocialActivityConsent)({
+            accepted: req.body.accepted,
+            userId: req.userId,
+        });
+        res.json({ data: preferences, msg: "Social activity consent updated" });
+    }
+    catch (error) {
+        sendSocialError(error, req, res, "update social activity consent");
+    }
+}
+async function refreshSuggestions(req, res) {
+    try {
+        const result = await (0, social_studio_service_1.refreshSocialSuggestions)(req.userId, req.body.force);
+        res.json({ data: result, msg: "Social suggestions refreshed" });
+    }
+    catch (error) {
+        sendSocialError(error, req, res, "refresh social suggestions");
     }
 }
 async function resolveTimezone(req, userId) {
