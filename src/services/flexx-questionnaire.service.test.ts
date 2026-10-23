@@ -29,6 +29,7 @@ const question = {
   ...fallbackFlexxDesigns("all", 0)[3],
   layout: "questionnaire",
   blocks: [],
+  editorial: null,
   questionnaire: {
     question: "What is taking up space in your mind today?",
     options: ["Feeling steady", "A little overwhelmed", "Taking it slowly"],

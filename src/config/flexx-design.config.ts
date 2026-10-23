@@ -1,5 +1,6 @@
 export const FLEXX_DESIGN_CONFIG = {
   batchSize: 10,
+  questionnaireCountPerBatch: 6,
   maxPages: 24,
   generationIntervalMs: 6 * 60 * 60 * 1000,
   maxCollections: 24,

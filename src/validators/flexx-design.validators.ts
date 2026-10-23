@@ -27,6 +27,20 @@ export const flexxQuestionSchema = z
     (question) => new Set(question.options).size === question.options.length,
     "Answers must be distinct",
   );
+export const flexxEditorialSchema = z
+  .object({
+    kind: z.enum(["micro-action", "reflection", "reframe"]),
+    text: z
+      .string()
+      .trim()
+      .min(12)
+      .max(140)
+      .refine(
+        (text) => !/https?:\/\/|www\.|<[^>]*>/i.test(text),
+        "Editorial copy must be plain text",
+      ),
+  })
+  .strict();
 
 export const flexxCategories = [
   "daily",
@@ -106,6 +120,7 @@ export const flexxDesignSchema = z
         "Duplicate partner reactions",
       ),
     questionnaire: flexxQuestionSchema.nullable(),
+    editorial: flexxEditorialSchema.nullable(),
     blocks: z
       .array(
         z
@@ -124,7 +139,8 @@ export const flexxDesignSchema = z
       if (
         design.category !== "rewind" ||
         design.layout !== "questionnaire" ||
-        design.blocks.length
+        design.blocks.length ||
+        design.editorial
       )
         context.addIssue({
           code: "custom",
@@ -209,6 +225,7 @@ export const FLEXX_RESPONSE_SCHEMA: Record<string, unknown> = {
           "author",
           "likedBy",
           "questionnaire",
+          "editorial",
         ],
         properties: {
           category: { type: "string", enum: [...flexxCategories] },
@@ -240,6 +257,23 @@ export const FLEXX_RESPONSE_SCHEMA: Record<string, unknown> = {
                 properties: {
                   question: { type: "string" },
                   options: { type: "array", items: { type: "string" } },
+                },
+              },
+            ],
+          },
+          editorial: {
+            anyOf: [
+              { type: "null" },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "text"],
+                properties: {
+                  kind: {
+                    type: "string",
+                    enum: ["micro-action", "reflection", "reframe"],
+                  },
+                  text: { type: "string" },
                 },
               },
             ],

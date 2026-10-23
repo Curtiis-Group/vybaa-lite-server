@@ -27,6 +27,15 @@ const originalCollectionMethods = {
   create: prisma.flexxDesignCollection.create,
   updateMany: prisma.flexxDesignCollection.updateMany,
 };
+const QUESTIONNAIRE_INDICES: readonly number[] = [3, 5, 6, 7, 8, 9];
+const QUESTIONNAIRE_PROMPTS = [
+  "What felt most present today?",
+  "What small moment do you want to remember?",
+  "What would make tomorrow feel kinder?",
+  "What did you need more of today?",
+  "Which tiny thing surprised you today?",
+  "What would you leave out of tomorrow?",
+] as const;
 
 function mockCollectionMethod<T extends (...args: never[]) => unknown>(
   context: TestContext,
@@ -58,21 +67,24 @@ async function setup(context: TestContext): Promise<void> {
 
 function generatedDesigns(seed = 0) {
   return fallbackFlexxDesigns("all", seed).map((design, index) => {
-    if (design.category === "rewind")
+    const questionIndex = QUESTIONNAIRE_INDICES.indexOf(index);
+    if (questionIndex >= 0) {
+      const question = QUESTIONNAIRE_PROMPTS[questionIndex];
+      if (!question) throw new Error("Missing questionnaire test fixture");
       return {
         ...design,
+        category: "rewind",
         layout: "questionnaire",
+        symbol: "rewind",
         blocks: [],
+        editorial: null,
         questionnaire: {
-          question: "What is taking up space in your mind today?",
-          options: [
-            "Feeling steady",
-            "A little overwhelmed",
-            "Taking it slowly",
-          ],
+          question,
+          options: ["I felt grounded", "I need a little space", "Not sure yet"],
         },
         likedBy: index % 2 ? ["ella"] : [],
       };
+    }
     return { ...design, likedBy: index % 3 ? ["ella", "lyra"] : [] };
   });
 }
@@ -93,6 +105,7 @@ function completion(): Response {
 test("Flexx validates layouts and metric bindings, rejecting executable content and invented values", () => {
   const base = fallbackFlexxDesigns("all", 0)[0];
   assert.ok(base);
+  assert.ok(base.editorial);
   assert.equal(flexxDesignSchema.safeParse(base).success, true);
   for (const input of [
     { ...base, headline: "You completed 999 goals" },
@@ -124,7 +137,12 @@ test("Flexx validates layouts and metric bindings, rejecting executable content 
 test("legacy author/count/white maps are normalized without changing stored history", () => {
   const base = fallbackFlexxDesigns("all", 0)[0];
   assert.ok(base);
-  const { likedBy: _likedBy, questionnaire: _question, ...rest } = base;
+  const {
+    editorial: _editorial,
+    likedBy: _likedBy,
+    questionnaire: _question,
+    ...rest
+  } = base;
   const legacy = {
     ...rest,
     palette: "paper",
@@ -134,9 +152,13 @@ test("legacy author/count/white maps are normalized without changing stored hist
   const result = parseSavedFlexxDesign(legacy);
   assert.deepEqual(result.author, { partnerIds: ["ella"] });
   assert.equal(result.palette, "slate");
+  assert.equal(result.editorial, null);
   assert.deepEqual(result.likedBy, []);
   assert.equal("simulatedLikes" in result, false);
   assert.equal(legacy.author.kind, "self");
+
+  const { editorial: _savedEditorial, ...savedDesign } = base;
+  assert.equal(parseSavedFlexxDesign(savedDesign).editorial, null);
 });
 
 test("mixed design batches need distinct compositions and varied palettes and layouts", () => {
@@ -151,6 +173,12 @@ test("mixed design batches need distinct compositions and varied palettes and la
   assert.throws(() => parseFlexxDesignBatch({ designs: batch }, "daily"));
   assert.throws(() =>
     parseFlexxDesignBatch({ designs: fallbackFlexxDesigns("daily", 0) }, "all"),
+  );
+  const withoutEditorial = batch.map((design, index) =>
+    index === 0 ? { ...design, editorial: null } : design,
+  );
+  assert.throws(() =>
+    parseFlexxDesignBatch({ designs: withoutEditorial }, "all"),
   );
 });
 
@@ -301,6 +329,16 @@ test("authenticated design endpoint validates query and cursor before generation
 
 test("scheduled generation persists one batch per cycle despite concurrent workers", async (context) => {
   await setup(context);
+  assert.equal(
+    generatedDesigns().filter((design) => design.questionnaire).length,
+    6,
+  );
+  assert.equal(
+    generatedDesigns().filter(
+      (design) => !design.questionnaire && design.editorial,
+    ).length,
+    4,
+  );
   let created = false;
   const create = mockCollectionMethod(context, "create", async () => {
     if (created)

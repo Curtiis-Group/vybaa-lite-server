@@ -12,6 +12,81 @@ import {
 import type { FlexxDesign } from "../validators/flexx-design.validators";
 
 type Category = "all" | (typeof flexxCategories)[number];
+const FALLBACK_EDITORIALS: Record<
+  (typeof flexxCategories)[number],
+  NonNullable<FlexxDesign["editorial"]>[]
+> = {
+  daily: [
+    {
+      kind: "micro-action",
+      text: "Choose one small task that fits the day you actually have.",
+    },
+    {
+      kind: "reframe",
+      text: "A check-in can be a reset, not a report card.",
+    },
+    {
+      kind: "reflection",
+      text: "What made it easier to show up for yourself today?",
+    },
+  ],
+  weekly: [
+    {
+      kind: "reflection",
+      text: "Which part of your week felt most like the direction you want?",
+    },
+    {
+      kind: "micro-action",
+      text: "Keep one thing that worked; let the rest stay editable.",
+    },
+    {
+      kind: "reframe",
+      text: "A useful week is not always a perfectly productive one.",
+    },
+  ],
+  streak: [
+    {
+      kind: "reframe",
+      text: "A streak is a rhythm, not a promise to be perfect.",
+    },
+    {
+      kind: "micro-action",
+      text: "Make the next return easy: decide on one tiny first step.",
+    },
+    {
+      kind: "reflection",
+      text: "What helps you come back when a routine gets interrupted?",
+    },
+  ],
+  rewind: [
+    {
+      kind: "reflection",
+      text: "Name one moment from today before you decide what it meant.",
+    },
+    {
+      kind: "micro-action",
+      text: "Take one quiet minute and write what you need next.",
+    },
+    {
+      kind: "reframe",
+      text: "Your reflection can be honest without being perfectly worded.",
+    },
+  ],
+  achievement: [
+    {
+      kind: "reflection",
+      text: "Pause long enough to notice the effort behind this milestone.",
+    },
+    {
+      kind: "reframe",
+      text: "Let this be a marker of effort, not pressure to do more.",
+    },
+    {
+      kind: "micro-action",
+      text: "Choose one small way to celebrate how far you have come.",
+    },
+  ],
+};
 const cursorSchema = z
   .object({
     category: z.enum(["all", ...flexxCategories]),
@@ -23,6 +98,17 @@ const cursorSchema = z
       .max(FLEXX_DESIGN_CONFIG.maxPages - 1),
   })
   .strict();
+
+function fallbackEditorial(
+  category: (typeof flexxCategories)[number],
+  page: number,
+  index: number,
+): NonNullable<FlexxDesign["editorial"]> {
+  const options = FALLBACK_EDITORIALS[category];
+  const editorial = options[(index + page) % options.length];
+  if (!editorial) throw new Error("Missing Flexx fallback editorial");
+  return editorial;
+}
 
 function cursorSignature(payload: string, userId: string): string {
   if (!Env.JWT_SECRET)
@@ -103,6 +189,7 @@ export function fallbackFlexxDesigns(
       },
       likedBy: [],
       questionnaire: null,
+      editorial: fallbackEditorial(type, page, index),
       layout:
         type === "achievement"
           ? "emblem"
@@ -152,6 +239,15 @@ export function parseFlexxDesignBatch(
       flexxCategories.length
   )
     throw new Error("Mixed Flexx batch must cover every category");
+  if (
+    parsed.designs.some((design) => !design.questionnaire && !design.editorial)
+  )
+    throw new Error("Every non-question Flexx design needs editorial content");
+  const editorialCopy = parsed.designs.flatMap((design) =>
+    design.editorial ? [design.editorial.text.toLocaleLowerCase("en-US")] : [],
+  );
+  if (new Set(editorialCopy).size !== editorialCopy.length)
+    throw new Error("Flexx editorial copy must be distinct within a batch");
   const signatures = parsed.designs.map((design) => JSON.stringify(design));
   if (new Set(signatures).size !== signatures.length)
     throw new Error("Duplicate Flexx designs");
@@ -167,7 +263,11 @@ export function parseFlexxDesignBatch(
 // Preserve old published collections, while never attributing a poster to a user.
 export function parseSavedFlexxDesign(value: unknown): FlexxDesign {
   const record = z.record(z.unknown()).parse(value);
-  if ("likedBy" in record) return flexxDesignSchema.parse(record);
+  if ("likedBy" in record)
+    return flexxDesignSchema.parse({
+      ...record,
+      editorial: record.editorial ?? null,
+    });
   const legacy = z
     .object({
       kind: z.enum(["self", "partner", "group"]),
@@ -186,6 +286,7 @@ export function parseSavedFlexxDesign(value: unknown): FlexxDesign {
     author: { partnerIds },
     likedBy: [],
     questionnaire: null,
+    editorial: record.editorial ?? null,
   });
 }
 
