@@ -34,6 +34,7 @@ type RewindChatMessageWithReactions = RewindChatMessageSource & {
 type RewindChatSummarySource = Pick<
   RewindChat,
   | "archivedAt"
+  | "accentColor"
   | "contextRevision"
   | "createdAt"
   | "id"
@@ -95,6 +96,7 @@ export function serializeRewindChatSummary(chat: RewindChatSummarySource) {
   return {
     activeParticipants: chat.turns.map((turn) => turn.personaId),
     archivedAt: chat.archivedAt?.toISOString() ?? null,
+    accentColor: chat.accentColor,
     contextRevision: chat.contextRevision,
     conversationMood: resolveRewindConversationMood(chat.conversationMood),
     createdAt: chat.createdAt.toISOString(),

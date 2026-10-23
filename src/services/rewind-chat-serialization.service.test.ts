@@ -18,6 +18,7 @@ import {
 type SummarySource = Pick<
   RewindChat,
   | "archivedAt"
+  | "accentColor"
   | "contextRevision"
   | "createdAt"
   | "id"
@@ -54,6 +55,7 @@ function createPartnerChat(personaId: string): SummarySource {
   const createdAt = new Date("2026-09-04T08:00:00.000Z");
   return {
     archivedAt: null,
+    accentColor: "rose",
     contextRevision: 2,
     createdAt,
     id: `chat-${personaId}`,

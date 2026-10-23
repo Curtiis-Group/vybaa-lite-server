@@ -35,6 +35,9 @@ export const updateRewindChatSchema = z.object({
 
 export const rewindV2ChatPreferencesSchema = z
   .object({
+    accentColor: z
+      .enum(["rose", "violet", "amber", "teal", "blue", "berry"])
+      .optional(),
     proactiveMuted: z.boolean().optional(),
     conversationMood: rewindConversationMoodSchema.optional(),
   })
@@ -42,7 +45,8 @@ export const rewindV2ChatPreferencesSchema = z
   .refine(
     (value) =>
       value.proactiveMuted !== undefined ||
-      value.conversationMood !== undefined,
+      value.conversationMood !== undefined ||
+      value.accentColor !== undefined,
     "Choose a preference to update",
   );
 

@@ -303,6 +303,7 @@ export async function updatePreferences(
     });
     res.json({
       data: {
+        accentColor: updated.accentColor,
         proactiveMuted: updated.proactiveMuted,
         conversationMood: resolveRewindConversationMood(
           updated.conversationMood,
@@ -327,6 +328,7 @@ export async function getPreferences(
         title: chat.title,
         type: chat.type,
         personaId: chat.personaId,
+        accentColor: chat.accentColor,
         proactiveMuted: chat.proactiveMuted,
         conversationMood: resolveRewindConversationMood(chat.conversationMood),
       },

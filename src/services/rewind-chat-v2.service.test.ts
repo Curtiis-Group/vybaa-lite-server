@@ -191,6 +191,15 @@ test("mood settings are bounded, preserve partial mute updates, and reach model 
     rewindV2ChatPreferencesSchema.safeParse({ conversationMood: mood }).success,
     true,
   );
+  assert.equal(
+    rewindV2ChatPreferencesSchema.safeParse({ accentColor: "teal" }).success,
+    true,
+  );
+  assert.equal(
+    rewindV2ChatPreferencesSchema.safeParse({ accentColor: "chartreuse" })
+      .success,
+    false,
+  );
   assert.equal(rewindV2ChatPreferencesSchema.safeParse({}).success, false);
   assert.equal(
     rewindV2ChatPreferencesSchema.safeParse({
